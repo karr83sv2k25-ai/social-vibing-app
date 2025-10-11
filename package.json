@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "expo-blur": "~14.1.5",
+    "expo-app-loading": "*",
+    "@expo/vector-icons": "^14.1.0",
+    "react-native-paper": "4.9.2",
+    "react-native-swiper": "*",
+    "expo-linear-gradient": "~14.1.5",
+    "react-native-screens": "~4.11.1",
+    "@react-navigation/stack": "*",
+    "@react-navigation/native": "*",
+    "react-native-vector-icons": "10.3.0",
+    "@expo-google-fonts/manrope": "*",
+    "react-native-gesture-handler": "~2.24.0",
+    "react-native-linear-gradient": "*",
+    "@react-navigation/bottom-tabs": "*",
+    "@react-navigation/native-stack": "*",
+    "react-native-safe-area-context": "5.4.0",
+    "@react-native-community/datetimepicker": "8.4.1"
+  },
+  "devDependencies": {
+    "@react-native-community/cli": "latest"
+  }
+}
