@@ -9,7 +9,6 @@ import {
   Manrope_400Regular,
   Manrope_500Medium,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
 
 export default function AgeVerificationScreen({ navigation }) {
   let [fontsLoaded] = useFonts({
@@ -18,7 +17,7 @@ export default function AgeVerificationScreen({ navigation }) {
     Manrope_500Medium,
   });
 
-  if (!fontsLoaded) return <AppLoading />;
+  if (!fontsLoaded) return null;
 
   const handleEnter = () => {
     navigation.navigate('HomeScreen'); // 👈 change this to your target screen

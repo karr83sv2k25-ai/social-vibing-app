@@ -228,7 +228,7 @@ export default function GroupInfoScreen() {
             <View style={{ marginTop: 30 }}>
               <View style={styles.livePartiesHeader}>
                 <Text style={styles.sectionTitle}>Live Parties</Text>
-                <Text style={styles.viewAllText}>All ></Text>
+                <Text style={styles.viewAllText}>All </Text>
               </View>
 
               <ScrollView

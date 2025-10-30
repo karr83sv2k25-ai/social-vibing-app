@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "907907966035",
+    "project_id": "social-vibing-karr",
+    "storage_bucket": "social-vibing-karr.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:907907966035:android:cbbb1cd3286841160552a6",
+        "android_client_info": {
+          "package_name": "com.meharbilawalali.fiverproject"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "907907966035-uolffems6vp1ilcpmbvvefgv5li8feht.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC4zSmilk2J-e5uWtIgq4CEEd5aecABRaA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "907907966035-uolffems6vp1ilcpmbvvefgv5li8feht.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

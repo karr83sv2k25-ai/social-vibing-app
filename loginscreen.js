@@ -11,7 +11,6 @@ import {
   Manrope_700Bold,
   Manrope_400Regular,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
 
 export default function LoginScreen({ navigation }) {
   let [fontsLoaded] = useFonts({
@@ -20,7 +19,7 @@ export default function LoginScreen({ navigation }) {
   });
 
   if (!fontsLoaded) {
-    return <AppLoading />;
+    return null; // Fonts loading fallback, you can show a custom loader here
   }
 
   const handleLogin = () => {
@@ -36,8 +35,8 @@ export default function LoginScreen({ navigation }) {
       source={require('./assets/login_bg.png')}
       style={styles.background}>
       <View style={styles.headingContainer}>
-        <Text style={styles.logo}>Solo Vibing</Text>
-        <Text style={styles.subtitle}>Solo Vibing</Text>
+        <Text style={styles.logo}>Social Vibing</Text>
+        <Text style={styles.subtitle}>Social Vibing</Text>
       </View>
 
       <View style={styles.buttonContainer}>

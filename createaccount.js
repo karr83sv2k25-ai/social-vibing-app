@@ -18,7 +18,6 @@ import {
   Manrope_400Regular,
   Manrope_500Medium,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
 
 export default function CreateAccountScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -48,7 +47,7 @@ export default function CreateAccountScreen({ navigation }) {
     Manrope_500Medium,
   });
 
-  if (!fontsLoaded) return <AppLoading />;
+  if (!fontsLoaded) return null;
 
   const handleNext = () => {
     if (!name || !password || !confirmPassword || !age || !gender) {

@@ -7,10 +7,12 @@ import {
   TouchableOpacity,
   ScrollView,
   Dimensions,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
+import { getAuth, signOut } from "firebase/auth";
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 18;
@@ -214,7 +216,23 @@ export default function ProfileScreen() {
           <ListRow title="Account Setting" />
         </View>
 
-        <TouchableOpacity activeOpacity={0.9} style={styles.logoutBtn}>
+        <TouchableOpacity 
+          activeOpacity={0.9} 
+          style={styles.logoutBtn}
+          onPress={async () => {
+            try {
+              const auth = getAuth();
+              await signOut(auth);
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Login' }],
+              });
+            } catch (error) {
+              console.error('Logout Error:', error);
+              Alert.alert('Error', 'Failed to log out. Please try again.');
+            }
+          }}
+        >
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </View>

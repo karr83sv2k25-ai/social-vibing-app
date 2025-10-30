@@ -18,7 +18,6 @@ import {
   Manrope_400Regular,
   Manrope_500Medium,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
 
 export default function WithPhoneScreen({ navigation }) {
   const [phone, setPhone] = useState('');
@@ -40,7 +39,7 @@ export default function WithPhoneScreen({ navigation }) {
   });
 
   if (!fontsLoaded) {
-    return <AppLoading />;
+  return null;
   }
 
   const handleSendOtp = () => {

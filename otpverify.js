@@ -16,7 +16,6 @@ import {
   Manrope_400Regular,
   Manrope_500Medium,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
 
 export default function OtpVerificationScreen({ navigation }) {
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
@@ -29,7 +28,7 @@ export default function OtpVerificationScreen({ navigation }) {
   });
 
   if (!fontsLoaded) {
-    return <AppLoading />;
+  return null;
   }
 
   // OTP change handler

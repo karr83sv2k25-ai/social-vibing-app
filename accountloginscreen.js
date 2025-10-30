@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   ImageBackground,
+  Alert,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -16,12 +17,15 @@ import {
   Manrope_400Regular,
   Manrope_500Medium,
 } from '@expo-google-fonts/manrope';
-import AppLoading from 'expo-app-loading';
+import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
+import { app } from './firebaseConfig';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [hidePassword, setHidePassword] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isValidEmail, setIsValidEmail] = useState(true);
 
   let [fontsLoaded] = useFonts({
     Manrope_700Bold,
@@ -29,11 +33,65 @@ export default function LoginScreen({ navigation }) {
     Manrope_500Medium,
   });
 
-  if (!fontsLoaded) return <AppLoading />;
+  if (!fontsLoaded) return null;
 
-  // 🔹 Static navigation to Splash Screen on Login click
-  const handleLogin = () => {
-    navigation.navigate('Splash');
+  const validateEmail = (text) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    setIsValidEmail(emailRegex.test(text));
+    setEmail(text);
+  };
+
+  // Firebase authentication login
+  const handleLogin = async () => {
+    // Input validation
+    if (!email.trim() || !password.trim()) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!isValidEmail) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const auth = getAuth(app);
+      await signInWithEmailAndPassword(auth, email, password);
+      
+      // Clear inputs
+      setEmail('');
+      setPassword('');
+      
+      // Navigate to Home screen on successful login
+      navigation.replace('Home');
+    } catch (error) {
+      console.error('Login Error:', error);
+      
+      // Show user-friendly error messages
+      let errorMessage = 'An error occurred during login';
+      switch (error.code) {
+        case 'auth/invalid-email':
+          errorMessage = 'Invalid email address';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = 'This account has been disabled';
+          break;
+        case 'auth/user-not-found':
+          errorMessage = 'No account found with this email';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = 'Incorrect password';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = 'Network error. Please check your connection';
+          break;
+      }
+      Alert.alert('Login Failed', errorMessage);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleBack = () => {
@@ -60,12 +118,13 @@ export default function LoginScreen({ navigation }) {
 
         {/* 📧 Email */}
         <TextInput
-          style={styles.input}
+          style={[styles.input, !isValidEmail && email && styles.invalidInput]}
           placeholder="Email"
           placeholderTextColor="#BDBDBD"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={validateEmail}
           keyboardType="email-address"
+          autoCapitalize="none"
         />
 
         {/* 🔒 Password */}
@@ -77,6 +136,8 @@ export default function LoginScreen({ navigation }) {
             secureTextEntry={hidePassword}
             value={password}
             onChangeText={setPassword}
+            returnKeyType="go"
+            onSubmitEditing={handleLogin}
           />
           <TouchableOpacity
             onPress={() => setHidePassword(!hidePassword)}
@@ -117,6 +178,10 @@ const styles = StyleSheet.create({
     marginLeft: 30,
     position: 'absolute',
     zIndex: 10,
+  },
+
+  invalidInput: {
+    borderColor: '#FF0000',
   },
 
   backButton: {
