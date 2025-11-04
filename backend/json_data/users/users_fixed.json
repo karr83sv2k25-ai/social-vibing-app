@@ -1,0 +1,28 @@
+[
+  {
+    "user_id": "1",
+    "user_master_account": "1",
+    "user_group": "1",
+    "user_name": "karr83",
+    "user_email": "admin@socialvibing00.com",
+    "user_email_verified": "1",
+    "user_phone": null,
+    "user_phone_verified": "0",
+    "user_activated": "1",
+    "user_approved": "1",
+    "user_firstname": "superadmin",
+    "user_lastname": "",
+    "user_gender": "1",
+    "user_picture": "photos/2024/08/sngine_5d841a57dccb8c97fdfb98a558b5678f_cropped.jpg",
+    "user_picture_id": "6",
+    "user_registered": "2024-04-05 07:04:43",
+    "user_last_seen": "2025-10-26 22:14:30",
+    "user_country": null,
+    "points_earned": "73.5411",
+    "coins": "0",
+    "diamonds": "0",
+    "total_earned_coins": "0",
+    "total_earned_diamonds": "0",
+    "user_language": "en_us"
+  }
+]

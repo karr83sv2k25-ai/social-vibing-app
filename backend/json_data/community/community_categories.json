@@ -1,0 +1,38 @@
+[
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "1;\"0\";\"Role Play\";\"role-play\";\"Immerse yourself in engaging role-play adventures.\";\"role_play\";NULL;\"1\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "2;\"0\";\"Anime and Manga\";\"anime-manga\";\"A hub for anime and manga enthusiasts...\";\"anime_manga\";NULL;\"4\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "3;\"0\";\"Arts and Aesthetics\";\"arts-aesthetics\";\"Explore and share your love for art and aesthetics.\";\"arts_aesthetics\";NULL;\"3\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "4;\"0\";\"Fandom\";\"fandom\";\"A place to connect with your favorite fandoms.\";\"fandom\";NULL;\"4\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "5;\"0\";\"Animals and Pets\";\"animals-pets\";\"Share your love for animals and pets.\";\"animals_pets\";NULL;\"5\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "6;\"0\";\"Music\";\"music\";\"Discover and discuss your favorite tunes and artists.\";\"music\";NULL;\"6\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "7;\"0\";\"Movies\";\"movies\";\"Explore the world of movies and cinematic magic.\";\"movies\";NULL;\"7\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "8;\"0\";\"Entertainment\";\"entertainment\";\"Catch up on the latest trends in entertainment.\";\"entertainment\";NULL;\"8\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "9;\"0\";\"Gaming\";\"gaming\";\"Join gamers worldwide in thrilling adventures.\";\"gaming\";NULL;\"9\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "10;\"0\";\"Technology\";\"technology\";\"Discuss the latest in technology and innovation.\";\"technology\";NULL;\"10\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "11;\"0\";\"Fitness and Wellness\";\"fitness-wellness\";\"A community for health and wellness enthusiasts.\";\"fitness_wellness\";NULL;\"11\""
+  },
+  {
+    "category_id;\"category_parent_id\";\"category_name\";\"category_slug\";\"category_description\";\"category_icon\";\"category_image\";\"category_order\"": "12;\"0\";\"Books and Writing\";\"books-writing\";\"Share your love for books and creative writing.\";\"books_writing\";NULL;\"12\""
+  }
+]

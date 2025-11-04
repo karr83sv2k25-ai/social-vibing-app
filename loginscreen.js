@@ -22,12 +22,32 @@ export default function LoginScreen({ navigation }) {
     return null; // Fonts loading fallback, you can show a custom loader here
   }
 
-  const handleLogin = () => {
-    alert('Login Button Pressed');
+  const handleLogin = async (email, password) => {
+    try {
+      const response = await fetch('http://localhost:5000/api/users/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+      
+      if (data.success) {
+        // Store user data in context or async storage
+        navigation.navigate('Home');
+      } else {
+        alert(data.error || 'Login failed');
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      alert('Login failed. Please try again.');
+    }
   };
 
   const handleSignup = () => {
-    navigation.navigate('Signup'); // Navigate to Signup Screen
+    navigation.navigate('Signup');
   };
 
   return (

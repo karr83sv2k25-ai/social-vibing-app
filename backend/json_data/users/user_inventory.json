@@ -1,0 +1,5 @@
+[
+  {
+    "inventory_id;\"user_id\";\"asset_id\";\"asset_type\";\"acquired_via\";\"is_active\";\"usage_count\";\"last_used\";\"version\";\"edition\";\"created_at\";\"updated_at\"": "1;\"13\";\"4\";\"frame\";\"purchase\";\"1\";\"1\";NULL;\"1\";\"Standard\";\"2025-05-31 18:19:02\";\"2025-05-31 18:21:15\""
+  }
+]

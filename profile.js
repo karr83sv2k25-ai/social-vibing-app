@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
+import { getFirestore, doc, getDoc, onSnapshot, updateDoc, increment } from "firebase/firestore";
+import { app } from "./firebaseConfig";
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 18;
@@ -71,6 +73,58 @@ const RewardDot = ({ day, state = "done" }) => {
 /* --------- MAIN COMPONENT --------- */
 export default function ProfileScreen() {
   const navigation = useNavigation();
+  const [userData, setUserData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const auth = getAuth(app);
+    const user = auth.currentUser;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+
+    const db = getFirestore(app);
+    const userRef = doc(db, 'users', user.uid);
+
+    // Real-time listener for user document
+    const unsubscribe = onSnapshot(
+      userRef,
+      (snap) => {
+        if (snap.exists()) {
+          setUserData(snap.data());
+        } else {
+          console.log('No user data found!');
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error listening to user document:', error);
+        Alert.alert('Error', 'Failed to load user data');
+        setLoading(false);
+      }
+    );
+
+    // Increment visit count once when profile mounts
+    (async () => {
+      try {
+        await updateDoc(userRef, { visits: increment(1) });
+      } catch (err) {
+        // ignore errors for increment (e.g., permission)
+        console.error('Error incrementing visits:', err);
+      }
+    })();
+
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: C.text }}>Loading...</Text>
+      </View>
+    );
+  }
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 36 }}>
@@ -83,13 +137,18 @@ export default function ProfileScreen() {
       >
         <View style={styles.profileInner}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Image source={require("./assets/profile.png")} style={styles.avatar} />
+            <Image 
+              source={userData?.profileImage ? { uri: userData.profileImage } : require("./assets/profile.png")} 
+              style={styles.avatar} 
+            />
             <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={styles.name}>Jeevesh</Text>
-                <Ionicons name="male" size={16} color={C.cyan} style={{ marginLeft: 6 }} />
+                <Text style={styles.name}>{userData?.firstName || ''} {userData?.lastName || ''}</Text>
+                <Ionicons name="person" size={16} color={C.cyan} style={{ marginLeft: 6 }} />
               </View>
-              <Text style={styles.handle}>@JazebBlade  · Active now</Text>
+              <Text style={styles.handle}>
+                {userData?.email} · {userData?.phoneNumber ? `Phone: ${userData.phoneNumber}` : 'No phone'}
+              </Text>
             </View>
 
             {/* Edit Profile Button */}
@@ -108,12 +167,12 @@ export default function ProfileScreen() {
             <Pill label="#Cartoon" />
           </View>
 
-          {/* Stats */}
+          {/* Stats (real-time from Firestore) */}
           <View style={styles.statsRow}>
-            <Stat value="10" label="Followers" />
-            <Stat value="05" label="Following" />
-            <Stat value="10" label="Friends" />
-            <Stat value="5" label="Visits" />
+            <Stat value={userData?.followers ?? 0} label="Followers" />
+            <Stat value={userData?.following ?? 0} label="Following" />
+            <Stat value={userData?.friends ?? 0} label="Friends" />
+            <Stat value={userData?.visits ?? 0} label="Visits" />
           </View>
         </View>
       </LinearGradient>

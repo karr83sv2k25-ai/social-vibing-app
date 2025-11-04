@@ -1,0 +1,8 @@
+[
+  {
+    "shop_id;\"user_id\";\"shop_name\";\"shop_slug\";\"shop_description\";\"shop_tagline\";\"shop_location\";\"shop_image_url\";\"shop_cover_url\";\"shop_level\";\"total_sales\";\"shop_status\";\"is_featured\";\"shop_reviews_enabled\";\"shop_featured\";\"created_at\";\"updated_at\";\"shop_category_id\"": "1;\"13\";\"ahamsandy&#039;s Shop\";NULL;NULL;NULL;NULL;NULL;NULL;\"1\";\"0\";\"active\";\"0\";\"1\";\"0\";\"2025-05-30 21:07:09\";\"2025-05-30 21:07:09\";NULL"
+  },
+  {
+    "shop_id;\"user_id\";\"shop_name\";\"shop_slug\";\"shop_description\";\"shop_tagline\";\"shop_location\";\"shop_image_url\";\"shop_cover_url\";\"shop_level\";\"total_sales\";\"shop_status\";\"is_featured\";\"shop_reviews_enabled\";\"shop_featured\";\"created_at\";\"updated_at\";\"shop_category_id\"": "2;\"20\";\"testinguser&#039;s Shop\";NULL;NULL;NULL;NULL;NULL;NULL;\"1\";\"0\";\"active\";\"0\";\"1\";\"0\";\"2025-05-31 18:17:51\";\"2025-05-31 18:17:51\";NULL"
+  }
+]

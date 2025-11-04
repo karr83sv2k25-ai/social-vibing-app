@@ -16,10 +16,11 @@ import {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, fetchSignInMethodsForEmail } from 'firebase/auth';
 import { getFirestore, setDoc, doc } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PhoneInput from 'react-native-phone-number-input';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
   useFonts,
   Manrope_700Bold,
@@ -95,8 +96,9 @@ export default function WithEmailScreen({ navigation }) {
         const auth = getAuth(app);
         try {
           const methods = await fetchSignInMethodsForEmail(auth, text);
-          if (methods.length > 0) {
+          if (methods && methods.length > 0) {
             setIsValidEmail(false);
+            Alert.alert('Email Already Exists', 'This email address is already registered. Please use a different email or try logging in.');
             return;
           }
         } catch (error) {
@@ -210,6 +212,15 @@ export default function WithEmailScreen({ navigation }) {
         email,
         phoneNumber: phoneInput.current?.getCallingCode() + phoneNumber,
         createdAt: new Date().toISOString(),
+        // initialize social stats
+        followers: 0,
+        following: 0,
+        friends: 0,
+        visits: 0,
+        // optional profile defaults
+        bio: '',
+        username: '',
+        profileImage: '',
       };
 
       await setDoc(doc(db, 'users', userCredential.user.uid), userData);
@@ -241,8 +252,10 @@ export default function WithEmailScreen({ navigation }) {
   };
 
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <View style={styles.background}>
+    <SafeAreaProvider>
+      <SafeAreaView style={styles.background}>
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.background}>
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.background}
@@ -416,7 +429,9 @@ export default function WithEmailScreen({ navigation }) {
           </ImageBackground>
         </KeyboardAvoidingView>
       </View>
-    </TouchableWithoutFeedback>
+        </TouchableWithoutFeedback>
+      </SafeAreaView>
+    </SafeAreaProvider>
   );
 }
 

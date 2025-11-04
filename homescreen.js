@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
+import { getAuth } from 'firebase/auth';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
+import { app } from './firebaseConfig';
 
 const { width } = Dimensions.get('window');
 const IMAGE_WIDTH = 267;
@@ -126,6 +129,33 @@ const Post = ({ post }) => (
 
 export default function HomeScreen({ navigation }) {
   const [activeButton, setActiveButton] = useState(null);
+  const [userName, setUserName] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchUserName = async () => {
+      try {
+        const auth = getAuth(app);
+        const user = auth.currentUser;
+        if (!user) return;
+
+        const db = getFirestore(app);
+        const userRef = doc(db, 'users', user.uid);
+        const userSnap = await getDoc(userRef);
+        if (userSnap.exists() && mounted) {
+          const data = userSnap.data();
+          const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ').trim();
+          setUserName(fullName || data.username || data.email || '');
+        }
+      } catch (err) {
+        console.error('Error fetching user for HomeScreen:', err);
+      }
+    };
+
+    fetchUserName();
+
+    return () => { mounted = false; };
+  }, []);
 
   return (
     <ScrollView style={styles.container}>
@@ -141,7 +171,7 @@ export default function HomeScreen({ navigation }) {
             <Image source={require('./assets/profile.png')} style={styles.profileImage} />
             <View style={styles.profileTextContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.profileName}>John Doe</Text>
+                <Text style={styles.profileName}>{userName || 'John Doe'}</Text>
                 <Image
                   source={require('./assets/starimage.png')}
                   style={{ width: 18, height: 18, marginLeft: 5 }}
