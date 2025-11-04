@@ -176,6 +176,26 @@ export default function EditProfileScreen({ navigation }) {
     );
   }
 
+  // Helper to resolve a count from userData supporting arrays or numeric fields
+  const resolveCount = (obj, possibleKeys = []) => {
+    if (!obj) return 0;
+    for (const k of possibleKeys) {
+      if (Object.prototype.hasOwnProperty.call(obj, k)) {
+        const v = obj[k];
+        if (Array.isArray(v)) return v.length;
+        if (typeof v === 'number') return v;
+        // sometimes nested objects like { count: 5 }
+        if (v && typeof v === 'object' && typeof v.count === 'number') return v.count;
+      }
+    }
+    return 0;
+  };
+
+  const followersCount = resolveCount(userData, ['followers', 'followers_list', 'followersCount', 'followers_count']);
+  const followingCount = resolveCount(userData, ['following', 'following_list', 'followingCount', 'following_count']);
+  const friendsCount = resolveCount(userData, ['friends', 'friends_list', 'friendsCount', 'friends_count']);
+  const visitsCount = resolveCount(userData, ['visits', 'visit_count', 'visits_count', 'visitsCount', 'profileViews']);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 36 }}>
       {/* ===== Header / Cover ===== */}
@@ -307,10 +327,10 @@ export default function EditProfileScreen({ navigation }) {
         </Modal>
 
         <View style={styles.statsRow}>
-          <Stat value="10" label="Followers" />
-          <Stat value="05" label="Following" />
-          <Stat value="10" label="Friends" />
-          <Stat value="5" label="Visits" />
+          <Stat value={String(followersCount).padStart(2, '0')} label="Followers" />
+          <Stat value={String(followingCount).padStart(2, '0')} label="Following" />
+          <Stat value={String(friendsCount).padStart(2, '0')} label="Friends" />
+          <Stat value={String(visitsCount).padStart(1, '0')} label="Visits" />
         </View>
       </View>
 
