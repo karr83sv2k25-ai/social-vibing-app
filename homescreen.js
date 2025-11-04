@@ -130,6 +130,7 @@ const Post = ({ post }) => (
 export default function HomeScreen({ navigation }) {
   const [activeButton, setActiveButton] = useState(null);
   const [userName, setUserName] = useState('');
+  const [profileImage, setProfileImage] = useState(null);
 
   useEffect(() => {
     let mounted = true;
@@ -146,6 +147,9 @@ export default function HomeScreen({ navigation }) {
           const data = userSnap.data();
           const fullName = [data.firstName, data.lastName].filter(Boolean).join(' ').trim();
           setUserName(fullName || data.username || data.email || '');
+          // Fetch profile image field (try common field names)
+          const img = data.profileImage || data.profile_image || data.profile_picture || data.photoURL || null;
+          if (mounted) setProfileImage(img);
         }
       } catch (err) {
         console.error('Error fetching user for HomeScreen:', err);
@@ -168,10 +172,14 @@ export default function HomeScreen({ navigation }) {
             onPress={() => navigation.navigate('Profile')}
             style={{ flexDirection: 'row', alignItems: 'center' }}
           >
-            <Image source={require('./assets/profile.png')} style={styles.profileImage} />
+            
+              <Image
+                source={profileImage ? { uri: profileImage } : require('./assets/profile.png')}
+                style={styles.profileImage}
+              />
             <View style={styles.profileTextContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Text style={styles.profileName}>{userName || 'John Doe'}</Text>
+                <Text style={styles.profileName}>{userName || 'User'}</Text>
                 <Image
                   source={require('./assets/starimage.png')}
                   style={{ width: 18, height: 18, marginLeft: 5 }}
