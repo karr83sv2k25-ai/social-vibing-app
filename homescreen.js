@@ -13,6 +13,7 @@ import { Ionicons, Entypo } from '@expo/vector-icons';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDoc } from 'firebase/firestore';
 import { app } from './firebaseConfig';
+import NetInfo from '@react-native-community/netinfo';
 
 const { width } = Dimensions.get('window');
 const IMAGE_WIDTH = 267;
@@ -131,6 +132,7 @@ export default function HomeScreen({ navigation }) {
   const [activeButton, setActiveButton] = useState(null);
   const [userName, setUserName] = useState('');
   const [profileImage, setProfileImage] = useState(null);
+  const [isConnected, setIsConnected] = useState(true);
 
   useEffect(() => {
     let mounted = true;
@@ -158,6 +160,10 @@ export default function HomeScreen({ navigation }) {
 
     fetchUserName();
 
+    // NetInfo listener for connection status
+    NetInfo.fetch().then(state => { if (mounted) setIsConnected(Boolean(state.isConnected)); }).catch(() => { if (mounted) setIsConnected(false); });
+    const unsubscribeNet = NetInfo.addEventListener(state => { if (mounted) setIsConnected(Boolean(state.isConnected)); });
+
     return () => { mounted = false; };
   }, []);
 
@@ -175,7 +181,7 @@ export default function HomeScreen({ navigation }) {
             
               <Image
                 source={profileImage ? { uri: profileImage } : require('./assets/profile.png')}
-                style={styles.profileImage}
+                style={[styles.profileImage, { borderColor: isConnected ? '#08FFE2' : '#666' }]}
               />
             <View style={styles.profileTextContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -185,7 +191,7 @@ export default function HomeScreen({ navigation }) {
                   style={{ width: 18, height: 18, marginLeft: 5 }}
                 />
               </View>
-              <Text style={styles.profileStatus}>● Online</Text>
+              <Text style={[styles.profileStatus, { color: isConnected ? '#08FFE2' : '#666' }]}>● {isConnected ? 'Online' : 'Offline'}</Text>
             </View>
           </TouchableOpacity>
         </View>

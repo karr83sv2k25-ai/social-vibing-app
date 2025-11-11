@@ -11,6 +11,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from 'react';
+import { getFirestore, collection, onSnapshot } from 'firebase/firestore';
+import { app } from './firebaseConfig';
 
 export default function ExploreScreen({ navigation }) {
   const [showAll, setShowAll] = useState(false);
@@ -57,8 +60,31 @@ export default function ExploreScreen({ navigation }) {
     require('./assets/join1.png'),
   ];
 
+  // helper to choose community image
+  const getCommunityImage = (c) => {
+    const possible = ['profileImage','coverImage','backgroundImage','community_picture','imageUrl','banner','photo','picture'];
+    for (const f of possible) {
+      if (c && c[f]) return { uri: c[f] };
+    }
+    return require('./assets/posticon.jpg');
+  };
+
+  const [communities, setCommunities] = useState([]);
+
+  useEffect(() => {
+    const db = getFirestore(app);
+    const unsub = onSnapshot(collection(db, 'communities'), (snap) => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      setCommunities(docs);
+    }, (err) => {
+      console.error('Error fetching communities:', err);
+    });
+
+    return () => unsub();
+  }, []);
+
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <View style={styles.container}>
       {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -137,55 +163,59 @@ export default function ExploreScreen({ navigation }) {
               })}
             </View>
 
-            {/* Community Cards */}
-            {[
-              { title: 'Monkey D. Luffy', tags: ['#Anime', '#Univversocraft'] },
-              { title: 'Anime & Manga', tags: ['#Anime', '#Manga'] },
-              { title: 'Anime & Manga', tags: ['#Anime', '#Manga'] },
-            ].map((card, idx) => (
-              <TouchableOpacity
-                key={idx}
-                style={styles.cardContainer}
-                activeOpacity={0.8}
-                onPress={() => navigation.navigate('GroupInfo', { groupTitle: card.title })}
-              >
-                <Image
-                  source={require('./assets/posticon.jpg')}
-                  style={styles.cardImageHorizontal}
-                  resizeMode="cover"
-                />
-                <View style={styles.cardTextWrapperHorizontal}>
-                  <Text style={styles.cardTitle}>{card.title}</Text>
-                  <Text style={styles.cardSubtitle}>Community ID | English</Text>
+            {/* Community Cards (from Firestore) */}
+            {(communities && communities.length > 0 ? communities : [
+              { title: 'No communities found', tags: [] }
+            ]).map((card, idx) => {
+              const title = card.name || card.community_title || card.title || 'Community';
+              const subtitle = card.community_id || card.id || 'Community ID';
+              const membersCount = card.community_members ? (Array.isArray(card.community_members) ? card.community_members.length : card.community_members) : '—';
+              const tags = card.tags || card.community_tags || [];
+              return (
+                <TouchableOpacity
+                  key={card.id || card.community_id || idx}
+                  style={styles.cardContainer}
+                  activeOpacity={0.8}
+                  onPress={() => navigation.navigate('CommunityDetail', { communityId: card.id || card.community_id })}
+                >
+                  <Image
+                    source={getCommunityImage(card)}
+                    style={styles.cardImageHorizontal}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.cardTextWrapperHorizontal}>
+                    <Text style={styles.cardTitle}>{title}</Text>
+                    <Text style={styles.cardSubtitle}>{subtitle} | {card.language || 'English'}</Text>
 
-                  {/* Members & Images */}
-                  <View style={styles.membersWrapper}>
-                    <View style={styles.membersImages}>
-                      {members.map((img, index) => (
-                        <Image
-                          key={index}
-                          source={img}
-                          style={[styles.memberImage, index !== 0 && { marginLeft: -10 }]}
-                        />
+                    {/* Members & Images */}
+                    <View style={styles.membersWrapper}>
+                      <View style={styles.membersImages}>
+                        {members.map((img, index) => (
+                          <Image
+                            key={index}
+                            source={img}
+                            style={[styles.memberImage, index !== 0 && { marginLeft: -10 }]}
+                          />
+                        ))}
+                      </View>
+                      <Text style={styles.membersText}>{membersCount} members</Text>
+                    </View>
+
+                    {/* Tags Buttons */}
+                    <View style={styles.tagsWrapper}>
+                      {tags.slice(0, 3).map((tag, i) => (
+                        <TagButton key={i} title={tag} colorActive="blue" />
                       ))}
                     </View>
-                    <Text style={styles.membersText}>140 members</Text>
                   </View>
-
-                  {/* Tags Buttons */}
-                  <View style={styles.tagsWrapper}>
-                    {card.tags.map((tag, i) => (
-                      <TagButton key={i} title={tag} colorActive="blue" />
-                    ))}
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
+                </TouchableOpacity>
+              );
+            })}
           </>
         }
         showsVerticalScrollIndicator={false}
       />
-    </ScrollView>
+    </View>
   );
 }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,84 +8,85 @@ import {
   TouchableOpacity,
   TextInput,
 } from 'react-native';
+
 import { Ionicons, Entypo, AntDesign, MaterialIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRoute, useNavigation } from '@react-navigation/native';
+import { getFirestore, doc, getDoc, collection, getDocs } from 'firebase/firestore';
+import { app as firebaseApp } from './firebaseConfig';
+
 
 export default function GroupInfoScreen() {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { communityId, groupTitle } = route.params || {};
   const [selectedButton, setSelectedButton] = useState('Explore');
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [chatMessages, setChatMessages] = useState([
-    {
-      id: 1,
-      text: 'Lorem ipsum dolor sit amet consectetur. Feugiat lacus aliquam sapien eget placerat risus tincidunt varius.',
-      type: 'left',
-    },
-    {
-      id: 2,
-      text: 'Lorem ipsum dolor sit amet consectetur. Feugiat lacus aliquam sapien eget placerat risus tincidunt varius.',
-      type: 'left',
-    },
-    {
-      id: 3,
-      text: 'Lorem ipsum dolor sit amet consectetur. Feugiat lacus aliquam sapien eget placerat risus tincidunt varius.',
-      type: 'left',
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState('');
+  const [community, setCommunity] = useState(null);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  const members = [
-    require('./assets/a1.png'),
-    require('./assets/a2.png'),
-    require('./assets/a3.png'),
-    require('./assets/a4.png'),
-  ];
+  // Fetch community details from Firestore
+  useEffect(() => {
+    const fetchCommunity = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const db = getFirestore(firebaseApp);
+        const communityRef = doc(db, 'communities', communityId);
+        const communitySnap = await getDoc(communityRef);
+        if (communitySnap.exists()) {
+          const data = communitySnap.data();
+          
+          // Get member count: prefer members_count, then community_members, then calculate from members array
+          let memberCount = 0;
+          if (typeof data.members_count === 'number') {
+            memberCount = data.members_count;
+          } else if (typeof data.community_members === 'number') {
+            memberCount = data.community_members;
+          } else if (Array.isArray(data.members)) {
+            memberCount = data.members.length;
+          } else if (Array.isArray(data.community_members)) {
+            memberCount = data.community_members.length;
+          }
+          
+          setCommunity({ 
+            id: communitySnap.id, 
+            ...data,
+            memberCount: memberCount // Add calculated member count to community object
+          });
+          
+          // Fetch members if memberIds array exists
+          if (data.memberIds && Array.isArray(data.memberIds)) {
+            const usersCol = collection(db, 'users');
+            const memberDocs = await Promise.all(
+              data.memberIds.slice(0, 5).map(async (uid) => {
+                const userDoc = await getDoc(doc(usersCol, uid));
+                return userDoc.exists() ? { id: userDoc.id, ...userDoc.data() } : null;
+              })
+            );
+            setMembers(memberDocs.filter(Boolean));
+          } else {
+            setMembers([]);
+          }
+        } else {
+          setError('Community not found');
+        }
+      } catch (e) {
+        setError('Failed to load community');
+      }
+      setLoading(false);
+    };
+    if (communityId) fetchCommunity();
+  }, [communityId]);
 
-  const achievementUsers = [
-    { name: 'Regina', img: require('./assets/a1.png') },
-    { name: 'Judith', img: require('./assets/a2.png') },
-    { name: 'Julie', img: require('./assets/a3.png') },
-    { name: 'Colleen', img: require('./assets/a4.png') },
-    { name: 'Courtney', img: require('./assets/a5.png') },
-  ];
-
-  const livePartyUsers = [
-    { name: 'Tiesha Kyle', img: require('./assets/post1.1.jpg') },
-    { name: 'Olivia Essex', img: require('./assets/post1.2.jpg') },
-    { name: 'Tiesha Kyle', img: require('./assets/post1.3.jpg') },
-    { name: 'Tiesha Kyle', img: require('./assets/post1.1.jpg') },
-  ];
-
-  const posts = [
-    {
-      id: 1,
-      user: {
-        name: 'Alice Smith',
-        email: 'alice@example.com',
-        avatar: require('./assets/a1.png'),
-      },
-      images: [
-        require('./assets/post1.1.jpg'),
-        require('./assets/post1.2.jpg'),
-      ],
-    },
-    {
-      id: 2,
-      user: {
-        name: 'Bob Johnson',
-        email: 'bob@example.com',
-        avatar: require('./assets/a2.png'),
-      },
-      images: [
-        require('./assets/post1.1.jpg'),
-        require('./assets/post1.2.jpg'),
-        require('./assets/post1.1.jpg'),
-      ],
-    },
-  ];
-
-  const tags = ['#Anime', '#Univversocraft'];
+  // Use category from Firestore as tag
+  const tags = community?.category ? [`#${community.category}`] : ['#Uncategorized'];
   const bottomButtons = ['Explore', 'Post', 'Chat', 'Info', 'Members'];
-  const categories = [
+  const categories = community?.categories || [
     'Anime & Manga',
     'Role play',
     'Art & Aesthetic',
@@ -94,8 +95,8 @@ export default function GroupInfoScreen() {
   ];
 
   const TagButton = ({ title, colorActive }) => (
-    <TouchableOpacity style={[styles.tagButton, { borderColor: colorActive }]}>
-      <Text style={[styles.tagButtonText, { color: colorActive }]}>
+    <TouchableOpacity style={[styles.tagButton, { borderColor: colorActive }]}> 
+      <Text style={[styles.tagButtonText, { color: colorActive }]}> 
         {title}
       </Text>
     </TouchableOpacity>
@@ -130,352 +131,322 @@ export default function GroupInfoScreen() {
           <TouchableOpacity style={{ marginRight: 16 }}>
             <Entypo name="dots-three-vertical" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
             <AntDesign name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView style={{ flex: 1 }}>
-        {/* Group Card */}
-        <View style={styles.cardContainer}>
-          <Image
-            source={require('./assets/posticon.jpg')}
-            style={styles.groupImage}
-            resizeMode="cover"
-          />
-          <View style={styles.infoWrapperHorizontal}>
-            <Text style={styles.groupName}>Monkey D. Luffy</Text>
-            <Text style={styles.groupSubtitle}>Community ID | English</Text>
-
-            {/* Members (mini preview) */}
-            <View style={styles.membersWrapper}>
-              <View style={styles.membersImages}>
-                {members.map((img, index) => (
-                  <Image
-                    key={index}
-                    source={img}
-                    style={[
-                      styles.memberImage,
-                      index !== 0 && { marginLeft: -10 },
-                    ]}
-                  />
-                ))}
-              </View>
-              <Text style={styles.membersText}>140 members</Text>
-            </View>
-
-            {/* Tags */}
-            <View style={styles.tagsWrapper}>
-              {tags.map((tag, i) => (
-                <TagButton key={i} title={tag} colorActive="#4da6ff" />
-              ))}
-            </View>
-          </View>
+      {loading ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: '#fff' }}>Loading...</Text>
         </View>
-
-        {/* Search / Announcement */}
-        <View style={styles.searchWrapper}>
-          <MaterialIcons name="notifications-none" size={24} color="#888" />
-          <TextInput
-            placeholder="No Announcement"
-            placeholderTextColor="#888"
-            style={styles.searchInput}
-            editable={false}
-          />
+      ) : error ? (
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: 'red' }}>{error}</Text>
         </View>
+      ) : (
+        <ScrollView style={{ flex: 1 }}>
+          {/* Group Card */}
+          <View style={styles.cardContainer}>
+            <Image
+              source={community?.profileImage ? { uri: community.profileImage } : require('./assets/posticon.jpg')}
+              style={styles.groupImage}
+              resizeMode="cover"
+            />
+            <View style={styles.infoWrapperHorizontal}>
+              <Text style={styles.groupName}>{community?.name || groupTitle || 'Community'}</Text>
+              <Text style={styles.groupSubtitle}>{community?.id || communityId} | {community?.language || 'English'}</Text>
 
-        {/* Bottom Buttons */}
-        <View style={styles.bottomButtonsWrapper}>
-          {bottomButtons.map((btn) => (
-            <TouchableOpacity
-              key={btn}
-              style={[
-                styles.bottomButton,
-                selectedButton === btn && {
-                  borderColor: 'purple',
-                  borderWidth: 2,
-                },
-              ]}
-              onPress={() => setSelectedButton(btn)}>
-              <Text style={styles.bottomButtonText}>{btn}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Explore Content */}
-        {selectedButton === 'Explore' && (
-          <View style={styles.exploreContent}>
-            <Text style={styles.achievementTitle}>Achievement</Text>
-
-            {/* One-line horizontal scroll for achievements */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.achievementsHorizontalRow}
-              style={{ marginTop: 12 }}>
-              {achievementUsers.map((user, index) => (
-                <View key={index} style={styles.achievementChip}>
-                  <Image source={user.img} style={styles.achievementImage} />
-                  <Text style={styles.achievementName} numberOfLines={1}>
-                    {user.name}
-                  </Text>
-                  <Text style={styles.achievementTime}>1 hour ago</Text>
+              {/* Members (mini preview) */}
+              <View style={styles.membersWrapper}>
+                <View style={styles.membersImages}>
+                  {members.length > 0 ? (
+                    members.map((user, index) => (
+                      <Image
+                        key={user.id}
+                        source={user.profileImage ? { uri: user.profileImage } : require('./assets/a1.png')}
+                        style={[
+                          styles.memberImage,
+                          index !== 0 && { marginLeft: -10 },
+                        ]}
+                      />
+                    ))
+                  ) : (
+                    <Image source={require('./assets/a1.png')} style={styles.memberImage} />
+                  )}
                 </View>
-              ))}
-            </ScrollView>
-
-            <View style={{ marginTop: 30 }}>
-              <View style={styles.livePartiesHeader}>
-                <Text style={styles.sectionTitle}>Live Parties</Text>
-                <Text style={styles.viewAllText}>All </Text>
+                <Text style={styles.membersText}>{community?.memberCount || members.length || 0} members</Text>
               </View>
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginTop: 12, marginBottom: 10 }}>
-                {categories.map((cat, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={[
-                      styles.categoryButton,
-                      selectedCategory === cat && {
-                        borderColor: 'purple',
-                        borderWidth: 2,
-                      },
-                    ]}
-                    onPress={() => setSelectedCategory(cat)}>
-                    <Text style={styles.categoryButtonText}>{cat}</Text>
-                  </TouchableOpacity>
+              {/* Tags */}
+              <View style={styles.tagsWrapper}>
+                {tags.map((tag, i) => (
+                  <TagButton key={i} title={tag} colorActive="#4da6ff" />
                 ))}
-              </ScrollView>
-
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={{ marginTop: 10 }}>
-                {livePartyUsers.map((user, index) => (
-                  <View key={index} style={styles.livePartyCard}>
-                    <Image source={user.img} style={styles.livePartyImage} />
-                    <Text style={styles.livePartyName}>{user.name}</Text>
-                  </View>
-                ))}
-              </ScrollView>
+              </View>
             </View>
           </View>
-        )}
 
-        {/* Post Content */}
-        {selectedButton === 'Post' && (
-          <View style={styles.postContent}>
-            {posts.map((post) => (
-              <View key={post.id} style={styles.postCard}>
-                <View style={styles.postHeader}>
-                  <Image source={post.user.avatar} style={styles.postAvatar} />
-                  <View style={{ flex: 1, marginLeft: 10 }}>
-                    <Text style={styles.postUserName}>{post.user.name}</Text>
-                    <Text style={styles.postUserEmail}>{post.user.email}</Text>
+          {/* Search / Announcement */}
+          <View style={styles.searchWrapper}>
+            <MaterialIcons name="notifications-none" size={24} color="#888" />
+            <TextInput
+              placeholder={community?.announcement || 'No Announcement'}
+              placeholderTextColor="#888"
+              style={styles.searchInput}
+              editable={false}
+            />
+          </View>
+
+          {/* Bottom Buttons */}
+          <View style={styles.bottomButtonsWrapper}>
+            {bottomButtons.map((btn) => (
+              <TouchableOpacity
+                key={btn}
+                style={[
+                  styles.bottomButton,
+                  selectedButton === btn && {
+                    borderColor: 'purple',
+                    borderWidth: 2,
+                  },
+                ]}
+                onPress={() => setSelectedButton(btn)}>
+                <Text style={styles.bottomButtonText}>{btn}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Explore Content */}
+          {selectedButton === 'Explore' && (
+            <View style={styles.exploreContent}>
+              <Text style={styles.achievementTitle}>Achievement</Text>
+              {/* Achievements: show member avatars as dummy achievements */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.achievementsHorizontalRow}
+                style={{ marginTop: 12 }}>
+                {members.map((user, index) => (
+                  <View key={user.id} style={styles.achievementChip}>
+                    <Image source={user.profileImage ? { uri: user.profileImage } : require('./assets/a1.png')} style={styles.achievementImage} />
+                    <Text style={styles.achievementName} numberOfLines={1}>
+                      {user.name || user.displayName || 'User'}
+                    </Text>
+                    <Text style={styles.achievementTime}>1 hour ago</Text>
                   </View>
-                  <TouchableOpacity>
-                    <Entypo name="dots-three-vertical" size={20} color="#fff" />
-                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <View style={{ marginTop: 30 }}>
+                <View style={styles.livePartiesHeader}>
+                  <Text style={styles.sectionTitle}>Live Parties</Text>
+                  <Text style={styles.viewAllText}>All </Text>
                 </View>
 
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
-                  style={{ marginTop: 10 }}>
-                  {post.images.map((img, index) => (
-                    <Image key={index} source={img} style={styles.postImage} />
+                  style={{ marginTop: 12, marginBottom: 10 }}>
+                  {categories.map((cat, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={[
+                        styles.categoryButton,
+                        selectedCategory === cat && {
+                          borderColor: 'purple',
+                          borderWidth: 2,
+                        },
+                      ]}
+                      onPress={() => setSelectedCategory(cat)}>
+                      <Text style={styles.categoryButtonText}>{cat}</Text>
+                    </TouchableOpacity>
                   ))}
                 </ScrollView>
 
-                <View style={styles.postActions}>
-                  <TouchableOpacity style={styles.actionButton}>
-                    <AntDesign name="like2" size={20} color="#fff" />
-                    <Text style={styles.actionText}>Like</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionButton}>
-                    <Ionicons
-                      name="chatbubble-outline"
-                      size={20}
-                      color="#fff"
-                    />
-                    <Text style={styles.actionText}>Comment</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.actionButton}>
-                    <Entypo name="share" size={20} color="#fff" />
-                    <Text style={styles.actionText}>Share</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Chat */}
-        {selectedButton === 'Chat' && (
-          <ScrollView
-            style={styles.chatContent}
-            contentContainerStyle={{ paddingBottom: 20 }}>
-            {chatMessages.map((msg) => (
-              <View
-                key={msg.id}
-                style={[
-                  styles.chatMessageContainer,
-                  {
-                    flexDirection: msg.type === 'left' ? 'row' : 'row-reverse',
-                    alignItems: 'flex-start',
-                  },
-                ]}>
-                <Image
-                  source={msg.profilePic || require('./assets/a1.png')}
-                  style={styles.profilePic}
-                />
-                <View
-                  style={[
-                    styles.chatMessageBox,
-                    msg.type === 'right'
-                      ? { borderColor: '#08FFE2' }
-                      : { borderColor: '#ff8c00' },
-                  ]}>
-                  <Text style={styles.chatMessageTitle}>
-                    {msg.title || 'User'}
-                  </Text>
-                  <Text style={styles.chatMessageText}>{msg.text}</Text>
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Info Content (kept simple; no big member list here) */}
-        {selectedButton === 'Info' && (
-          <ScrollView
-            style={styles.infoContent}
-            contentContainerStyle={{ paddingBottom: 28 }}>
-            {/* Members preview + edit (horizontal chips) */}
-            <View style={styles.infoSection}>
-              <View style={styles.infoHeaderRow}>
-                <Text style={styles.infoSectionTitle}>Members</Text>
-                <TouchableOpacity
-                  onPress={onEditMembers}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="create-outline" size={20} color="#bbb" />
-                </TouchableOpacity>
-              </View>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.membersHorizontalRow}>
-                {achievementUsers.map((user, index) => (
-                  <View key={index} style={styles.memberChip}>
-                    <Image source={user.img} style={styles.memberChipImage} />
-                    <Text style={styles.memberChipName} numberOfLines={1}>
-                      {user.name}
-                    </Text>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Category Tag */}
-            <View style={styles.infoSection}>
-              <Text style={styles.infoSectionTitle}>Category Tag</Text>
-              <View style={styles.tagRow}>
-                <TouchableOpacity
-                  style={[styles.pillButton, styles.pillActive]}>
-                  <Text style={styles.pillTextActive}>#Anime</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.pillButton}>
-                  <Text style={styles.pillText}>#Role play</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Description + edit */}
-            <View style={styles.infoSection}>
-              <View style={styles.infoHeaderRow}>
-                <Text style={styles.infoSectionTitle}>Description</Text>
-                <TouchableOpacity
-                  onPress={onEditDescription}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Ionicons name="create-outline" size={20} color="#bbb" />
-                </TouchableOpacity>
-              </View>
-              <Text style={styles.infoText}>
-                This is a community of Monkey D. Luffy fans. Discuss anime,
-                share fan arts, memes, roleplays, and everything related to One
-                Piece! Be respectful, keep conversations on-topic, and have fun
-                sailing with the crew.
-              </Text>
-            </View>
-            <TouchableOpacity
-              onPress={onInviteMember}
-              activeOpacity={0.85}
-              style={[styles.inviteWrapper, { marginTop: 16 }]}>
-              <LinearGradient
-                start={{ x: 0.1, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                style={styles.inviteGradient}>
-                <Text style={styles.inviteText}>Invite New Member</Text>
-                <Ionicons name="person-add-outline" size={18} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </ScrollView>
-        )}
-
-        {/* Members TAB (this is where the full list lives now) */}
-        {selectedButton === 'Members' && (
-          <ScrollView
-            style={styles.membersPage}
-            contentContainerStyle={{ paddingBottom: 28 }}>
-            <Text style={styles.membersPageTitle}>Members</Text>
-
-            <View style={styles.memberListWrapper}>
-              {achievementUsers.map((user, index) => (
-                <View key={index} style={styles.memberRow}>
-                  <View style={styles.memberRowLeft}>
-                    <Image source={user.img} style={styles.memberRowAvatar} />
-                    <View>
-                      <Text style={styles.memberRowName}>{user.name}</Text>
-                      <Text style={styles.memberRowSeen}>
-                        last seen a day ago
-                      </Text>
+                {/* Placeholder for live parties */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ marginTop: 10 }}>
+                  {members.map((user, index) => (
+                    <View key={user.id} style={styles.livePartyCard}>
+                      <Image source={user.profileImage ? { uri: user.profileImage } : require('./assets/a1.png')} style={styles.livePartyImage} />
+                      <Text style={styles.livePartyName}>{user.name || user.displayName || 'User'}</Text>
                     </View>
-                  </View>
-                  <View>
-                    <Text
-                      style={[
-                        styles.roleBadge,
-                        index === 0 ? styles.roleOwner : styles.roleMember,
-                      ]}>
-                      {index === 0 ? 'Owner' : 'Member'}
+                  ))}
+                </ScrollView>
+              </View>
+            </View>
+          )}
+
+          {/* Post Content (placeholder, no Firestore posts) */}
+          {selectedButton === 'Post' && (
+            <View style={styles.postContent}>
+              <Text style={{ color: '#fff' }}>No posts yet.</Text>
+            </View>
+          )}
+
+          {/* Chat (dummy, not Firestore) */}
+          {selectedButton === 'Chat' && (
+            <ScrollView
+              style={styles.chatContent}
+              contentContainerStyle={{ paddingBottom: 20 }}>
+              {chatMessages.map((msg) => (
+                <View
+                  key={msg.id}
+                  style={[
+                    styles.chatMessageContainer,
+                    {
+                      flexDirection: msg.type === 'left' ? 'row' : 'row-reverse',
+                      alignItems: 'flex-start',
+                    },
+                  ]}>
+                  <Image
+                    source={msg.profilePic || require('./assets/a1.png')}
+                    style={styles.profilePic}
+                  />
+                  <View
+                    style={[
+                      styles.chatMessageBox,
+                      msg.type === 'right'
+                        ? { borderColor: '#08FFE2' }
+                        : { borderColor: '#ff8c00' },
+                    ]}>
+                    <Text style={styles.chatMessageTitle}>
+                      {msg.title || 'User'}
                     </Text>
+                    <Text style={styles.chatMessageText}>{msg.text}</Text>
                   </View>
                 </View>
               ))}
-            </View>
+            </ScrollView>
+          )}
 
-            {/* Invite New Member button at end */}
-            <TouchableOpacity
-              onPress={onInviteMember}
-              activeOpacity={0.85}
-              style={[styles.inviteWrapper, { marginTop: 16 }]}>
-              <LinearGradient
-                start={{ x: 0.1, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                style={styles.inviteGradient}>
-                <Text style={styles.inviteText}>Invite New Member</Text>
-                <Ionicons name="person-add-outline" size={18} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </ScrollView>
-        )}
-      </ScrollView>
+          {/* Info Content */}
+          {selectedButton === 'Info' && (
+            <ScrollView
+              style={styles.infoContent}
+              contentContainerStyle={{ paddingBottom: 28 }}>
+              {/* Members preview + edit (horizontal chips) */}
+              <View style={styles.infoSection}>
+                <View style={styles.infoHeaderRow}>
+                  <Text style={styles.infoSectionTitle}>Members</Text>
+                  <TouchableOpacity
+                    onPress={onEditMembers}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="create-outline" size={20} color="#bbb" />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.membersHorizontalRow}>
+                  {members.map((user, index) => (
+                    <View key={user.id} style={styles.memberChip}>
+                      <Image source={user.profileImage ? { uri: user.profileImage } : require('./assets/a1.png')} style={styles.memberChipImage} />
+                      <Text style={styles.memberChipName} numberOfLines={1}>
+                        {user.name || user.displayName || 'User'}
+                      </Text>
+                    </View>
+                  ))}
+                </ScrollView>
+              </View>
+
+              {/* Category Tag */}
+              <View style={styles.infoSection}>
+                <Text style={styles.infoSectionTitle}>Category Tag</Text>
+                <View style={styles.tagRow}>
+                  {tags.map((tag, i) => (
+                    <TouchableOpacity
+                      key={i}
+                      style={[styles.pillButton, i === 0 && styles.pillActive]}>
+                      <Text style={i === 0 ? styles.pillTextActive : styles.pillText}>{tag}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+
+              {/* Description + edit */}
+              <View style={styles.infoSection}>
+                <View style={styles.infoHeaderRow}>
+                  <Text style={styles.infoSectionTitle}>Description</Text>
+                  <TouchableOpacity
+                    onPress={onEditDescription}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="create-outline" size={20} color="#bbb" />
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.infoText}>
+                  {community?.description || 'No description provided.'}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={onInviteMember}
+                activeOpacity={0.85}
+                style={[styles.inviteWrapper, { marginTop: 16 }]}>
+                <LinearGradient
+                  start={{ x: 0.1, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
+                  style={styles.inviteGradient}>
+                  <Text style={styles.inviteText}>Invite New Member</Text>
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                </LinearGradient>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+
+          {/* Members TAB (full list) */}
+          {selectedButton === 'Members' && (
+            <ScrollView
+              style={styles.membersPage}
+              contentContainerStyle={{ paddingBottom: 28 }}>
+              <Text style={styles.membersPageTitle}>Members</Text>
+
+              <View style={styles.memberListWrapper}>
+                {members.map((user, index) => (
+                  <View key={user.id} style={styles.memberRow}>
+                    <View style={styles.memberRowLeft}>
+                      <Image source={user.profileImage ? { uri: user.profileImage } : require('./assets/a1.png')} style={styles.memberRowAvatar} />
+                      <View>
+                        <Text style={styles.memberRowName}>{user.name || user.displayName || 'User'}</Text>
+                        <Text style={styles.memberRowSeen}>
+                          last seen a day ago
+                        </Text>
+                      </View>
+                    </View>
+                    <View>
+                      <Text
+                        style={[
+                          styles.roleBadge,
+                          index === 0 ? styles.roleOwner : styles.roleMember,
+                        ]}>
+                        {index === 0 ? 'Owner' : 'Member'}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              {/* Invite New Member button at end */}
+              <TouchableOpacity
+                onPress={onInviteMember}
+                activeOpacity={0.85}
+                style={[styles.inviteWrapper, { marginTop: 16 }]}>
+                <LinearGradient
+                  start={{ x: 0.1, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
+                  style={styles.inviteGradient}>
+                  <Text style={styles.inviteText}>Invite New Member</Text>
+                  <Ionicons name="person-add-outline" size={18} color="#fff" />
+                </LinearGradient>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+        </ScrollView>
+      )}
     </View>
   );
 }

@@ -15,6 +15,7 @@ import SearchBarScreen from './searchbar';
 import NotificationScreen from './notification';
 import TabBarScreen from './tabbarview';
 import CommunityScreen from './community';
+import CommunityDetailScreen from './communitydetail';
 import ExploreScreen from './explore';
 import GroupInfoScreen from './groupinfo';
 import MessageScreen from './messagescreen';
@@ -33,14 +34,14 @@ import StoreManagmentScreen from './storemanagment';
 import RewardScreen from './reward';
 import DailyRewardScreen from './dailyreward';
 import MembershipScreen from './membership';
+import WhatsHappeningScreen from './whatshappening';
 
 const Stack = createStackNavigator();
 
 export default function App() {
   return (
     <NavigationContainer>
-      {/* Make the tab navigator the app's initial screen so the bottom tabs are visible by default */}
-      <Stack.Navigator initialRouteName="TabBar" screenOptions={{ headerShown: false }}>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="Signup" component={SignupScreen} />
         <Stack.Screen name="WithPhone" component={WithPhoneScreen} />
@@ -55,6 +56,7 @@ export default function App() {
         <Stack.Screen name="Notification" component={NotificationScreen} />
         <Stack.Screen name="TabBar" component={TabBarScreen} />
         <Stack.Screen name="Community" component={CommunityScreen} />
+  <Stack.Screen name="CommunityDetail" component={CommunityDetailScreen} />
         <Stack.Screen name="Explore" component={ExploreScreen} />
         <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
         <Stack.Screen name="Message" component={MessageScreen} />
@@ -73,6 +75,7 @@ export default function App() {
            <Stack.Screen name="Reward" component={RewardScreen}/>
             <Stack.Screen name="DailyReward" component={DailyRewardScreen}/>
              <Stack.Screen name="Membership" component={MembershipScreen}/>
+             <Stack.Screen name="WhatsHappening" component={WhatsHappeningScreen}/>
       </Stack.Navigator>
     </NavigationContainer>
   );

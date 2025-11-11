@@ -64,8 +64,8 @@ export default function LoginScreen({ navigation }) {
       setEmail('');
       setPassword('');
       
-      // Navigate to Home screen on successful login
-      navigation.replace('Home');
+  // Navigate to TabBar (bottom tabs) on successful login
+  navigation.replace('TabBar');
     } catch (error) {
       console.error('Login Error:', error);
       

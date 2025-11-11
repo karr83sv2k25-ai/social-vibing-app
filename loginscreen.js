@@ -36,7 +36,8 @@ export default function LoginScreen({ navigation }) {
       
       if (data.success) {
         // Store user data in context or async storage
-        navigation.navigate('Home');
+        // Navigate to tab navigator so bottom tabs are visible
+        navigation.replace('TabBar');
       } else {
         alert(data.error || 'Login failed');
       }

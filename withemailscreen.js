@@ -118,7 +118,7 @@ export default function WithEmailScreen({ navigation }) {
       Alert.alert('Success', 'Account created successfully!', [
         {
           text: 'OK',
-          onPress: () => navigation.navigate('Home')
+          onPress: () => navigation.replace('TabBar')
         }
       ]);
     } catch (error) {
