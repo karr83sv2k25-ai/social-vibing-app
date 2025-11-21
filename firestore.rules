@@ -1,10 +1,46 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Allow users to create and read their own documents
+    
+    // Helper function to check if user is authenticated
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper function to check if user ID matches
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    // Audio calls collection
+    match /audio_calls/{communityId}/rooms/{roomId} {
+      // Allow authenticated users to create and read audio rooms
+      allow create: if isSignedIn();
+      allow read: if isSignedIn();
+      
+      // Allow update if user is authenticated (for joining, leaving, updating status)
+      allow update: if isSignedIn();
+      
+      // Allow delete if user created the room
+      allow delete: if isSignedIn() && 
+                      resource.data.createdBy == request.auth.uid;
+    }
+    
+    // Communities collection (if needed)
+    match /communities/{communityId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+    
+    // Users collection (if needed)
     match /users/{userId} {
-      allow create: if request.auth != null && request.auth.uid == userId;
-      allow read, update: if request.auth != null && request.auth.uid == userId;
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId);
+    }
+    
+    // Default rule - deny all access to other collections
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

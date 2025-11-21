@@ -1,8 +1,48 @@
 {
   "expo": {
+    "name": "Fiver Project",
+    "slug": "fiver-project",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash1.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.meharbilawalali.fiverproject",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app needs access to your camera to take photos for posts.",
+        "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to select images for posts.",
+        "NSMicrophoneUsageDescription": "This app needs access to your microphone to record voice messages and for live voice chat."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/profile.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.meharbilawalali.fiverproject",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "RECORD_AUDIO",
+        "MODIFY_AUDIO_SETTINGS",
+        "BLUETOOTH",
+        "BLUETOOTH_CONNECT"
+      ],
+      "softwareKeyboardLayoutMode": "pan"
+    },
     "extra": {
       "eas": {
-        "projectId": "3f0c6848-6155-4926-9839-757a064f66a5"
+        "projectId": "c5cdeef8-baf3-44d5-a63c-ddfd2b1f7c7c"
       },
   "FIREBASE_API_KEY": "AIzaSyD8GUTKesMY2Hpv-D3JS0vUG3CnD6yhRgc",
   "FIREBASE_AUTH_DOMAIN": "social-vibing-karr.firebaseapp.com",
@@ -12,11 +52,36 @@
   "FIREBASE_APP_ID": "1:907907966035:web:eca4797d3d76e6f00552a6",
   "FIREBASE_MEASUREMENT_ID": "G-496NQLYE01"
     },
-    "android": {
-      "package": "com.meharbilawalali.fiverproject"
-    },
     "plugins": [
-      "expo-font"
+      "expo-dev-client",
+      "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "ndkVersion": "26.1.10909125",
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false
+          }
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share them.",
+          "cameraPermission": "The app accesses your camera to let you take photos."
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record voice messages and for live voice chat."
+        }
+      ]
     ]
   }
 }
+
+
+
+

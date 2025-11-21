@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Modal, Text, TouchableOpacity } from 'react-native';
+import { View, Modal, Text, TouchableOpacity, Alert } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import HomeScreen from './homescreen';
 import CommunityScreen from './community';
@@ -13,15 +14,56 @@ const EmptyComponent = () => null;
 const Tab = createBottomTabNavigator();
 
 export default function BottomTabs() {
+  const navigation = useNavigation();
   const [showAddOptions, setShowAddOptions] = useState(false);
 
+  const handleAddOption = (option) => {
+    setShowAddOptions(false);
+    switch (option.id) {
+      case 'post':
+        // Navigate to post creation (you can create a PostScreen or use existing)
+        Alert.alert('Post', 'Post creation feature coming soon');
+        break;
+      case 'story':
+        Alert.alert('Story', 'Story creation feature coming soon');
+        break;
+      case 'live':
+        Alert.alert('Go Live', 'Live streaming feature coming soon');
+        break;
+      case 'community':
+        // Navigate to create community
+        navigation.navigate('CreateCommunityScreen');
+        break;
+      case 'collections':
+        Alert.alert('Collections', 'Collections feature coming soon');
+        break;
+      case 'question':
+        Alert.alert('Question', 'Question feature coming soon');
+        break;
+      case 'quiz':
+        Alert.alert('Quiz', 'Quiz feature coming soon');
+        break;
+      case 'poll':
+        Alert.alert('Poll', 'Poll feature coming soon');
+        break;
+      case 'draft':
+        Alert.alert('Drafts', 'Drafts feature coming soon');
+        break;
+      default:
+        break;
+    }
+  };
+
   const addOptions = [
-    { id: 'link', name: 'Link', icon: 'link', color: '#4A69FF', iconFamily: 'FontAwesome5' },
-    { id: 'live', name: 'Go Live', icon: 'video', color: '#E440FC', iconFamily: 'FontAwesome5' },
-    { id: 'image', name: 'Image', icon: 'image', color: '#FF4A4A', iconFamily: 'FontAwesome5' },
-    { id: 'chat', name: 'Public Chatroom', icon: 'chat', color: '#40FC6F', iconFamily: 'MaterialCommunityIcons' },
-    { id: 'blog', name: 'Blog', icon: 'newspaper', color: '#40DFFC', iconFamily: 'FontAwesome5' },
-    { id: 'drafts', name: 'Drafts', icon: 'file-document-outline', color: '#4D4D6B', iconFamily: 'MaterialCommunityIcons' },
+    { id: 'post', name: 'Post', icon: 'add', color: '#FFD700', iconFamily: 'Ionicons' },
+    { id: 'story', name: 'Story', icon: 'camera', color: '#FF69B4', iconFamily: 'Ionicons' },
+    { id: 'live', name: 'Go live', icon: 'videocam', color: '#4169E1', iconFamily: 'Ionicons' },
+    { id: 'community', name: 'Community', icon: 'people', color: '#FF6347', iconFamily: 'Ionicons' },
+    { id: 'collections', name: 'Collections', icon: 'gift', color: '#00CED1', iconFamily: 'Ionicons' },
+    { id: 'question', name: 'Question', icon: 'help-circle', color: '#1E90FF', iconFamily: 'Ionicons' },
+    { id: 'quiz', name: 'Quiz', icon: 'checkmark-done', color: '#32CD32', iconFamily: 'Ionicons' },
+    { id: 'poll', name: 'Poll', icon: 'bar-chart', color: '#FF8C00', iconFamily: 'Ionicons' },
+    { id: 'draft', name: 'Draft', icon: 'create', color: '#00FF00', iconFamily: 'Ionicons' },
   ];
 
   const AddOptionsModal = () => (
@@ -76,7 +118,7 @@ export default function BottomTabs() {
                 }}
                 onPress={() => {
                   setShowAddOptions(false);
-                  // Handle option selection here
+                  handleAddOption(option);
                 }}
               >
                 <View style={{
@@ -88,7 +130,9 @@ export default function BottomTabs() {
                   alignItems: 'center',
                   marginBottom: 8,
                 }}>
-                  {option.iconFamily === 'FontAwesome5' ? (
+                  {option.iconFamily === 'Ionicons' ? (
+                    <Ionicons name={option.icon} size={24} color="#fff" />
+                  ) : option.iconFamily === 'FontAwesome5' ? (
                     <FontAwesome5 name={option.icon} size={24} color="#fff" />
                   ) : (
                     <MaterialCommunityIcons name={option.icon} size={24} color="#fff" />

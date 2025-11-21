@@ -10,6 +10,7 @@ import {
   Image,
   ActivityIndicator,
   Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -151,7 +152,7 @@ export default function TopBar({ navigation }) {
   const [activeButton, setActiveButton] = useState('Explored');
   const [activeCategoryLive, setActiveCategoryLive] = useState('Anime & Manga');
   const [activeCategoryExplore, setActiveCategoryExplore] = useState('Anime & Manga');
-  const [activeCategoryJoined, setActiveCategoryJoined] = useState('Anime & Manga');
+  const [activeCategoryJoined, setActiveCategoryJoined] = useState('All');
   const [loading, setLoading] = useState(true);
   const [categories, setCategories] = useState([]);
   const [allCommunities, setAllCommunities] = useState([]);
@@ -214,11 +215,45 @@ export default function TopBar({ navigation }) {
   // Update explored communities when joined communities change
   useEffect(() => {
     if (allCommunities.length > 0) {
-      const joinedIds = joinedCommunities.map(comm => comm.community_id);
-      const filtered = allCommunities.filter(comm => !joinedIds.includes(comm.community_id));
+      const joinedIds = joinedCommunities.map(comm => comm.community_id || comm.id);
+      const filtered = allCommunities.filter(comm => {
+        const commId = comm.community_id || comm.id;
+        return !joinedIds.includes(commId);
+      });
       setExploredCommunities(filtered);
     }
   }, [allCommunities, joinedCommunities]);
+
+  // Sync joinedCommunities when allCommunities changes (for membership listener)
+  useEffect(() => {
+    if (auth.currentUser && allCommunities.length > 0) {
+      // Re-fetch memberships to sync with updated allCommunities
+      const syncJoinedCommunities = async () => {
+        try {
+          const membershipQuery = query(
+            collection(db, 'communities_members'),
+            where('user_id', '==', auth.currentUser.uid)
+          );
+          const membershipSnap = await getDocs(membershipQuery);
+          const joinedIds = membershipSnap.docs.map(doc => {
+            const data = doc.data();
+            return data.community_id || doc.id.split('_')[1];
+          }).filter(Boolean);
+          
+          const joinedComm = allCommunities.filter(
+            comm => {
+              const commId = comm.community_id || comm.id;
+              return joinedIds.includes(commId);
+            }
+          );
+          setJoinedCommunities(joinedComm);
+        } catch (error) {
+          console.error('Error syncing joined communities:', error);
+        }
+      };
+      syncJoinedCommunities();
+    }
+  }, [allCommunities, auth.currentUser?.uid]);
 
   // Handle joining events
   const handleJoinEvent = useCallback(async (eventId) => {
@@ -380,9 +415,13 @@ export default function TopBar({ navigation }) {
           setAllCommunities(communities);
 
           if (auth.currentUser) {
-            // Update managed communities
+            // Update managed communities - show communities created by current user
             const managedComm = communities.filter(
-              comm => comm.community_admin === auth.currentUser.uid
+              comm => 
+                comm.community_admin === auth.currentUser.uid ||
+                comm.uid === auth.currentUser.uid ||
+                comm.createdBy === auth.currentUser.uid ||
+                (Array.isArray(comm.adminIds) && comm.adminIds.includes(auth.currentUser.uid))
             );
             setManagedCommunities(managedComm);
           }
@@ -402,9 +441,17 @@ export default function TopBar({ navigation }) {
           where('user_id', '==', auth.currentUser.uid)
         ),
         (snapshot) => {
-          const joinedIds = snapshot.docs.map(doc => doc.data().community_id);
+          const joinedIds = snapshot.docs.map(doc => {
+            const data = doc.data();
+            return data.community_id || doc.id.split('_')[1]; // Support both field-based and composite ID
+          }).filter(Boolean);
+          
+          // Update joinedCommunities based on current allCommunities
           const joinedComm = allCommunities.filter(
-            comm => joinedIds.includes(comm.community_id)
+            comm => {
+              const commId = comm.community_id || comm.id;
+              return joinedIds.includes(commId);
+            }
           );
           setJoinedCommunities(joinedComm);
         },
@@ -561,7 +608,13 @@ export default function TopBar({ navigation }) {
             <TouchableOpacity
               key={btn}
               style={{ flex: 1, marginHorizontal: 5 }}
-              onPress={() => setActiveButton(btn)}
+              onPress={() => {
+                setActiveButton(btn);
+                // When "Joined" tab is clicked, set category to "All" to show all joined communities
+                if (btn === 'Joined') {
+                  setActiveCategoryJoined('All');
+                }
+              }}
               activeOpacity={0.8}
             >
               {isActive ? (
@@ -594,86 +647,51 @@ export default function TopBar({ navigation }) {
           {/* === EXPLORED TAB === */}
           {activeButton === 'Explored' && (
             <>
-              <View style={styles.card}>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle}>Live Communities</Text>
-                  <TouchableOpacity>
-                    <Text style={styles.viewAllText}>View All</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-                  {categories.map((cat) => {
-                    const isActive = activeCategoryLive === cat;
-                    return (
-                      <TouchableOpacity 
-                        key={cat + '_live'} 
-                        onPress={() => setActiveCategoryLive(cat)} 
-                        style={styles.categoryButton}
+              {/* 🎯 Communities Section */}
+              <View style={styles.eventsContainer}>
+                <Text style={styles.sectionTitle}>Communities</Text>
+                {allCommunities && allCommunities.length > 0 ? (
+                  <View style={styles.gridContainer}>
+                    {allCommunities.map((item, idx) => (
+                      <TouchableOpacity
+                        key={item.community_id || item.id || idx.toString()}
+                        style={styles.eventCardGrid}
+                        onPress={() => openValidationFor(item)}
+                        activeOpacity={0.8}
                       >
-                        <Text style={[styles.categoryText, { color: isActive ? '#fff' : '#aaa' }]}>{cat}</Text>
+                        {/* item.img was computed earlier as either {uri:...} or a require() fallback */}
+                        <View style={{ position: 'relative' }}>
+                          <Image
+                            source={item.img || require('./assets/profile.png')}
+                            style={styles.eventImageGrid}
+                          />
+                          {joinedCommunities.some(j => j.community_id === (item.community_id || item.id)) && (
+                            <View style={styles.followedBadge}><Text style={styles.followedBadgeText}>Followed</Text></View>
+                          )}
+                        </View>
+                        <Text style={styles.eventTitle} numberOfLines={1}>
+                          {item.name || item.community_title || item.title || 'Community'}
+                        </Text>
+                        <Text style={styles.eventDate} numberOfLines={1}>
+                          {item.category || item.community_category || ''}
+                        </Text>
+                        {!!item.description && (
+                          <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={2}>
+                            {item.description}
+                          </Text>
+                        )}
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
+                        </View>
                       </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-
-                <View style={styles.imageRow}>
-                  {exploredCommunities
-                    .filter(item => !activeCategoryLive || item.community_category === activeCategoryLive)
-                    .slice(0, 3)
-                    .map((item, index) => (
-                      <TouchableOpacity 
-                          key={item.community_id} 
-                          onPress={() => openValidationFor(item)}
-                          >
-                          <ImageBackground 
-                            source={item.img} 
-                            style={styles.cardImage} 
-                            imageStyle={{ borderRadius: 10 }}
-                          >
-                            {/* followed badge for explored cards */}
-                            {joinedCommunities.some(j => j.community_id === (item.community_id || item.id)) && (
-                              <View style={styles.followedBadgeSmall}><Text style={styles.followedBadgeText}>Followed</Text></View>
-                            )}
-                            <View style={styles.imageOverlay}>
-                              <Text style={styles.imageText}>{item.community_title}</Text>
-                            </View>
-                          </ImageBackground>
-                        </TouchableOpacity>
-                  ))}
-                </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.noEventsContainer}>
+                    <Text style={styles.noEventsText}>No communities found</Text>
+                  </View>
+                )}
               </View>
-
-              {/* 🌈 Gradient Button: View all Categories → */}
-              <TouchableOpacity 
-                activeOpacity={0.8} 
-                style={{ alignSelf: 'center', marginTop: 10 }}
-                onPress={() => navigation.navigate('AllCategories')}
-              >
-                <LinearGradient
-                  colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.gradientButton}
-                >
-                  <Text style={styles.gradientButtonText}>View all Categories </Text>
-                </LinearGradient>
-              </TouchableOpacity>
-
-                  <TouchableOpacity 
-                activeOpacity={0.8} 
-                style={{ alignSelf: 'center', marginTop: 10 }}
-                onPress={() => navigation.navigate('WhatsHappening')}
-              >
-                <LinearGradient
-                  colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.gradientButton}
-                >
-                  <Text style={styles.gradientButtonText}>What's Happening </Text>
-                </LinearGradient>
-              </TouchableOpacity>
             </>
           )}
 
@@ -695,42 +713,59 @@ export default function TopBar({ navigation }) {
               })}
             </ScrollView>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
-              {joinedCommunities
-                .filter(item => !activeCategoryJoined || item.community_category === activeCategoryJoined)
-                .map((item) => (
-                  <TouchableOpacity 
-                    key={item.community_id}
-                    onPress={() => navigation.navigate('CommunityDetail', { communityId: item.community_id })}
-                  >
-                    <ImageBackground
-                      source={item.img}
-                      style={styles.joinedImage}
-                      imageStyle={{ borderRadius: 10 }}
-                    >
-                      <View style={styles.imageOverlay}>
-                        <Text style={styles.imageText}>{item.community_title}</Text>
-                      </View>
-                    </ImageBackground>
-                  </TouchableOpacity>
-              ))}
-            </ScrollView>
+            {/* Joined Communities Grid */}
+            <View style={styles.eventsContainer}>
+              {joinedCommunities.length > 0 ? (
+                <View style={styles.gridContainer}>
+                  {joinedCommunities
+                    .filter(item => {
+                      // Filter by category - check both category and community_category fields
+                      if (!activeCategoryJoined || activeCategoryJoined === 'All') return true;
+                      const itemCategory = item.category || item.community_category;
+                      return itemCategory === activeCategoryJoined;
+                    })
+                    .map((item, idx) => (
+                      <TouchableOpacity
+                        key={item.community_id || item.id || idx.toString()}
+                        style={styles.eventCardGrid}
+                        onPress={() => navigation.navigate('GroupInfo', { communityId: item.community_id || item.id })}
+                        activeOpacity={0.8}
+                      >
+                        <View style={{ position: 'relative' }}>
+                          <Image
+                            source={item.img || require('./assets/profile.png')}
+                            style={styles.eventImageGrid}
+                          />
+                        </View>
+                        <Text style={styles.eventTitle} numberOfLines={1}>
+                          {item.name || item.community_title || item.title || 'Community'}
+                        </Text>
+                        <Text style={styles.eventDate} numberOfLines={1}>
+                          {item.category || item.community_category || ''}
+                        </Text>
+                        {!!item.description && (
+                          <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={2}>
+                            {item.description}
+                          </Text>
+                        )}
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                </View>
+              ) : (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 14 }}>No joined communities yet</Text>
+                  <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
+                    Explore communities to join them
+                  </Text>
+                </View>
+              )}
+            </View>
 
             {/* 🌈 Gradient Button: Explore More → */}
-            <TouchableOpacity 
-              activeOpacity={0.8} 
-              style={{ alignSelf: 'center', marginTop: 15 }}
-              onPress={() => navigation.navigate('ExploreCommunities')}
-            >
-              <LinearGradient
-                colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.gradientButton}
-              >
-                <Text style={styles.gradientButtonText}>Explore More </Text>
-              </LinearGradient>
-            </TouchableOpacity>
+          
           </View>
         )}
 
@@ -738,31 +773,56 @@ export default function TopBar({ navigation }) {
         {activeButton === 'Managed by you' && (
           <View>
             <Text style={styles.cardTitle}>Communities Managed by You</Text>
-
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 15 }}>
-              {managedCommunities.map((item) => (
-                <TouchableOpacity 
-                  key={item.community_id}
-                  onPress={() => navigation.navigate('EditCommunity', { communityId: item.community_id })}
-                >
-                  <ImageBackground
-                    source={item.img}
-                    style={styles.joinedImage}
-                    imageStyle={{ borderRadius: 10 }}
-                  >
-                    <View style={styles.imageOverlay}>
-                      <Text style={styles.imageText}>{item.community_title}</Text>
-                    </View>
-                  </ImageBackground>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+{/* thoes communities that the user is the admin of that community will be shown here */}
+            {/* Managed Communities Grid */}
+            <View style={styles.eventsContainer}>
+              {managedCommunities.length > 0 ? (
+                <View style={styles.gridContainer}>
+                  {managedCommunities.map((item, idx) => (
+                    <TouchableOpacity
+                      key={item.community_id || item.id || idx.toString()}
+                      style={styles.eventCardGrid}
+                      onPress={() => navigation.navigate('EditCommunity', { communityId: item.community_id || item.id })}
+                      activeOpacity={0.8}
+                    >
+                      <View style={{ position: 'relative' }}>
+                        <Image
+                          source={item.img || require('./assets/profile.png')}
+                          style={styles.eventImageGrid}
+                        />
+                      </View>
+                      <Text style={styles.eventTitle} numberOfLines={1}>
+                        {item.name || item.community_title || item.title || 'Community'}
+                      </Text>
+                      <Text style={styles.eventDate} numberOfLines={1}>
+                        {item.category || item.community_category || ''}
+                      </Text>
+                      {!!item.description && (
+                        <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={2}>
+                          {item.description}
+                        </Text>
+                      )}
+                      <View style={{ marginTop: 6 }}>
+                        <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <View style={{ padding: 20, alignItems: 'center' }}>
+                  <Text style={{ color: '#666', fontSize: 14 }}>No managed communities yet</Text>
+                  <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
+                    Create a community to manage it
+                  </Text>
+                </View>
+              )}
+            </View>
 
             {/* ✏️ Gradient Button: Create New Community */}
             <TouchableOpacity 
               activeOpacity={0.8} 
               style={{ alignSelf: 'center', marginTop: 15 }}
-              onPress={() => navigation.navigate('CreateCommunity')}
+              onPress={() => navigation.navigate('CreateCommunityScreen')}
             >
               <LinearGradient
                 colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
@@ -779,52 +839,6 @@ export default function TopBar({ navigation }) {
         </ScrollView>
       )}
 
-      {/* 🎯 Communities Section (show communities from Firestore) */}
-      {!loading && (
-        <View style={styles.eventsContainer}>
-          <Text style={styles.sectionTitle}>Communities</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {allCommunities && allCommunities.length > 0 ? (
-              allCommunities.map((item, idx) => (
-                <TouchableOpacity
-                  key={item.community_id || item.id || idx}
-                  style={styles.eventCard}
-                    onPress={() => openValidationFor(item)}
-                >
-                  {/* item.img was computed earlier as either {uri:...} or a require() fallback */}
-                  <View style={{ position: 'relative' }}>
-                    <Image
-                      source={item.img || require('./assets/profile.png')}
-                      style={styles.eventImage}
-                    />
-                    {joinedCommunities.some(j => j.community_id === (item.community_id || item.id)) && (
-                      <View style={styles.followedBadge}><Text style={styles.followedBadgeText}>Followed</Text></View>
-                    )}
-                  </View>
-                  <Text style={styles.eventTitle} numberOfLines={1}>
-                    {item.name || item.community_title || item.title || 'Community'}
-                  </Text>
-                  <Text style={styles.eventDate} numberOfLines={1}>
-                    {item.category || item.community_category || ''}
-                  </Text>
-                  {!!item.description && (
-                    <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={1}>
-                      {item.description}
-                    </Text>
-                  )}
-                  <View style={{ marginTop: 6 }}>
-                    <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
-                  </View>
-                </TouchableOpacity>
-              ))
-            ) : (
-              <View style={styles.noEventsContainer}>
-                <Text style={styles.noEventsText}>No communities found</Text>
-              </View>
-            )}
-          </ScrollView>
-        </View>
-      )}
     </View>
   );
 }const styles = StyleSheet.create({
@@ -913,11 +927,33 @@ export default function TopBar({ navigation }) {
     borderWidth: 1,
     borderColor: '#222',
   },
+  eventCardGrid: {
+    width: '48%',
+    backgroundColor: '#111',
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#222',
+  },
   eventImage: {
     width: '100%',
     height: 100,
     borderRadius: 8,
     marginBottom: 8,
+  },
+  eventImageGrid: {
+    width: '100%',
+    height: 120,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingBottom: 20,
+    width: '100%',
   },
   eventTitle: {
     color: '#fff',

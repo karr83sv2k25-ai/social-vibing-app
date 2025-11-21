@@ -1,16 +1,10 @@
-import React, { useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, TextInput, Text, ScrollView, Image, Dimensions } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, TouchableOpacity, StyleSheet, TextInput, Text, ScrollView, Image, Dimensions, ActivityIndicator } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
+import { getFirestore, collection, getDocs, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
+import { app } from './firebaseConfig';
 
-import user1 from './assets/post1.1.jpg';
-import user2 from './assets/post1.2.jpg';
-import user3 from './assets/post1.3.jpg';
-import shop1 from './assets/post2.png';
-import shop2 from './assets/post2.png';
-import shop3 from './assets/post2.png';
-import owner1 from './assets/post1.1.jpg';
-import owner2 from './assets/post1.1.jpg';
-import owner3 from './assets/post1.1.jpg';
 import starImage from './assets/starimage.png';
 import postIcon from './assets/posticon.jpg';
 
@@ -19,64 +13,324 @@ const { width } = Dimensions.get('window');
 export default function HeaderWithSearch({ navigation }) {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('All');
+  const [users, setUsers] = useState([]);
+  const [shops, setShops] = useState([]);
+  const [communities, setCommunities] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const tabs = ['All', 'Users', 'Shops', 'Community', 'Post Live'];
 
-  const users = [
-    { id: '1', name: 'John Doe', email: 'john@example.com', pic: user1 },
-    { id: '2', name: 'Jane Smith', email: 'jane@example.com', pic: user2 },
-    { id: '3', name: 'Alex Johnson', email: 'alex@example.com', pic: user3 },
-  ];
+  // Fetch users from Firestore (real-time)
+  useEffect(() => {
+    const db = getFirestore(app);
+    const usersCol = collection(db, 'users');
+    
+    const unsubscribe = onSnapshot(usersCol, (snapshot) => {
+      const usersData = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        return {
+          id: docSnap.id,
+          name: data.displayName || data.name || data.fullName || data.username || data.email || 'User',
+          email: data.email || '',
+          pic: data.profileImage || data.avatar || data.profile_image || data.photoURL || null,
+          username: data.username || '',
+        };
+      });
+      setUsers(usersData);
+      setLoading(false);
+    }, (error) => {
+      console.log('Error fetching users:', error);
+      setLoading(false);
+    });
 
-  const shops = [
-    { id: '1', name: 'Marvelous', owner: 'Deamon', ownerPic: owner1, pic: shop1 },
-    { id: '2', name: 'Marvelous', owner: 'Deamon', ownerPic: owner2, pic: shop2 },
-    { id: '3', name: 'Marvelous', owner: 'Deamon', ownerPic: owner3, pic: shop3 },
-  ];
+    return () => unsubscribe();
+  }, []);
 
-  const communityPosts = [
-    { id: '1', title: 'Anime Group', subtitle: 'English', members: 12, image: user1 },
-    { id: '2', title: 'Anime Group', subtitle: 'English', members: 12, image: user2 },
-    { id: '3', title: 'Anime Group', subtitle: 'English', members: 12, image: user3 },
-  ];
+  // Fetch shops/marketplace from Firestore (real-time)
+  useEffect(() => {
+    const db = getFirestore(app);
+    
+    // Check if marketplace collection exists
+    const marketplaceCol = collection(db, 'marketplace');
+    
+    const unsubscribe = onSnapshot(marketplaceCol, async (snapshot) => {
+      const shopsData = await Promise.all(
+        snapshot.docs.map(async (docSnap) => {
+          const data = docSnap.data();
+          let ownerName = 'Owner';
+          let ownerPic = null;
+          
+          // Fetch owner details if ownerId exists
+          if (data.ownerId) {
+            try {
+              const ownerRef = doc(db, 'users', data.ownerId);
+              const ownerSnap = await getDoc(ownerRef);
+              if (ownerSnap.exists()) {
+                const ownerData = ownerSnap.data();
+                ownerName = ownerData.displayName || ownerData.name || ownerData.username || 'Owner';
+                ownerPic = ownerData.profileImage || ownerData.avatar || null;
+              }
+            } catch (e) {
+              console.log('Error fetching owner:', e);
+            }
+          }
+          
+          return {
+            id: docSnap.id,
+            name: data.name || data.title || 'Shop',
+            owner: ownerName,
+            ownerPic: ownerPic,
+            pic: data.image || data.imageUrl || data.photo || null,
+            ownerId: data.ownerId,
+          };
+        })
+      );
+      setShops(shopsData);
+    }, (error) => {
+      console.log('Error fetching shops:', error);
+      // If marketplace collection doesn't exist, set empty array
+      setShops([]);
+    });
 
-  const posts = [
-    {
-      id: 1,
-      name: 'Hitachi BlackSoul',
-      username: '@hitachi',
-      text: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quisque euismod.',
-      likes: 123,
-      images: [user1, user2, user3],
-    },
-    {
-      id: 2,
-      name: 'Hitachi BlackSoul',
-      username: '@hitachi',
-      text: 'Just tried this amazing app feature, and it’s really cool! #ReactNative #UI',
-      likes: 98,
-      images: [shop1],
-    },
-  ];
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch communities from Firestore (real-time)
+  useEffect(() => {
+    const db = getFirestore(app);
+    const communitiesCol = collection(db, 'communities');
+    
+    const unsubscribe = onSnapshot(communitiesCol, (snapshot) => {
+      const communitiesData = snapshot.docs.map((docSnap) => {
+        const data = docSnap.data();
+        const memberCount = typeof data.community_members === 'number' 
+          ? data.community_members 
+          : (Array.isArray(data.members) ? data.members.length : 0);
+        
+        return {
+          id: docSnap.id,
+          title: data.name || 'Community',
+          subtitle: data.language || data.category || 'General',
+          members: memberCount,
+          image: data.profileImage || data.coverImage || data.backgroundImage || null,
+          category: data.category || '',
+        };
+      });
+      setCommunities(communitiesData);
+    }, (error) => {
+      console.log('Error fetching communities:', error);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Fetch posts and blogs from all communities (real-time)
+  useEffect(() => {
+    const db = getFirestore(app);
+    const unsubscribes = [];
+    
+    const fetchAllPosts = async () => {
+      try {
+        const communitiesSnapshot = await getDocs(collection(db, 'communities'));
+        const communities = communitiesSnapshot.docs;
+        
+        for (const commDoc of communities) {
+          const commId = commDoc.id;
+          
+          // Fetch blogs
+          try {
+            const blogsCol = collection(db, 'communities', commId, 'blogs');
+            const blogsQuery = query(blogsCol, orderBy('createdAt', 'desc'));
+            
+            const blogsUnsub = onSnapshot(blogsQuery, async (snapshot) => {
+              const allPostsData = [];
+              
+              for (const blogDoc of snapshot.docs) {
+                const blogData = blogDoc.data();
+                const authorId = blogData.authorId;
+                
+                let authorName = 'User';
+                let authorImage = null;
+                let username = '';
+                
+                if (authorId) {
+                  try {
+                    const userRef = doc(db, 'users', authorId);
+                    const userSnap = await getDoc(userRef);
+                    if (userSnap.exists()) {
+                      const userData = userSnap.data();
+                      authorName = userData.displayName || userData.name || userData.username || 'User';
+                      authorImage = userData.profileImage || userData.avatar || null;
+                      username = userData.username || '';
+                    }
+                  } catch (e) {
+                    console.log('Error fetching author:', e);
+                  }
+                }
+                
+                allPostsData.push({
+                  id: blogDoc.id,
+                  type: 'blog',
+                  communityId: commId,
+                  name: authorName,
+                  username: username ? `@${username}` : '',
+                  text: blogData.content || blogData.title || '',
+                  likes: typeof blogData.likes === 'number' ? blogData.likes : 0,
+                  images: [],
+                  authorImage: authorImage,
+                  createdAt: blogData.createdAt,
+                });
+              }
+              
+              // Update posts state
+              setPosts((prev) => {
+                const filtered = prev.filter(p => p.type !== 'blog' || p.communityId !== commId);
+                return [...filtered, ...allPostsData].sort((a, b) => {
+                  const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+                  const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+                  return bTime - aTime;
+                });
+              });
+            });
+            
+            unsubscribes.push(blogsUnsub);
+          } catch (e) {
+            console.log('Error setting up blogs listener:', e);
+          }
+          
+          // Fetch posts
+          try {
+            const postsCol = collection(db, 'communities', commId, 'posts');
+            const postsQuery = query(postsCol, orderBy('createdAt', 'desc'));
+            
+            const postsUnsub = onSnapshot(postsQuery, async (snapshot) => {
+              const allPostsData = [];
+              
+              for (const postDoc of snapshot.docs) {
+                const postData = postDoc.data();
+                const authorId = postData.authorId;
+                
+                let authorName = 'User';
+                let authorImage = null;
+                let username = '';
+                
+                if (authorId) {
+                  try {
+                    const userRef = doc(db, 'users', authorId);
+                    const userSnap = await getDoc(userRef);
+                    if (userSnap.exists()) {
+                      const userData = userSnap.data();
+                      authorName = userData.displayName || userData.name || userData.username || 'User';
+                      authorImage = userData.profileImage || userData.avatar || null;
+                      username = userData.username || '';
+                    }
+                  } catch (e) {
+                    console.log('Error fetching author:', e);
+                  }
+                }
+                
+                const images = postData.imageUri ? [postData.imageUri] : [];
+                
+                allPostsData.push({
+                  id: postDoc.id,
+                  type: 'image',
+                  communityId: commId,
+                  name: authorName,
+                  username: username ? `@${username}` : '',
+                  text: postData.caption || '',
+                  likes: typeof postData.likes === 'number' ? postData.likes : 0,
+                  images: images,
+                  authorImage: authorImage,
+                  createdAt: postData.createdAt,
+                });
+              }
+              
+              // Update posts state
+              setPosts((prev) => {
+                const filtered = prev.filter(p => p.type !== 'image' || p.communityId !== commId);
+                return [...filtered, ...allPostsData].sort((a, b) => {
+                  const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+                  const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+                  return bTime - aTime;
+                });
+              });
+            });
+            
+            unsubscribes.push(postsUnsub);
+          } catch (e) {
+            console.log('Error setting up posts listener:', e);
+          }
+        }
+      } catch (e) {
+        console.log('Error fetching communities for posts:', e);
+      }
+    };
+    
+    fetchAllPosts();
+    
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
+    };
+  }, []);
+
+  // Filter data based on search query
+  const filterData = (data, searchQuery) => {
+    if (!searchQuery.trim()) return data;
+    
+    const query = searchQuery.toLowerCase();
+    return data.filter((item) => {
+      if (item.name && item.name.toLowerCase().includes(query)) return true;
+      if (item.email && item.email.toLowerCase().includes(query)) return true;
+      if (item.username && item.username.toLowerCase().includes(query)) return true;
+      if (item.title && item.title.toLowerCase().includes(query)) return true;
+      if (item.text && item.text.toLowerCase().includes(query)) return true;
+      if (item.subtitle && item.subtitle.toLowerCase().includes(query)) return true;
+      if (item.category && item.category.toLowerCase().includes(query)) return true;
+      return false;
+    });
+  };
+
+  const filteredUsers = filterData(users, search);
+  const filteredShops = filterData(shops, search);
+  const filteredCommunities = filterData(communities, search);
+  const filteredPosts = filterData(posts, search);
 
   // User row
   const renderUserRow = (item) => (
-    <View key={item.id} style={styles.userRow}>
-      <Image source={item.pic} style={styles.userPic} />
+    <TouchableOpacity 
+      key={item.id} 
+      style={styles.userRow}
+      onPress={() => navigation.navigate('Profile', { userId: item.id })}
+    >
+      <Image 
+        source={item.pic ? { uri: item.pic } : require('./assets/a1.png')} 
+        style={styles.userPic} 
+      />
       <View style={{ flex: 1, marginLeft: 15 }}>
         <Text style={styles.nameText}>{item.name}</Text>
-        <Text style={styles.subText}>{item.email}</Text>
+        <Text style={styles.subText}>{item.email || item.username || ''}</Text>
       </View>
-      <TouchableOpacity style={styles.visitButton}>
+      <TouchableOpacity 
+        style={styles.visitButton}
+        onPress={() => navigation.navigate('Profile', { userId: item.id })}
+      >
         <Text style={styles.visitText}>Visit</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   // Shop row
   const renderShopRow = (shop) => (
-    <View key={shop.id} style={styles.userRow}>
-      <Image source={shop.pic} style={styles.shopPic} />
+    <TouchableOpacity 
+      key={shop.id} 
+      style={styles.userRow}
+      onPress={() => navigation.navigate('MarketPlace', { shopId: shop.id })}
+    >
+      <Image 
+        source={shop.pic ? { uri: shop.pic } : require('./assets/post2.png')} 
+        style={styles.shopPic} 
+      />
       <View style={{ flex: 1, marginLeft: 15 }}>
         <Text style={styles.nameText}>{shop.name}</Text>
         <View style={styles.ownerRow}>
@@ -84,91 +338,94 @@ export default function HeaderWithSearch({ navigation }) {
             <Text style={styles.ownerText}>Owner: {shop.owner}</Text>
           </View>
           <View style={styles.profileContainer}>
-            <Image source={shop.ownerPic} style={styles.profilePic} />
+            <Image 
+              source={shop.ownerPic ? { uri: shop.ownerPic } : require('./assets/a1.png')} 
+              style={styles.profilePic} 
+            />
             <Text style={styles.profileName}>{shop.owner}</Text>
             <Image source={starImage} style={styles.profileIcon} />
           </View>
         </View>
       </View>
-      <TouchableOpacity style={styles.visitButton}>
+      <TouchableOpacity 
+        style={styles.visitButton}
+        onPress={() => navigation.navigate('MarketPlace', { shopId: shop.id })}
+      >
         <Text style={styles.visitText}>Visit</Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 
   // Community row
   const renderCommunityRow = (item) => (
-    <View key={item.id} style={styles.communityRow}>
-      <Image source={item.image} style={styles.communityImage} />
-      <View style={{ marginLeft: 15, justifyContent: 'center' }}>
+    <TouchableOpacity 
+      key={item.id} 
+      style={styles.communityRow}
+      onPress={() => navigation.navigate('GroupInfo', { communityId: item.id, groupTitle: item.title })}
+    >
+      <Image 
+        source={item.image ? { uri: item.image } : require('./assets/posticon.jpg')} 
+        style={styles.communityImage} 
+      />
+      <View style={{ marginLeft: 15, justifyContent: 'center', flex: 1 }}>
         <Text style={styles.communityTitle}>{item.title}</Text>
         <Text style={styles.communitySubtitle}>{item.subtitle}</Text>
 
         <View style={styles.communityLogosContainer}>
-          <View style={styles.logoRow}>
-            <Image source={owner1} style={styles.smallLogo} />
-            <Image source={owner2} style={[styles.smallLogo, { marginLeft: -8 }]} />
-            <Image source={owner3} style={[styles.smallLogo, { marginLeft: -8 }]} />
-          </View>
           <Text style={styles.membersText}>{item.members} Members</Text>
         </View>
 
+        {item.category && (
         <View style={styles.tagContainer}>
           <TouchableOpacity style={[styles.tagButton, { borderColor: '#00F0FFBF' }]}>
-            <Text style={styles.tagText}>#univversocraft</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tagButton, { borderColor: '#F40000' }]}>
-            <Text style={styles.tagText}>#Love</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tagButton, { borderColor: '#585D0C' }]}>
-            <Text style={styles.tagText}>#Animie</Text>
+              <Text style={styles.tagText}>#{item.category}</Text>
           </TouchableOpacity>
         </View>
+        )}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 
   // Post row
   const renderPost = (post) => (
-    <View key={post.id} style={styles.postContainer}>
+    <View key={`${post.communityId}-${post.type}-${post.id}`} style={styles.postContainer}>
       <View style={styles.postHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image source={postIcon} style={styles.postProfileImage} />
+          <Image 
+            source={post.authorImage ? { uri: post.authorImage } : require('./assets/a1.png')} 
+            style={styles.postProfileImage} 
+          />
           <View style={{ marginLeft: 10 }}>
             <Text style={styles.postName}>{post.name}</Text>
-            <Text style={styles.postUsername}>{post.username}</Text>
+            <Text style={styles.postUsername}>{post.username || ''}</Text>
           </View>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity style={styles.followButton}>
-            <Text style={styles.followText}>Follow</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={{ marginLeft: 10 }}>
-            <Entypo name="dots-three-horizontal" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
       </View>
 
-      <Text style={styles.postText}>{post.text}</Text>
+      {post.text && <Text style={styles.postText}>{post.text}</Text>}
 
+      {post.images && post.images.length > 0 && (
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>
         {post.images.map((img, index) => (
-          <Image key={index} source={img} style={[styles.postImage, { width: (width - 60) / post.images.length }]} />
+            <Image 
+              key={index} 
+              source={{ uri: img }} 
+              style={[styles.postImage, { width: (width - 60) / post.images.length }]} 
+            />
         ))}
       </View>
+      )}
 
       <View style={styles.postFooter}>
         <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Ionicons name="heart-outline" size={24} color="#fff" />
-          <Text style={{ color: '#fff', marginLeft: 5 }}>{post.likes}</Text>
+          <Text style={{ color: '#fff', marginLeft: 5 }}>{post.likes || 0}</Text>
         </TouchableOpacity>
         <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 20 }}>
           <Ionicons name="chatbubble-outline" size={24} color="#fff" />
-          <Text style={{ color: '#fff', marginLeft: 5 }}>12</Text>
         </TouchableOpacity>
         <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 20 }}>
           <Ionicons name="share-social-outline" size={24} color="#fff" />
-          <Text style={{ color: '#fff', marginLeft: 5 }}>Share</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -204,27 +461,91 @@ export default function HeaderWithSearch({ navigation }) {
           ))}
         </ScrollView>
 
+        {/* Loading Indicator */}
+        {loading && (
+          <View style={{ padding: 20, alignItems: 'center' }}>
+            <ActivityIndicator size="large" color="#08FFE2" />
+            <Text style={{ color: '#fff', marginTop: 10 }}>Loading...</Text>
+          </View>
+        )}
+
         {/* ALL TAB CONTENT */}
-        {activeTab === 'All' && (
+        {!loading && activeTab === 'All' && (
           <>
-            <Text style={styles.heading}>Users ></Text>
-            <View style={styles.userCard}>{users.map(renderUserRow)}</View>
+            <Text style={styles.heading}>Users {filteredUsers.length > 0 && `(${filteredUsers.length})`} {'>'}</Text>
+            {filteredUsers.length > 0 ? (
+              <View style={styles.userCard}>{filteredUsers.map(renderUserRow)}</View>
+            ) : (
+              <View style={styles.userCard}>
+                <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No users found</Text>
+              </View>
+            )}
 
-            <Text style={styles.heading}>Shops ></Text>
-            <View style={styles.userCard}>{shops.map(renderShopRow)}</View>
+            <Text style={styles.heading}>Shops {filteredShops.length > 0 && `(${filteredShops.length})`} {'>'}</Text>
+            {filteredShops.length > 0 ? (
+              <View style={styles.userCard}>{filteredShops.map(renderShopRow)}</View>
+            ) : (
+              <View style={styles.userCard}>
+                <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No shops found</Text>
+              </View>
+            )}
 
-            <Text style={styles.heading}>Community ></Text>
-            <View style={styles.userCard}>{communityPosts.map(renderCommunityRow)}</View>
+            <Text style={styles.heading}>Community {filteredCommunities.length > 0 && `(${filteredCommunities.length})`} {'>'}</Text>
+            {filteredCommunities.length > 0 ? (
+              <View style={styles.userCard}>{filteredCommunities.map(renderCommunityRow)}</View>
+            ) : (
+              <View style={styles.userCard}>
+                <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No communities found</Text>
+              </View>
+            )}
 
-            <Text style={styles.heading}>Post Live ></Text>
-            <View>{posts.map(renderPost)}</View>
+            <Text style={styles.heading}>Post Live {filteredPosts.length > 0 && `(${filteredPosts.length})`} {'>'}</Text>
+            {filteredPosts.length > 0 ? (
+              <View>{filteredPosts.map(renderPost)}</View>
+            ) : (
+              <View style={{ padding: 20, alignItems: 'center' }}>
+                <Text style={{ color: '#888' }}>No posts found</Text>
+              </View>
+            )}
           </>
         )}
 
-        {activeTab === 'Users' && <View style={styles.userCard}>{users.map(renderUserRow)}</View>}
-        {activeTab === 'Shops' && <View style={styles.userCard}>{shops.map(renderShopRow)}</View>}
-        {activeTab === 'Community' && <View style={styles.userCard}>{communityPosts.map(renderCommunityRow)}</View>}
-        {activeTab === 'Post Live' && <View>{posts.map(renderPost)}</View>}
+        {!loading && activeTab === 'Users' && (
+          filteredUsers.length > 0 ? (
+            <View style={styles.userCard}>{filteredUsers.map(renderUserRow)}</View>
+          ) : (
+            <View style={styles.userCard}>
+              <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No users found</Text>
+            </View>
+          )
+        )}
+        {!loading && activeTab === 'Shops' && (
+          filteredShops.length > 0 ? (
+            <View style={styles.userCard}>{filteredShops.map(renderShopRow)}</View>
+          ) : (
+            <View style={styles.userCard}>
+              <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No shops found</Text>
+            </View>
+          )
+        )}
+        {!loading && activeTab === 'Community' && (
+          filteredCommunities.length > 0 ? (
+            <View style={styles.userCard}>{filteredCommunities.map(renderCommunityRow)}</View>
+          ) : (
+            <View style={styles.userCard}>
+              <Text style={{ color: '#888', textAlign: 'center', padding: 20 }}>No communities found</Text>
+            </View>
+          )
+        )}
+        {!loading && activeTab === 'Post Live' && (
+          filteredPosts.length > 0 ? (
+            <View>{filteredPosts.map(renderPost)}</View>
+          ) : (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={{ color: '#888' }}>No posts found</Text>
+            </View>
+          )
+        )}
       </ScrollView>
     </View>
   );

@@ -35,6 +35,9 @@ import RewardScreen from './reward';
 import DailyRewardScreen from './dailyreward';
 import MembershipScreen from './membership';
 import WhatsHappeningScreen from './whatshappening';
+import CreateCommunityScreen from './CreateCommunityScreen';
+import EditCommunityScreen from './EditCommunityScreen';
+import GroupAudioCallScreen from './GroupAudioCallScreen';
 
 const Stack = createStackNavigator();
 
@@ -76,6 +79,9 @@ export default function App() {
             <Stack.Screen name="DailyReward" component={DailyRewardScreen}/>
              <Stack.Screen name="Membership" component={MembershipScreen}/>
              <Stack.Screen name="WhatsHappening" component={WhatsHappeningScreen}/>
+             <Stack.Screen name="CreateCommunityScreen" component={CreateCommunityScreen}/>
+             <Stack.Screen name="EditCommunity" component={EditCommunityScreen}/>
+             <Stack.Screen name="GroupAudioCall" component={GroupAudioCallScreen}/>
       </Stack.Navigator>
     </NavigationContainer>
   );

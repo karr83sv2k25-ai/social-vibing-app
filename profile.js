@@ -11,9 +11,9 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
-import { getFirestore, doc, getDoc, onSnapshot, updateDoc, increment } from "firebase/firestore";
+import { getFirestore, doc, getDoc, onSnapshot, updateDoc, increment, collection, getDocs } from "firebase/firestore";
 import { app } from "./firebaseConfig";
 
 const { width } = Dimensions.get("window");
@@ -73,26 +73,70 @@ const RewardDot = ({ day, state = "done" }) => {
 /* --------- MAIN COMPONENT --------- */
 export default function ProfileScreen() {
   const navigation = useNavigation();
+  const route = useRoute();
+  const { userId } = route.params || {};
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [followersCount, setFollowersCount] = useState(0);
 
   useEffect(() => {
     const auth = getAuth(app);
-    const user = auth.currentUser;
-    if (!user) {
+    const currentUser = auth.currentUser;
+    const db = getFirestore(app);
+    
+    // Determine which user's profile to show
+    const targetUserId = userId || (currentUser ? currentUser.uid : null);
+    
+    if (!targetUserId) {
       setLoading(false);
       return;
     }
 
-    const db = getFirestore(app);
-    const userRef = doc(db, 'users', user.uid);
+    // Check if viewing own profile
+    const ownProfile = currentUser && targetUserId === currentUser.uid;
+    setIsOwnProfile(ownProfile);
+
+    const userRef = doc(db, 'users', targetUserId);
 
     // Real-time listener for user document
     const unsubscribe = onSnapshot(
       userRef,
-      (snap) => {
+      async (snap) => {
         if (snap.exists()) {
-          setUserData(snap.data());
+          const data = snap.data();
+          setUserData(data);
+          
+          // Fetch following count
+          try {
+            const followingCol = collection(db, 'users', targetUserId, 'following');
+            const followingSnapshot = await getDocs(followingCol);
+            setFollowingCount(followingSnapshot.size);
+          } catch (e) {
+            console.log('Error fetching following count:', e);
+          }
+          
+          // Fetch followers count (check all users' following subcollections)
+          try {
+            const allUsersSnapshot = await getDocs(collection(db, 'users'));
+            let followers = 0;
+            for (const userDoc of allUsersSnapshot.docs) {
+              if (userDoc.id === targetUserId) continue;
+              try {
+                const followDocRef = doc(db, 'users', userDoc.id, 'following', targetUserId);
+                const followDoc = await getDoc(followDocRef);
+                if (followDoc.exists()) {
+                  followers++;
+                }
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+            setFollowersCount(followers);
+          } catch (e) {
+            console.log('Error fetching followers count:', e);
+          }
         } else {
           console.log('No user data found!');
         }
@@ -105,18 +149,20 @@ export default function ProfileScreen() {
       }
     );
 
-    // Increment visit count once when profile mounts
-    (async () => {
-      try {
-        await updateDoc(userRef, { visits: increment(1) });
-      } catch (err) {
-        // ignore errors for increment (e.g., permission)
-        console.error('Error incrementing visits:', err);
-      }
-    })();
+    // Increment visit count only when viewing other user's profile (not own profile)
+    if (!ownProfile && currentUser) {
+      (async () => {
+        try {
+          await updateDoc(userRef, { visits: increment(1) });
+        } catch (err) {
+          // ignore errors for increment (e.g., permission)
+          console.error('Error incrementing visits:', err);
+        }
+      })();
+    }
 
     return () => unsubscribe();
-  }, []);
+  }, [userId]);
 
   if (loading) {
     return (
@@ -151,13 +197,24 @@ export default function ProfileScreen() {
               </Text>
             </View>
 
-            {/* Edit Profile Button */}
-            <TouchableOpacity
-              style={styles.iconBtn}
-              onPress={() => navigation.navigate("EditProfile")}
-            >
-              <Feather name="edit-2" size={16} color={C.text} />
-            </TouchableOpacity>
+            {/* Edit Profile Button - Only show for own profile */}
+            {isOwnProfile && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => navigation.navigate("EditProfile")}
+              >
+                <Feather name="edit-2" size={16} color={C.text} />
+              </TouchableOpacity>
+            )}
+            {/* Back Button - Show when viewing other user's profile */}
+            {!isOwnProfile && (
+              <TouchableOpacity
+                style={styles.iconBtn}
+                onPress={() => navigation.goBack()}
+              >
+                <Ionicons name="arrow-back" size={16} color={C.text} />
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* Tags */}
@@ -169,73 +226,77 @@ export default function ProfileScreen() {
 
           {/* Stats (real-time from Firestore) */}
           <View style={styles.statsRow}>
-            <Stat value={userData?.followers ?? 0} label="Followers" />
-            <Stat value={userData?.following ?? 0} label="Following" />
+            <Stat value={followersCount} label="Followers" />
+            <Stat value={followingCount} label="Following" />
             <Stat value={userData?.friends ?? 0} label="Friends" />
-            <Stat value={userData?.visits ?? 0} label="Visits" />
+            {isOwnProfile && <Stat value={userData?.visits ?? 0} label="Visits" />}
           </View>
         </View>
       </LinearGradient>
 
-      {/* ===== WALLET ===== */}
-      <View style={styles.walletCard}>
-        <Text style={styles.walletTitle}>Wallet</Text>
+      {/* ===== WALLET ===== - Only show for own profile */}
+      {isOwnProfile && (
+        <>
+          <View style={styles.walletCard}>
+            <Text style={styles.walletTitle}>Wallet</Text>
 
-        <TouchableOpacity activeOpacity={0.9} style={styles.purchaseBtn}>
-          <LinearGradient
-            colors={["rgba(162,162,162,0.15)", "rgba(255,251,251,0)"]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={styles.purchaseBtnInner}
-          >
-            <Text style={{ color: C.text, fontWeight: "700", fontSize: 12 }}>Purchase</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.9} style={styles.purchaseBtn}>
+              <LinearGradient
+                colors={["rgba(162,162,162,0.15)", "rgba(255,251,251,0)"]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={styles.purchaseBtnInner}
+              >
+                <Text style={{ color: C.text, fontWeight: "700", fontSize: 12 }}>Purchase</Text>
+              </LinearGradient>
+            </TouchableOpacity>
 
-        <View style={styles.walletRow}>
-          <View style={styles.walletChipPlain}>
-            <Image source={require("./assets/goldicon.png")} style={styles.walletIconBig} />
-            <Text style={styles.walletChipPlainText}>5</Text>
+            <View style={styles.walletRow}>
+              <View style={styles.walletChipPlain}>
+                <Image source={require("./assets/goldicon.png")} style={styles.walletIconBig} />
+                <Text style={styles.walletChipPlainText}>5</Text>
+              </View>
+              <View style={styles.walletChipPlain}>
+                <Image source={require("./assets/diamond1.png")} style={styles.walletIconBig} />
+                <Text style={styles.walletChipPlainText}>5</Text>
+              </View>
+              <View style={styles.walletChipPlain}>
+                <Image source={require("./assets/trophy.png")} style={styles.walletIconBig} />
+                <Text style={styles.walletChipPlainText}>5</Text>
+              </View>
+            </View>
           </View>
-          <View style={styles.walletChipPlain}>
-            <Image source={require("./assets/diamond1.png")} style={styles.walletIconBig} />
-            <Text style={styles.walletChipPlainText}>5</Text>
+
+          {/* ===== REWARDS ===== */}
+          <View style={styles.rewardsCard}>
+            <View style={styles.rewardsHeader}>
+              <Text style={styles.rewardsTitle}>Daily Rewards</Text>
+              <TouchableOpacity>
+                <Text style={{ color: C.cyan, fontWeight: "600" }}>More Rewards ›</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.rewardsDots}>
+              <RewardDot day="Missed" state="missed" />
+              <RewardDot day="Today" state="today" />
+              <RewardDot day="21 Sep" state="future" />
+              <RewardDot day="22 Sep" state="future" />
+              <RewardDot day="23 Sep" state="future" />
+            </View>
+
+            <TouchableOpacity activeOpacity={0.9} style={styles.claimWrapper}>
+              <LinearGradient
+                colors={[C.brand, "rgba(191,46,240,0.2)"]}
+                start={{ x: 0.1, y: 0 }}
+                end={{ x: 0.9, y: 1 }}
+                style={styles.claimBtn}
+              >
+                <Text style={styles.claimText}>Claim Reward</Text>
+              </LinearGradient>
+            </TouchableOpacity>
           </View>
-          <View style={styles.walletChipPlain}>
-            <Image source={require("./assets/trophy.png")} style={styles.walletIconBig} />
-            <Text style={styles.walletChipPlainText}>5</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* ===== REWARDS ===== */}
-      <View style={styles.rewardsCard}>
-        <View style={styles.rewardsHeader}>
-          <Text style={styles.rewardsTitle}>Daily Rewards</Text>
-          <TouchableOpacity>
-            <Text style={{ color: C.cyan, fontWeight: "600" }}>More Rewards ›</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.rewardsDots}>
-          <RewardDot day="Missed" state="missed" />
-          <RewardDot day="Today" state="today" />
-          <RewardDot day="21 Sep" state="future" />
-          <RewardDot day="22 Sep" state="future" />
-          <RewardDot day="23 Sep" state="future" />
-        </View>
-
-        <TouchableOpacity activeOpacity={0.9} style={styles.claimWrapper}>
-          <LinearGradient
-            colors={[C.brand, "rgba(191,46,240,0.2)"]}
-            start={{ x: 0.1, y: 0 }}
-            end={{ x: 0.9, y: 1 }}
-            style={styles.claimBtn}
-          >
-            <Text style={styles.claimText}>Claim Reward</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
+        </>
+      )}
 
       {/* ===== STORIES ===== */}
       <Text style={styles.sectionTitle}>Stories</Text>
@@ -257,44 +318,48 @@ export default function ProfileScreen() {
         ))}
       </ScrollView>
 
-      {/* ===== MORE ===== */}
-      <Text style={[styles.sectionTitle, { marginTop: 10 }]}>More</Text>
-      <View style={{ paddingHorizontal: PADDING_H }}>
-        <View style={styles.listCard}>
-          {/* ✅ Only My Store navigates */}
-          <ListRow title="My Store" onPress={() => navigation.navigate("MyStore")} />
-          <View style={styles.divider} />
-          <ListRow title="Membership" onPress={() => navigation.navigate("Membership")}  />
-          <View style={styles.divider} />
-          <ListRow title="Reward Center"onPress={() => navigation.navigate("Reward")} />
-          <View style={styles.divider} />
-          <ListRow title="Help Center" />
-          <View style={styles.divider} />
-          <ListRow title="Shop" />
-          <View style={styles.divider} />
-          <ListRow title="Account Setting" />
-        </View>
+      {/* ===== MORE ===== - Only show for own profile */}
+      {isOwnProfile && (
+        <>
+          <Text style={[styles.sectionTitle, { marginTop: 10 }]}>More</Text>
+          <View style={{ paddingHorizontal: PADDING_H }}>
+            <View style={styles.listCard}>
+              {/* ✅ Only My Store navigates */}
+              <ListRow title="My Store" onPress={() => navigation.navigate("MyStore")} />
+              <View style={styles.divider} />
+              <ListRow title="Membership" onPress={() => navigation.navigate("Membership")}  />
+              <View style={styles.divider} />
+              <ListRow title="Reward Center"onPress={() => navigation.navigate("Reward")} />
+              <View style={styles.divider} />
+              <ListRow title="Help Center" />
+              <View style={styles.divider} />
+              <ListRow title="Shop" />
+              <View style={styles.divider} />
+              <ListRow title="Account Setting" />
+            </View>
 
-        <TouchableOpacity 
-          activeOpacity={0.9} 
-          style={styles.logoutBtn}
-          onPress={async () => {
-            try {
-              const auth = getAuth();
-              await signOut(auth);
-              navigation.reset({
-                index: 0,
-                routes: [{ name: 'Login' }],
-              });
-            } catch (error) {
-              console.error('Logout Error:', error);
-              Alert.alert('Error', 'Failed to log out. Please try again.');
-            }
-          }}
-        >
-          <Text style={styles.logoutText}>Log Out</Text>
-        </TouchableOpacity>
-      </View>
+            <TouchableOpacity 
+              activeOpacity={0.9} 
+              style={styles.logoutBtn}
+              onPress={async () => {
+                try {
+                  const auth = getAuth();
+                  await signOut(auth);
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Login' }],
+                  });
+                } catch (error) {
+                  console.error('Logout Error:', error);
+                  Alert.alert('Error', 'Failed to log out. Please try again.');
+                }
+              }}
+            >
+              <Text style={styles.logoutText}>Log Out</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
     </ScrollView>
   );
 }
