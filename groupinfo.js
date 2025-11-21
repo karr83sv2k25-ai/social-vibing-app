@@ -84,6 +84,8 @@ export default function GroupInfoScreen() {
   const voiceChatScrollRef = useRef(null);
   const inputRef = useRef(null);
   const [community, setCommunity] = useState(null);
+  const [showVoiceRoomButton, setShowVoiceRoomButton] = useState(true);
+  const scrollOffsetRef = useRef(0);
   const [members, setMembers] = useState([]);
   const [allMembers, setAllMembers] = useState([]);
   const [admins, setAdmins] = useState([]);
@@ -2548,7 +2550,6 @@ export default function GroupInfoScreen() {
 
     try {
       const db = getFirestore(firebaseApp);
-      const firestore = await import('firebase/firestore');
       
       // Create a new audio room
       const roomId = `room_${Date.now()}_${currentUser.id}`;
@@ -2561,8 +2562,8 @@ export default function GroupInfoScreen() {
         communityName: community?.name || groupTitle || 'Community',
         createdBy: currentUser.id,
         createdByName: currentUser.name,
-        createdAt: firestore.serverTimestamp(),
-        updatedAt: firestore.serverTimestamp(),
+        createdAt: now,
+        updatedAt: now,
         participants: [{
           userId: currentUser.id,
           userName: currentUser.name,
@@ -2582,7 +2583,7 @@ export default function GroupInfoScreen() {
       });
     } catch (e) {
       console.log('Error starting audio call:', e);
-      Alert.alert('Error', 'Failed to start audio call');
+      Alert.alert('Error', 'Failed to start audio call: ' + e.message);
     }
   };
 
@@ -2608,7 +2609,24 @@ export default function GroupInfoScreen() {
       ) : (
         <>
           {/* Content Area */}
-          <ScrollView style={{ flex: 1 }}>
+          <ScrollView 
+            style={{ flex: 1 }}
+            onScroll={(event) => {
+              const currentOffset = event.nativeEvent.contentOffset.y;
+              const scrollDiff = currentOffset - scrollOffsetRef.current;
+              
+              // Hide button when scrolling down (scrollDiff > 0)
+              // Show button when scrolling up (scrollDiff < 0)
+              if (scrollDiff > 10) {
+                setShowVoiceRoomButton(false);
+              } else if (scrollDiff < -10) {
+                setShowVoiceRoomButton(true);
+              }
+              
+              scrollOffsetRef.current = currentOffset;
+            }}
+            scrollEventThrottle={16}
+          >
             {/* Tab 1: Community */}
             {activeTab === 'community' && (
               <>
@@ -3102,7 +3120,7 @@ export default function GroupInfoScreen() {
               >
                   <View style={{ flex: 1, flexDirection: 'column' }}>
                     {/* Active Audio Call Banner */}
-                    {activeAudioCall && (
+                    {activeAudioCall && showVoiceRoomButton && (
                       <TouchableOpacity
                         style={styles.activeCallBanner}
                         onPress={() => {
