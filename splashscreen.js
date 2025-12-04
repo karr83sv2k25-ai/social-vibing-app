@@ -21,11 +21,21 @@ export default function SplashScreens({ navigation }) {
   const [screen, setScreen] = useState(1);
   const [selectedInterests, setSelectedInterests] = useState([]);
 
+  const navigateToApp = () => {
+    const isLoggedIn = Boolean(auth.currentUser);
+    const targetRoute = isLoggedIn ? 'TabBar' : 'Login';
+
+    navigation.reset({
+      index: 0,
+      routes: [{ name: targetRoute }],
+    });
+  };
+
   const handleNext = () => {
     if (screen < 3) {
       setScreen(screen + 1);
     } else {
-      navigation.navigate('LoginScreen');
+      navigateToApp();
     }
   };
 
@@ -51,11 +61,11 @@ export default function SplashScreens({ navigation }) {
         });
       }
       
-      navigation.navigate('LoginScreen');
+      navigateToApp();
     } catch (error) {
       console.error('Error saving interests:', error);
       // Continue anyway
-      navigation.navigate('LoginScreen');
+      navigateToApp();
     }
   };
 

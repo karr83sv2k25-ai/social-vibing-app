@@ -21,40 +21,28 @@ export default function BottomTabs() {
     setShowAddOptions(false);
     switch (option.id) {
       case 'post':
-        // Navigate to create post - open WhatsHappening screen
-        navigation.navigate('WhatsHappening');
+        // Navigate to create global post
+        navigation.navigate('CreatePost');
         break;
       case 'story':
-        // Navigate to create story - can use WhatsHappening with story mode
-        navigation.navigate('WhatsHappening');
-        break;
-      case 'live':
-        // Navigate to screen sharing/live stream
-        navigation.navigate('ScreenSharingRoom');
-        break;
-      case 'community':
-        // Navigate to create community
-        navigation.navigate('CreateCommunityScreen');
-        break;
-      case 'collections':
-        // Navigate to marketplace to create collection/store
-        navigation.navigate('StoreManagment');
-        break;
-      case 'question':
-        // Navigate to create post with question type
-        navigation.navigate('WhatsHappening');
-        break;
-      case 'quiz':
-        // Navigate to create quiz post
-        navigation.navigate('WhatsHappening');
+        // Navigate to create story
+        navigation.navigate('CreateStory');
         break;
       case 'poll':
-        // Navigate to create poll post
-        navigation.navigate('WhatsHappening');
+        // Navigate to create poll (WhatsApp style)
+        navigation.navigate('CreatePoll');
+        break;
+      case 'quiz':
+        // Navigate to create quiz
+        navigation.navigate('CreateQuiz');
         break;
       case 'draft':
-        // Navigate to profile or posts management
-        navigation.navigate('Profile');
+        // Navigate to draft posts
+        navigation.navigate('Draft');
+        break;
+      case 'question':
+        // Navigate to ask question
+        navigation.navigate('CreateQuestion');
         break;
       default:
         break;
@@ -62,15 +50,12 @@ export default function BottomTabs() {
   };
 
   const addOptions = [
-    { id: 'post', name: 'Post', icon: 'add', color: '#FFD700', iconFamily: 'Ionicons' },
+    { id: 'post', name: 'Post', icon: 'document-text', color: '#FFD700', iconFamily: 'Ionicons' },
     { id: 'story', name: 'Story', icon: 'camera', color: '#FF69B4', iconFamily: 'Ionicons' },
-    { id: 'live', name: 'Go live', icon: 'videocam', color: '#4169E1', iconFamily: 'Ionicons' },
-    { id: 'community', name: 'Community', icon: 'people', color: '#FF6347', iconFamily: 'Ionicons' },
-    { id: 'collections', name: 'Collections', icon: 'gift', color: '#00CED1', iconFamily: 'Ionicons' },
-    { id: 'question', name: 'Question', icon: 'help-circle', color: '#1E90FF', iconFamily: 'Ionicons' },
-    { id: 'quiz', name: 'Quiz', icon: 'checkmark-done', color: '#32CD32', iconFamily: 'Ionicons' },
     { id: 'poll', name: 'Poll', icon: 'bar-chart', color: '#FF8C00', iconFamily: 'Ionicons' },
-    { id: 'draft', name: 'Draft', icon: 'create', color: '#00FF00', iconFamily: 'Ionicons' },
+    { id: 'quiz', name: 'Quiz', icon: 'help-circle', color: '#32CD32', iconFamily: 'Ionicons' },
+    { id: 'draft', name: 'Draft', icon: 'create', color: '#9370DB', iconFamily: 'Ionicons' },
+    { id: 'question', name: 'Question', icon: 'chatbox-ellipses', color: '#1E90FF', iconFamily: 'Ionicons' },
   ];
 
   const AddOptionsModal = () => (

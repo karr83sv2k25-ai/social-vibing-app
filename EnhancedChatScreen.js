@@ -35,6 +35,7 @@ import { MessageBox } from './components/MessageBox';
 import { ScrollToBottomButton } from './components/ScrollToBottomButton';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadVideoToHostinger } from './hostingerConfig';
+import { compressChatImage } from './utils/imageCompression';
 
 const ACCENT = "#7C3AED";
 const BG = "#0B0B0E";
@@ -315,7 +316,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
               const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images', 'videos'],
                 allowsEditing: true,
-                quality: 0.8,
+                quality: 1.0,
                 videoMaxDuration: 60,
               });
 
@@ -328,7 +329,9 @@ export default function EnhancedChatScreen({ route, navigation }) {
                   if (asset.type === 'video') {
                     uploadedUrl = await uploadVideoToHostinger(asset.uri, 'chat_videos');
                   } else {
-                    uploadedUrl = await uploadImageToHostinger(asset.uri, 'chat_images');
+                    // Compress image before upload
+                    const compressedUri = await compressChatImage(asset.uri);
+                    uploadedUrl = await uploadImageToHostinger(compressedUri, 'chat_images');
                   }
 
                   const newMsg = {

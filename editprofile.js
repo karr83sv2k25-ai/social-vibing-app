@@ -19,6 +19,7 @@ import { app, db } from "./firebaseConfig";
 import CacheManager from "./cacheManager";
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { compressProfileImage } from './utils/imageCompression';
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 18;
@@ -124,7 +125,7 @@ export default function EditProfileScreen({ navigation }) {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
-        quality: 0.5,
+        quality: 1.0,
       });
 
       if (!result.canceled) {
@@ -133,11 +134,12 @@ export default function EditProfileScreen({ navigation }) {
         const user = auth.currentUser;
 
         if (user) {
-          // Create form data for upload
-          const formData = new FormData();
+          // Compress image before upload
+          const compressedUri = await compressProfileImage(result.assets[0].uri);
+          
           // Upload to Hostinger
           const imageUrl = await uploadImageToHostinger(
-            result.assets[0].uri,
+            compressedUri,
             'user_profiles'
           );
 

@@ -8,12 +8,13 @@ import {
   ScrollView,
   Dimensions,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
-import { doc, getDoc, onSnapshot, updateDoc, increment, collection, getDocs } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, increment, collection, getDocs, query, where } from "firebase/firestore";
 import { app, db } from "./firebaseConfig";
 import CacheManager from "./cacheManager";
 
@@ -84,6 +85,34 @@ export default function ProfileScreen() {
   const [lastClaimDate, setLastClaimDate] = useState(null);
   const [canClaimToday, setCanClaimToday] = useState(false);
   const [claimingReward, setClaimingReward] = useState(false);
+  const [targetUserId, setTargetUserId] = useState(null);
+  const [stories, setStories] = useState([]);
+  const [storiesLoading, setStoriesLoading] = useState(false);
+
+  const getStoryLabel = (dateValue) => {
+    if (!(dateValue instanceof Date)) {
+      return "Story";
+    }
+
+    const now = new Date();
+    const diffMs = now.getTime() - dateValue.getTime();
+    const minutes = Math.floor(diffMs / 60000);
+    const hours = Math.floor(diffMs / (60 * 60000));
+
+    if (diffMs < 0) {
+      return dateValue.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    }
+
+    if (minutes < 60) {
+      return `${Math.max(1, minutes)}m ago`;
+    }
+
+    if (hours < 24) {
+      return `${hours}h ago`;
+    }
+
+    return dateValue.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
 
   useEffect(() => {
     const auth = getAuth(app);
@@ -91,15 +120,17 @@ export default function ProfileScreen() {
     // db is now imported globally
     
     // Determine which user's profile to show
-    const targetUserId = userId || (currentUser ? currentUser.uid : null);
+    const resolvedUserId = userId || (currentUser ? currentUser.uid : null);
+    setTargetUserId(resolvedUserId);
     
-    if (!targetUserId) {
+    if (!resolvedUserId) {
       setLoading(false);
+      setStories([]);
       return;
     }
 
     // Check if viewing own profile
-    const ownProfile = currentUser && targetUserId === currentUser.uid;
+    const ownProfile = currentUser && resolvedUserId === currentUser.uid;
     setIsOwnProfile(ownProfile);
 
     // Check if user can claim today's reward
@@ -120,11 +151,11 @@ export default function ProfileScreen() {
       setCanClaimToday(today > lastClaimDay);
     };
 
-    const userRef = doc(db, 'users', targetUserId);
+    const userRef = doc(db, 'users', resolvedUserId);
 
     // Load cached profile first for instant UI
     const loadCache = async () => {
-      const cached = await CacheManager.getUserProfile(targetUserId);
+          const cached = await CacheManager.getUserProfile(resolvedUserId);
       if (cached) {
         console.log('📦 Using cached profile data');
         setUserData(cached);
@@ -154,7 +185,7 @@ export default function ProfileScreen() {
           // Only fetch actual counts if not stored in document (fallback)
           if (data.followingCount === undefined) {
             try {
-              const followingCol = collection(db, 'users', targetUserId, 'following');
+              const followingCol = collection(db, 'users', resolvedUserId, 'following');
               const followingSnapshot = await getDocs(followingCol);
               const count = followingSnapshot.size;
               setFollowingCount(count);
@@ -249,6 +280,53 @@ export default function ProfileScreen() {
       setClaimingReward(false);
     }
   };
+
+  useEffect(() => {
+    if (!targetUserId) {
+      setStories([]);
+      setStoriesLoading(false);
+      return;
+    }
+
+    setStoriesLoading(true);
+
+    const storiesRef = collection(db, 'stories');
+    const storiesQuery = query(storiesRef, where('userId', '==', targetUserId));
+
+    const unsubscribe = onSnapshot(
+      storiesQuery,
+      (snapshot) => {
+        const fetchedStories = snapshot.docs
+          .map((docSnap) => {
+            const data = docSnap.data();
+            const createdAt = data.createdAt?.toDate?.() || data.createdAt || null;
+            const expiresAt = data.expiresAt?.toDate?.() || data.expiresAt || null;
+
+            return {
+              id: docSnap.id,
+              ...data,
+              createdAt,
+              expiresAt,
+            };
+          })
+          .sort((a, b) => {
+            const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : 0;
+            const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : 0;
+            return bTime - aTime;
+          });
+
+        setStories(fetchedStories);
+        setStoriesLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching stories:', error);
+        setStories([]);
+        setStoriesLoading(false);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [targetUserId]);
 
   if (loading) {
     return (
@@ -398,17 +476,40 @@ export default function ProfileScreen() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: PADDING_H }}
       >
-        <TouchableOpacity style={[styles.story, { justifyContent: "center", alignItems: "center" }]}>
-          <Feather name="plus" size={24} color={C.dim} />
-          <Text style={{ color: C.dim, marginTop: 8, fontSize: 12 }}>Add Story</Text>
-        </TouchableOpacity>
-
-        {[require("./assets/join1.png"), require("./assets/join2.jpg")].map((src, idx) => (
-          <TouchableOpacity key={idx} style={styles.story}>
-            <Image source={src} style={styles.storyImg} />
-            <Text style={styles.storyCaption}>{idx === 0 ? "Yesterday" : "Sep 08"}</Text>
+        {isOwnProfile && (
+          <TouchableOpacity
+            style={[styles.story, styles.storyAction]}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate("CreateStory")}
+          >
+            <Feather name="plus" size={24} color={C.cyan} />
+            <Text style={styles.storyActionText}>Add Story</Text>
           </TouchableOpacity>
-        ))}
+        )}
+
+        {storiesLoading ? (
+          <View style={[styles.story, styles.storyPlaceholderCard]}>
+            <ActivityIndicator color={C.cyan} />
+          </View>
+        ) : stories.length === 0 ? (
+          <View style={[styles.story, styles.storyPlaceholderCard]}>
+            <Ionicons name="image-outline" size={26} color={C.dim} />
+            <Text style={styles.storyPlaceholderText}>No stories yet</Text>
+          </View>
+        ) : (
+          stories.map((story) => (
+            <TouchableOpacity key={story.id} style={styles.story} activeOpacity={0.85}>
+              {story.image ? (
+                <Image source={{ uri: story.image }} style={styles.storyImg} />
+              ) : (
+                <View style={[styles.storyImg, styles.storyFallback]}>
+                  <Ionicons name="image-outline" size={30} color={C.dim} />
+                </View>
+              )}
+              <Text style={styles.storyCaption}>{getStoryLabel(story.createdAt)}</Text>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
 
       {/* ===== MORE ===== - Only show for own profile */}
@@ -573,6 +674,32 @@ const styles = StyleSheet.create({
     left: 10,
     color: C.text,
     fontWeight: "700",
+  },
+  storyAction: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  storyActionText: {
+    color: C.cyan,
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  storyPlaceholderCard: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  storyPlaceholderText: {
+    color: C.dim,
+    fontSize: 12,
+  },
+  storyFallback: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: C.card2,
+    alignItems: "center",
+    justifyContent: "center",
   },
   listCard: {
     backgroundColor: C.card,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
   Share,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
 import {
   getFirestore,
@@ -100,6 +101,66 @@ const posts = [
   },
 ];
 
+const getPostDocInfo = (post) => {
+  if (!post || !post.id) {
+    return null;
+  }
+
+  const type = post.type || 'post';
+  const collectionMap = {
+    blog: 'blogs',
+    image: 'posts',
+    post: 'posts',
+    poll: 'polls',
+    quiz: 'quizzes',
+    question: 'questions',
+  };
+
+  const commentsCollectionMap = {
+    question: 'answers',
+  };
+
+  const countFieldMap = {
+    question: 'answerCount',
+  };
+
+  const baseCollection = collectionMap[type] || 'posts';
+  const commentsCollectionName = commentsCollectionMap[type] || 'comments';
+  const countField = countFieldMap[type] || 'comments';
+
+  if (post.scope === 'global' || !post.communityId) {
+    const docRef = doc(db, baseCollection, post.id);
+    const commentsCol = collection(db, baseCollection, post.id, commentsCollectionName);
+    return {
+      docRef,
+      commentsCol,
+      isGlobal: true,
+      collectionName: baseCollection,
+      commentsCollectionName,
+      countField,
+    };
+  }
+
+  const docRef = doc(db, 'communities', post.communityId, baseCollection, post.id);
+  const commentsCol = collection(
+    db,
+    'communities',
+    post.communityId,
+    baseCollection,
+    post.id,
+    commentsCollectionName,
+  );
+
+  return {
+    docRef,
+    commentsCol,
+    isGlobal: false,
+    collectionName: baseCollection,
+    commentsCollectionName,
+    countField,
+  };
+};
+
 const Post = ({ 
   post, 
   onLike, 
@@ -107,6 +168,9 @@ const Post = ({
   onShare, 
   onFollow, 
   onDelete,
+  onPollVote,
+  pollVoteBusy,
+  onStartQuiz,
   isLiked, 
   isFollowing, 
   likeBusy, 
@@ -131,6 +195,23 @@ const Post = ({
       ]
     );
   };
+
+  const currentUserId = currentUser?.id || null;
+
+  const commentCount = typeof post.commentCount === 'number'
+    ? post.commentCount
+    : typeof post.comments === 'number'
+      ? post.comments
+      : typeof post.answerCount === 'number'
+        ? post.answerCount
+        : 0;
+
+  const commentLabel = post.type === 'question' ? 'Answers' : 'Comments';
+  const totalPollVotes = Array.isArray(post.options)
+    ? post.options.reduce((sum, option) => sum + (option.votes || 0), 0)
+    : typeof post.totalVotes === 'number'
+      ? post.totalVotes
+      : 0;
   
   return (
     <View style={styles.postContainer}>
@@ -210,6 +291,161 @@ const Post = ({
         </>
       )}
 
+      {/* Global/Text Post */}
+      {post.type === 'post' && (
+        <>
+          {post.text ? <Text style={styles.postText}>{post.text}</Text> : null}
+          {Array.isArray(post.images) && post.images.length > 0 && (
+            <View style={styles.globalPostImageWrapper}>
+              {imageLoadErrors[`${post.id}-0`] ? (
+                <View style={[styles.postImageFull, styles.imageFallback]}>
+                  <Ionicons name="image-outline" size={48} color="#666" />
+                  <Text style={styles.imageFallbackText}>Image not available</Text>
+                </View>
+              ) : (
+                <Image
+                  source={{ uri: post.images[0] }}
+                  style={styles.postImageFull}
+                  resizeMode="cover"
+                  onError={(error) => {
+                    console.log('Image load error:', post.images[0], error.nativeEvent?.error);
+                    setImageLoadErrors(prev => ({ ...prev, [`${post.id}-0`]: true }));
+                  }}
+                  defaultSource={require('./assets/post2.png')}
+                  loadingIndicatorSource={require('./assets/post2.png')}
+                />
+              )}
+              {post.images.length > 1 && (
+                <View style={styles.multipleImagesBadge}>
+                  <Text style={styles.multipleImagesText}>+{post.images.length - 1}</Text>
+                </View>
+              )}
+            </View>
+          )}
+        </>
+      )}
+
+      {/* Poll */}
+      {post.type === 'poll' && (
+        <View style={styles.pollContainer}>
+          <Text style={styles.pollQuestion}>{post.question}</Text>
+          <Text style={styles.pollMeta}>
+            {totalPollVotes} vote{totalPollVotes === 1 ? '' : 's'}
+            {post.allowMultipleAnswers ? ' • Multiple answers allowed' : ''}
+          </Text>
+          {Array.isArray(post.options) && post.options.length > 0 ? (
+            post.options.map((option, index) => {
+              const votes = typeof option?.votes === 'number' ? option.votes : 0;
+              const voters = Array.isArray(option?.voters) ? option.voters : [];
+              const percent = totalPollVotes > 0 ? Math.round((votes / totalPollVotes) * 100) : 0;
+              const userSelected = currentUserId ? voters.includes(currentUserId) : false;
+              const minFill = userSelected ? 12 : votes > 0 ? 8 : 0;
+
+              return (
+                <TouchableOpacity
+                  key={`${option?.text || 'option'}-${index}`}
+                  activeOpacity={0.85}
+                  style={[
+                    styles.pollOption,
+                    userSelected && styles.pollOptionSelected,
+                    (pollVoteBusy || !onPollVote) && styles.pollOptionDisabled,
+                  ]}
+                  onPress={() => onPollVote && onPollVote(post, index)}
+                  disabled={pollVoteBusy || !onPollVote}
+                >
+                  <View style={styles.pollOptionBarTrack}>
+                    <View
+                      style={[
+                        styles.pollOptionBarFill,
+                        userSelected && styles.pollOptionBarFillSelected,
+                        { width: `${Math.min(Math.max(percent, minFill), 100)}%` },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.pollOptionRow}>
+                    <Text
+                      style={[
+                        styles.pollOptionText,
+                        userSelected && styles.pollOptionTextSelected,
+                      ]}
+                    >
+                      {option?.text || `Option ${index + 1}`}
+                    </Text>
+                    <Text style={styles.pollOptionVotes}>
+                      {votes} ({percent}%)
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <Text style={styles.pollEmptyText}>No options available.</Text>
+          )}
+        </View>
+      )}
+
+      {/* Quiz */}
+      {post.type === 'quiz' && (
+        <View style={styles.quizContainer}>
+          <Text style={styles.quizTitle}>{post.title || 'Untitled Quiz'}</Text>
+          <Text style={styles.quizMeta}>
+            {Array.isArray(post.questions) ? post.questions.length : post.questionCount || 0} question
+            {Array.isArray(post.questions) ? (post.questions.length === 1 ? '' : 's') : ((post.questionCount || 0) === 1 ? '' : 's')}
+            {' • '}
+            {post.attempts || 0} attempt{(post.attempts || 0) === 1 ? '' : 's'}
+          </Text>
+          {Array.isArray(post.questions) && post.questions.length > 0 && (
+            <View style={styles.quizPreview}>
+              <Text style={styles.quizPreviewLabel}>Sample question:</Text>
+              <Text style={styles.quizPreviewQuestion} numberOfLines={2}>
+                {post.questions[0].question}
+              </Text>
+            </View>
+          )}
+          <TouchableOpacity
+            style={styles.quizActionButton}
+            activeOpacity={0.85}
+            onPress={() => onStartQuiz && onStartQuiz(post)}
+            disabled={!onStartQuiz}
+          >
+            <Text style={styles.quizActionButtonText}>Attempt Quiz</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Question */}
+      {post.type === 'question' && (
+        <View style={styles.questionContainer}>
+          <View style={styles.questionHeaderRow}>
+            <Text style={styles.questionTag}>Question</Text>
+            {post.category ? (
+              <Text style={styles.questionCategory}>{post.category}</Text>
+            ) : null}
+          </View>
+          <Text style={styles.questionTitle}>{post.question}</Text>
+          {post.description ? (
+            <Text style={styles.questionDescription}>{post.description}</Text>
+          ) : null}
+          {post.image ? (
+            imageLoadErrors[`${post.id}-question`] ? (
+              <View style={[styles.questionImage, styles.imageFallback]}>
+                <Ionicons name="image-outline" size={40} color="#666" />
+              </View>
+            ) : (
+              <Image
+                source={{ uri: post.image }}
+                style={styles.questionImage}
+                resizeMode="cover"
+                onError={(error) => {
+                  console.log('Question image load error:', post.image, error.nativeEvent?.error);
+                  setImageLoadErrors(prev => ({ ...prev, [`${post.id}-question`]: true }));
+                }}
+              />
+            )
+          ) : null}
+        </View>
+      )}
+
       {/* Action Buttons */}
       <View style={styles.postFooter}>
         <TouchableOpacity
@@ -231,7 +467,7 @@ const Post = ({
           onPress={() => onComment && onComment(post)}
         >
           <Ionicons name="chatbubble-outline" size={24} color="#fff" />
-          <Text style={{ color: '#fff', marginLeft: 5 }}>{post.comments || 0}</Text>
+          <Text style={{ color: '#fff', marginLeft: 5 }}>{commentCount}</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 20 }}
@@ -263,6 +499,13 @@ const HomeScreen = React.memo(({ navigation }) => {
   const [commentsUnsubscribe, setCommentsUnsubscribe] = useState(null);
   const [followLoadingIds, setFollowLoadingIds] = useState([]);
   const [followingUserIds, setFollowingUserIds] = useState([]);
+  const [pollVoteBusyIds, setPollVoteBusyIds] = useState([]);
+  const [quizModalVisible, setQuizModalVisible] = useState(false);
+  const [activeQuiz, setActiveQuiz] = useState(null);
+  const [quizResponses, setQuizResponses] = useState({});
+  const [quizSubmitting, setQuizSubmitting] = useState(false);
+  const [quizResult, setQuizResult] = useState(null);
+  const [imageLoadErrors, setImageLoadErrors] = useState({});
 
   // Fetch current user
   useEffect(() => {
@@ -342,36 +585,256 @@ const HomeScreen = React.memo(({ navigation }) => {
     };
   }, []);
 
-  // Fetch all posts and blogs from all communities
-  useEffect(() => {
-    const fetchAllPosts = async () => {
-      setLoading(true);
+  const hasFetchedPosts = useRef(false);
+
+  // Fetch all posts (global + community)
+  const fetchAllPosts = useCallback(async () => {
+    setLoading(true);
+    const combinedPosts = [];
+    try {
+      // Global posts
       try {
-        // OPTIMIZATION: Limit communities fetch to 10 and add error handling
+        const globalPostsQuery = query(collection(db, 'posts'), orderBy('createdAt', 'desc'), limit(50));
+        const globalPostsSnapshot = await getDocs(globalPostsQuery);
+
+        for (const postDoc of globalPostsSnapshot.docs) {
+          const postData = postDoc.data();
+          const authorId = postData.authorId || postData.userId || null;
+
+          let authorName = postData.authorName || 'User';
+          let authorImage = postData.authorImage || null;
+          let username = postData.authorUsername || postData.username || '';
+
+          if (authorId && (!postData.authorName || !postData.authorImage)) {
+            try {
+              const userRef = doc(db, 'users', authorId);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists()) {
+                const userData = userSnap.data();
+                const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ').trim();
+                authorName = fullName || userData.displayName || userData.name || userData.username || authorName;
+                authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || authorImage;
+                username = userData.username || username;
+              }
+            } catch (authorError) {
+              console.log('Error fetching global post author:', authorError);
+            }
+          }
+
+          const images = Array.isArray(postData.images) ? postData.images : [];
+
+          const type = postData.type || 'post';
+          const commentCount = type === 'question'
+            ? typeof postData.answerCount === 'number'
+              ? postData.answerCount
+              : 0
+            : typeof postData.comments === 'number'
+              ? postData.comments
+              : 0;
+
+          combinedPosts.push({
+            id: postDoc.id,
+            ...postData,
+            type,
+            scope: 'global',
+            communityId: null,
+            authorId,
+            authorName,
+            authorImage,
+            username,
+            images,
+            imageUri: postData.imageUri || (images.length > 0 ? images[0] : null),
+            likes: typeof postData.likes === 'number' ? postData.likes : Array.isArray(postData.likedBy) ? postData.likedBy.length : 0,
+            likedBy: Array.isArray(postData.likedBy) ? postData.likedBy : [],
+            comments: commentCount,
+            commentCount,
+          });
+        }
+      } catch (globalError) {
+        console.log('Error fetching global posts:', globalError);
+      }
+
+      // Global polls
+      try {
+        const pollsQuery = query(collection(db, 'polls'), orderBy('createdAt', 'desc'), limit(50));
+        const pollsSnapshot = await getDocs(pollsQuery);
+
+        for (const pollDoc of pollsSnapshot.docs) {
+          const pollData = pollDoc.data();
+          const authorId = pollData.authorId || pollData.userId || null;
+
+          let authorName = pollData.authorName || 'User';
+          let authorImage = pollData.authorImage || null;
+          let username = pollData.authorUsername || pollData.username || '';
+
+          if (authorId && (!pollData.authorName || !pollData.authorImage)) {
+            try {
+              const userRef = doc(db, 'users', authorId);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists()) {
+                const userData = userSnap.data();
+                const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ').trim();
+                authorName = fullName || userData.displayName || userData.name || userData.username || authorName;
+                authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || authorImage;
+                username = userData.username || username;
+              }
+            } catch (authorError) {
+              console.log('Error fetching poll author:', authorError);
+            }
+          }
+
+          const commentCount = typeof pollData.comments === 'number' ? pollData.comments : 0;
+
+          combinedPosts.push({
+            id: pollDoc.id,
+            ...pollData,
+            type: 'poll',
+            scope: 'global',
+            communityId: null,
+            authorId,
+            authorName,
+            authorImage,
+            username,
+            likes: typeof pollData.likes === 'number' ? pollData.likes : Array.isArray(pollData.likedBy) ? pollData.likedBy.length : 0,
+            likedBy: Array.isArray(pollData.likedBy) ? pollData.likedBy : [],
+            comments: commentCount,
+            commentCount,
+            options: Array.isArray(pollData.options) ? pollData.options : [],
+            totalVotes: typeof pollData.totalVotes === 'number' ? pollData.totalVotes : 0,
+          });
+        }
+      } catch (pollError) {
+        console.log('Error fetching polls:', pollError);
+      }
+
+      // Global quizzes
+      try {
+        const quizzesQuery = query(collection(db, 'quizzes'), orderBy('createdAt', 'desc'), limit(50));
+        const quizzesSnapshot = await getDocs(quizzesQuery);
+
+        for (const quizDoc of quizzesSnapshot.docs) {
+          const quizData = quizDoc.data();
+          const authorId = quizData.authorId || quizData.userId || null;
+
+          let authorName = quizData.authorName || 'User';
+          let authorImage = quizData.authorImage || null;
+          let username = quizData.authorUsername || quizData.username || '';
+
+          if (authorId && (!quizData.authorName || !quizData.authorImage)) {
+            try {
+              const userRef = doc(db, 'users', authorId);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists()) {
+                const userData = userSnap.data();
+                const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ').trim();
+                authorName = fullName || userData.displayName || userData.name || userData.username || authorName;
+                authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || authorImage;
+                username = userData.username || username;
+              }
+            } catch (authorError) {
+              console.log('Error fetching quiz author:', authorError);
+            }
+          }
+
+          const questionCount = Array.isArray(quizData.questions) ? quizData.questions.length : quizData.questionCount || 0;
+          const commentCount = typeof quizData.comments === 'number' ? quizData.comments : 0;
+
+          combinedPosts.push({
+            id: quizDoc.id,
+            ...quizData,
+            type: 'quiz',
+            scope: 'global',
+            communityId: null,
+            authorId,
+            authorName,
+            authorImage,
+            username,
+            questionCount,
+            likes: typeof quizData.likes === 'number' ? quizData.likes : Array.isArray(quizData.likedBy) ? quizData.likedBy.length : 0,
+            likedBy: Array.isArray(quizData.likedBy) ? quizData.likedBy : [],
+            comments: commentCount,
+            commentCount,
+            attempts: typeof quizData.attempts === 'number' ? quizData.attempts : 0,
+          });
+        }
+      } catch (quizError) {
+        console.log('Error fetching quizzes:', quizError);
+      }
+
+      // Global questions
+      try {
+        const questionsQuery = query(collection(db, 'questions'), orderBy('createdAt', 'desc'), limit(50));
+        const questionsSnapshot = await getDocs(questionsQuery);
+
+        for (const questionDoc of questionsSnapshot.docs) {
+          const questionData = questionDoc.data();
+          const authorId = questionData.authorId || questionData.userId || null;
+
+          let authorName = questionData.authorName || 'User';
+          let authorImage = questionData.authorImage || null;
+          let username = questionData.authorUsername || questionData.username || '';
+
+          if (authorId && (!questionData.authorName || !questionData.authorImage)) {
+            try {
+              const userRef = doc(db, 'users', authorId);
+              const userSnap = await getDoc(userRef);
+              if (userSnap.exists()) {
+                const userData = userSnap.data();
+                const fullName = [userData.firstName, userData.lastName].filter(Boolean).join(' ').trim();
+                authorName = fullName || userData.displayName || userData.name || userData.username || authorName;
+                authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || authorImage;
+                username = userData.username || username;
+              }
+            } catch (authorError) {
+              console.log('Error fetching question author:', authorError);
+            }
+          }
+
+          const answerCount = typeof questionData.answerCount === 'number' ? questionData.answerCount : 0;
+
+          combinedPosts.push({
+            id: questionDoc.id,
+            ...questionData,
+            type: 'question',
+            scope: 'global',
+            communityId: null,
+            authorId,
+            authorName,
+            authorImage,
+            username,
+            likes: typeof questionData.likes === 'number' ? questionData.likes : Array.isArray(questionData.likedBy) ? questionData.likedBy.length : 0,
+            likedBy: Array.isArray(questionData.likedBy) ? questionData.likedBy : [],
+            comments: answerCount,
+            commentCount: answerCount,
+          });
+        }
+      } catch (questionError) {
+        console.log('Error fetching questions:', questionError);
+      }
+
+      // Community posts and blogs
+      try {
         const communitiesQuery = query(collection(db, 'communities'), limit(10));
         const communitiesSnapshot = await getDocs(communitiesQuery);
-        
-        const allPostsData = [];
-        
+
         for (const commDoc of communitiesSnapshot.docs) {
           const commId = commDoc.id;
-          
-          // Fetch blogs with limit
+
+          // Community blogs
           try {
             const blogsCol = collection(db, 'communities', commId, 'blogs');
-            const blogsQuery = query(blogsCol, orderBy('createdAt', 'desc'), limit(20)); // Limit to 20 blogs per community
+            const blogsQuery = query(blogsCol, orderBy('createdAt', 'desc'), limit(20));
             const blogsSnapshot = await getDocs(blogsQuery);
-            
+
             for (const blogDoc of blogsSnapshot.docs) {
               const blogData = blogDoc.data();
-              const authorId = blogData.authorId;
-              
-              // Fetch author details
-              let authorName = 'User';
-              let authorImage = null;
-              let username = '';
-              
-              if (authorId) {
+              const authorId = blogData.authorId || null;
+
+              let authorName = blogData.authorName || 'User';
+              let authorImage = blogData.authorImage || null;
+              let username = blogData.username || '';
+
+              if (authorId && (!blogData.authorName || !blogData.authorImage)) {
                 try {
                   const userRef = doc(db, 'users', authorId);
                   const userSnap = await getDoc(userRef);
@@ -379,46 +842,48 @@ const HomeScreen = React.memo(({ navigation }) => {
                     const userData = userSnap.data();
                     authorName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
                     authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null;
-                    username = userData.username || '';
+                    username = userData.username || username;
                   }
                 } catch (e) {
                   console.log('Error fetching author:', e);
                 }
               }
-              
-              allPostsData.push({
+
+              combinedPosts.push({
                 id: blogDoc.id,
-                type: 'blog',
-                communityId: commId,
                 ...blogData,
+                type: 'blog',
+                scope: 'community',
+                communityId: commId,
+                authorId,
                 authorName,
                 authorImage,
                 username,
                 likes: typeof blogData.likes === 'number' ? blogData.likes : 0,
                 comments: typeof blogData.comments === 'number' ? blogData.comments : 0,
+                commentCount: typeof blogData.comments === 'number' ? blogData.comments : 0,
                 likedBy: Array.isArray(blogData.likedBy) ? blogData.likedBy : [],
               });
             }
           } catch (e) {
             console.log('Error fetching blogs:', e);
           }
-          
-          // Fetch posts
+
+          // Community posts
           try {
             const postsCol = collection(db, 'communities', commId, 'posts');
-            const postsQuery = query(postsCol, orderBy('createdAt', 'desc'), limit(20)); // Limit to 20 posts per community
+            const postsQuery = query(postsCol, orderBy('createdAt', 'desc'), limit(20));
             const postsSnapshot = await getDocs(postsQuery);
-            
+
             for (const postDoc of postsSnapshot.docs) {
               const postData = postDoc.data();
-              const authorId = postData.authorId;
-              
-              // Fetch author details
-              let authorName = 'User';
-              let authorImage = null;
-              let username = '';
-              
-              if (authorId) {
+              const authorId = postData.authorId || null;
+
+              let authorName = postData.authorName || 'User';
+              let authorImage = postData.authorImage || null;
+              let username = postData.username || '';
+
+              if (authorId && (!postData.authorName || !postData.authorImage)) {
                 try {
                   const userRef = doc(db, 'users', authorId);
                   const userSnap = await getDoc(userRef);
@@ -426,25 +891,30 @@ const HomeScreen = React.memo(({ navigation }) => {
                     const userData = userSnap.data();
                     authorName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
                     authorImage = userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null;
-                    username = userData.username || '';
+                    username = userData.username || username;
                   }
                 } catch (e) {
                   console.log('Error fetching author:', e);
                 }
               }
-              
-              allPostsData.push({
+
+              const images = Array.isArray(postData.images) ? postData.images : [];
+
+              combinedPosts.push({
                 id: postDoc.id,
-                type: 'image',
-                communityId: commId,
                 ...postData,
-                // Ensure imageUri is set from various possible field names
-                imageUri: postData.imageUri || postData.imageUrl || postData.mediaUrl || postData.image || null,
+                type: 'image',
+                scope: 'community',
+                communityId: commId,
+                authorId,
                 authorName,
                 authorImage,
                 username,
+                images,
+                imageUri: postData.imageUri || postData.imageUrl || postData.mediaUrl || postData.image || (images.length > 0 ? images[0] : null),
                 likes: typeof postData.likes === 'number' ? postData.likes : 0,
                 comments: typeof postData.comments === 'number' ? postData.comments : 0,
+                commentCount: typeof postData.comments === 'number' ? postData.comments : 0,
                 likedBy: Array.isArray(postData.likedBy) ? postData.likedBy : [],
               });
             }
@@ -452,25 +922,48 @@ const HomeScreen = React.memo(({ navigation }) => {
             console.log('Error fetching posts:', e);
           }
         }
-        
-        // Sort by createdAt (newest first)
-        allPostsData.sort((a, b) => {
-          const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
-          const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
-          return bTime - aTime;
-        });
-        
-        // OPTIMIZATION: Limit total posts to 50 most recent
-        setAllPosts(allPostsData.slice(0, 50));
-        setLoading(false);
-      } catch (e) {
-        console.log('Error fetching all posts:', e);
-        setLoading(false);
+      } catch (communityError) {
+        console.log('Error fetching communities:', communityError);
+      }
+
+      combinedPosts.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+        return bTime - aTime;
+      });
+
+      setAllPosts(combinedPosts.slice(0, 50));
+    } catch (e) {
+      console.log('Error fetching all posts:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadPosts = async () => {
+      await fetchAllPosts();
+      if (isMounted) {
+        hasFetchedPosts.current = true;
       }
     };
 
-    fetchAllPosts();
-  }, []);
+    loadPosts();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchAllPosts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (hasFetchedPosts.current) {
+        fetchAllPosts();
+      }
+    }, [fetchAllPosts])
+  );
 
   // Real-time listeners for posts updates
   useEffect(() => {
@@ -480,21 +973,30 @@ const HomeScreen = React.memo(({ navigation }) => {
     const unsubscribes = [];
     
     allPosts.forEach((post) => {
-      const collectionName = post.type === 'blog' ? 'blogs' : 'posts';
-      const postRef = doc(db, 'communities', post.communityId, collectionName, post.id);
-      
+      const postInfo = getPostDocInfo(post);
+      if (!postInfo?.docRef) {
+        return;
+      }
+
       const unsubscribe = onSnapshot(
-        postRef,
+        postInfo.docRef,
         (snapshot) => {
           if (snapshot.exists()) {
             const data = snapshot.data();
+            const countField = postInfo.countField || 'comments';
+            const commentCount = typeof data[countField] === 'number'
+              ? data[countField]
+              : typeof data.comments === 'number'
+                ? data.comments
+                : 0;
             setAllPosts((prev) =>
               prev.map((p) =>
-                p.id === post.id && p.communityId === post.communityId
+                p.id === post.id && p.communityId === post.communityId && p.scope === post.scope
                   ? {
                       ...p,
                       likes: typeof data.likes === 'number' ? data.likes : 0,
-                      comments: typeof data.comments === 'number' ? data.comments : 0,
+                      comments: commentCount,
+                      commentCount,
                       likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
                     }
                   : p
@@ -578,12 +1080,6 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   }, [activeButton, allPosts, followingUserIds]);
 
-  // Helper function to get post document reference
-  const getPostDocRef = (db, post) => {
-    const collectionName = post.type === 'blog' ? 'blogs' : 'posts';
-    return doc(db, 'communities', post.communityId, collectionName, post.id);
-  };
-
   // Handler functions
   const handleToggleLike = async (post) => {
     if (!currentUser?.id) {
@@ -592,13 +1088,17 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
     if (!post?.id) return;
 
-    const likeKey = `${post.type}-${post.id}-${post.communityId}`;
+    const likeKey = `${post.scope || 'global'}-${post.type}-${post.id}-${post.communityId || 'global'}`;
     if (likeProcessingIds.includes(likeKey)) return;
     setLikeProcessingIds((prev) => [...prev, likeKey]);
 
     try {
-      // db is now imported globally
-      const postRef = getPostDocRef(db, post);
+      const postInfo = getPostDocInfo(post);
+      if (!postInfo?.docRef) {
+        return;
+      }
+
+      const postRef = postInfo.docRef;
       let result = null;
 
       await runTransaction(db, async (transaction) => {
@@ -634,7 +1134,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       if (result) {
         setAllPosts((prev) =>
           prev.map((p) =>
-            p.id === post.id && p.communityId === post.communityId
+            p.id === post.id && p.communityId === post.communityId && p.scope === post.scope
               ? { ...p, ...result }
               : p
           )
@@ -648,23 +1148,291 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   };
 
+  const handlePollVote = async (post, optionIndex) => {
+    if (!currentUser?.id) {
+      Alert.alert('Login Required', 'Please log in to vote on polls.');
+      return;
+    }
+    if (!post?.id || post.type !== 'poll' || typeof optionIndex !== 'number') {
+      return;
+    }
+
+    const voteKey = `${post.scope || 'global'}-poll-${post.id}-${post.communityId || 'global'}`;
+    if (pollVoteBusyIds.includes(voteKey)) {
+      return;
+    }
+    setPollVoteBusyIds((prev) => [...prev, voteKey]);
+
+    let result = null;
+
+    try {
+      const postInfo = getPostDocInfo(post);
+      if (!postInfo?.docRef) {
+        throw new Error('Missing poll reference');
+      }
+
+      await runTransaction(db, async (transaction) => {
+        const pollSnap = await transaction.get(postInfo.docRef);
+        if (!pollSnap.exists()) {
+          throw new Error('Poll not found');
+        }
+
+        const pollData = pollSnap.data();
+        const userId = currentUser.id;
+        const allowMultiple = Boolean(pollData.allowMultipleAnswers);
+        const rawOptions = Array.isArray(pollData.options) ? pollData.options : [];
+
+        if (!rawOptions[optionIndex]) {
+          throw new Error('Invalid poll option');
+        }
+
+        const options = rawOptions.map((opt) => ({
+          ...opt,
+          voters: Array.isArray(opt?.voters) ? [...opt.voters] : [],
+          votes:
+            typeof opt?.votes === 'number'
+              ? opt.votes
+              : Array.isArray(opt?.voters)
+                ? opt.voters.length
+                : 0,
+        }));
+
+        let totalVotes =
+          typeof pollData.totalVotes === 'number'
+            ? pollData.totalVotes
+            : options.reduce((sum, opt) => sum + (typeof opt.votes === 'number' ? opt.votes : 0), 0);
+
+        const userSelections = [];
+        options.forEach((opt, idx) => {
+          if (opt.voters.includes(userId)) {
+            userSelections.push(idx);
+          }
+        });
+
+        const selectedOption = options[optionIndex];
+        const alreadySelected = selectedOption.voters.includes(userId);
+        let changeDetected = false;
+        let totalChange = 0;
+
+        if (allowMultiple) {
+          if (alreadySelected) {
+            selectedOption.voters = selectedOption.voters.filter((id) => id !== userId);
+            if (selectedOption.votes > 0) {
+              selectedOption.votes -= 1;
+              totalChange -= 1;
+            }
+            changeDetected = true;
+          } else {
+            selectedOption.voters.push(userId);
+            selectedOption.votes += 1;
+            totalChange += 1;
+            changeDetected = true;
+          }
+        } else {
+          if (alreadySelected) {
+            changeDetected = false;
+          } else {
+            userSelections.forEach((idx) => {
+              if (idx !== optionIndex) {
+                const previousOption = options[idx];
+                previousOption.voters = previousOption.voters.filter((id) => id !== userId);
+                if (previousOption.votes > 0) {
+                  previousOption.votes -= 1;
+                  totalChange -= 1;
+                }
+              }
+            });
+            selectedOption.voters.push(userId);
+            selectedOption.votes += 1;
+            totalChange += 1;
+            changeDetected = true;
+          }
+        }
+
+        if (!changeDetected) {
+          return;
+        }
+
+        totalVotes = Math.max(0, totalVotes + totalChange);
+
+        transaction.update(postInfo.docRef, {
+          options,
+          totalVotes,
+          updatedAt: serverTimestamp(),
+        });
+
+        result = {
+          options: options.map((opt) => ({
+            ...opt,
+            voters: Array.isArray(opt.voters) ? [...opt.voters] : [],
+          })),
+          totalVotes,
+        };
+      });
+
+      if (result) {
+        setAllPosts((prev) =>
+          prev.map((p) =>
+            p.id === post.id && p.scope === post.scope && p.communityId === post.communityId
+              ? {
+                  ...p,
+                  options: result.options,
+                  totalVotes: result.totalVotes,
+                }
+              : p
+          )
+        );
+      }
+    } catch (e) {
+      console.log('Error casting poll vote:', e);
+      Alert.alert('Error', 'Unable to update vote right now.');
+    } finally {
+      setPollVoteBusyIds((prev) => prev.filter((id) => id !== voteKey));
+    }
+  };
+
+  const handleStartQuiz = (quizPost) => {
+    if (!quizPost?.id || !Array.isArray(quizPost.questions) || quizPost.questions.length === 0) {
+      Alert.alert('Quiz Unavailable', 'This quiz does not have any questions yet.');
+      return;
+    }
+
+    const initialResponses = {};
+    quizPost.questions.forEach((_, idx) => {
+      initialResponses[idx] = null;
+    });
+
+    setActiveQuiz(quizPost);
+    setQuizResponses(initialResponses);
+    setQuizResult(null);
+    setQuizModalVisible(true);
+  };
+
+  const handleSelectQuizOption = (questionIndex, optionIndex) => {
+    if (quizSubmitting || quizResult || !activeQuiz) {
+      return;
+    }
+
+    setQuizResponses((prev) => ({
+      ...prev,
+      [questionIndex]: optionIndex,
+    }));
+  };
+
+  const handleSubmitQuiz = async () => {
+    if (!activeQuiz) {
+      return;
+    }
+
+    if (!currentUser?.id) {
+      Alert.alert('Login Required', 'Please log in to attempt quizzes.');
+      return;
+    }
+
+    const questionCount = Array.isArray(activeQuiz.questions) ? activeQuiz.questions.length : 0;
+    if (questionCount === 0) {
+      Alert.alert('Quiz Unavailable', 'This quiz does not have any questions yet.');
+      return;
+    }
+
+    const unanswered = [];
+    for (let i = 0; i < questionCount; i += 1) {
+      if (quizResponses[i] === null || typeof quizResponses[i] === 'undefined') {
+        unanswered.push(i + 1);
+      }
+    }
+
+    if (unanswered.length > 0) {
+      Alert.alert(
+        'Incomplete Quiz',
+        `Please answer question${unanswered.length > 1 ? 's' : ''} ${unanswered.join(', ')} before submitting.`,
+      );
+      return;
+    }
+
+    setQuizSubmitting(true);
+
+    try {
+      const breakdown = activeQuiz.questions.map((question, index) => {
+        const selectedIndex = quizResponses[index];
+        const isCorrect =
+          typeof question?.correctAnswer === 'number' && question.correctAnswer === selectedIndex;
+        return {
+          selectedIndex,
+          isCorrect,
+        };
+      });
+
+      const correctCount = breakdown.filter((item) => item.isCorrect).length;
+      const score = Math.round((correctCount / questionCount) * 100);
+
+      const postInfo = getPostDocInfo(activeQuiz);
+      if (postInfo?.docRef) {
+        try {
+          await runTransaction(db, async (transaction) => {
+            const quizSnap = await transaction.get(postInfo.docRef);
+            if (!quizSnap.exists()) {
+              throw new Error('Quiz not found');
+            }
+            const quizData = quizSnap.data();
+            const attempts = typeof quizData.attempts === 'number' ? quizData.attempts : 0;
+            transaction.update(postInfo.docRef, {
+              attempts: attempts + 1,
+              updatedAt: serverTimestamp(),
+            });
+          });
+        } catch (updateError) {
+          console.log('Error recording quiz attempt:', updateError);
+        }
+      }
+
+      setAllPosts((prev) =>
+        prev.map((p) =>
+          p.id === activeQuiz.id && p.scope === activeQuiz.scope && p.communityId === activeQuiz.communityId
+            ? {
+                ...p,
+                attempts: (p.attempts || 0) + 1,
+              }
+            : p
+        )
+      );
+
+      setQuizResult({
+        correctCount,
+        questionCount,
+        score,
+        breakdown,
+      });
+    } catch (e) {
+      console.log('Error submitting quiz:', e);
+      Alert.alert('Error', 'Unable to submit quiz right now.');
+    } finally {
+      setQuizSubmitting(false);
+    }
+  };
+
+  const handleCloseQuizModal = () => {
+    if (quizSubmitting) {
+      return;
+    }
+    setQuizModalVisible(false);
+    setActiveQuiz(null);
+    setQuizResponses({});
+    setQuizResult(null);
+  };
+
   const fetchCommentsForPost = async (post) => {
-    if (!post?.id || !post.communityId) return;
+    if (!post?.id) return;
     
     setCommentsLoading(true);
     try {
-      // db is now imported globally
-      const collectionName = post.type === 'blog' ? 'blogs' : 'posts';
-      const commentsCol = collection(
-        db,
-        'communities',
-        post.communityId,
-        collectionName,
-        post.id,
-        'comments'
-      );
-      
-      const q = query(commentsCol, orderBy('createdAt', 'desc'));
+      const postInfo = getPostDocInfo(post);
+      if (!postInfo?.commentsCol) {
+        setCommentsLoading(false);
+        return;
+      }
+
+      const q = query(postInfo.commentsCol, orderBy('createdAt', 'desc'));
       
       const unsubscribe = onSnapshot(
         q,
@@ -731,17 +1499,11 @@ const HomeScreen = React.memo(({ navigation }) => {
     setCommentSaving(true);
 
     try {
-      // db is now imported globally
-      const collectionName = selectedPostForComment.type === 'blog' ? 'blogs' : 'posts';
-      const commentsCol = collection(
-        db,
-        'communities',
-        selectedPostForComment.communityId,
-        collectionName,
-        selectedPostForComment.id,
-        'comments'
-      );
-      const postRef = doc(db, 'communities', selectedPostForComment.communityId, collectionName, selectedPostForComment.id);
+      const postInfo = getPostDocInfo(selectedPostForComment);
+      if (!postInfo?.docRef || !postInfo?.commentsCol) {
+        throw new Error('Missing post reference');
+      }
+      const postRef = postInfo.docRef;
       
       await runTransaction(db, async (transaction) => {
         const postSnap = await transaction.get(postRef);
@@ -749,22 +1511,35 @@ const HomeScreen = React.memo(({ navigation }) => {
           throw new Error('Post not found');
         }
         
-        const currentComments = typeof postSnap.data().comments === 'number' 
-          ? postSnap.data().comments 
-          : 0;
+        const countField = postInfo.countField || 'comments';
+        const postData = postSnap.data();
+        const currentCount = typeof postData[countField] === 'number'
+          ? postData[countField]
+          : typeof postData.comments === 'number'
+            ? postData.comments
+            : 0;
         
-        const commentRef = doc(commentsCol);
+        const commentRef = doc(postInfo.commentsCol);
         transaction.set(commentRef, {
           text,
           userId: currentUser.id,
           userName: currentUser.name || 'User',
           userImage: currentUser.profileImage || null,
           createdAt: serverTimestamp(),
+          type: countField === 'answerCount' ? 'answer' : 'comment',
         });
         
-        transaction.update(postRef, {
-          comments: currentComments + 1,
-        });
+        const updates = {
+          [countField]: currentCount + 1,
+        };
+
+        if (countField !== 'comments') {
+          updates.comments = currentCount + 1;
+        }
+
+        updates.updatedAt = serverTimestamp();
+
+        transaction.update(postRef, updates);
       });
 
       setCommentText('');
@@ -858,12 +1633,14 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
 
     try {
-      // db is now imported globally
-      const collectionName = post.type === 'blog' ? 'blogs' : 'posts';
-      const postRef = doc(db, 'communities', post.communityId, collectionName, post.id);
+      const postInfo = getPostDocInfo(post);
+      if (!postInfo?.docRef) {
+        Alert.alert('Error', 'Unable to delete this post right now.');
+        return;
+      }
       
       // Delete the post
-      await deleteDoc(postRef);
+      await deleteDoc(postInfo.docRef);
       
       // Remove from local state
       setAllPosts((prev) => 
@@ -996,19 +1773,24 @@ const HomeScreen = React.memo(({ navigation }) => {
           const isFollowing = post.authorId && currentUser?.id
             ? followingUserIds.includes(post.authorId)
             : false;
-          const likeKey = `${post.type}-${post.id}-${post.communityId}`;
+          const likeKey = `${post.scope || 'community'}-${post.type}-${post.id}`;
           const likeBusy = likeProcessingIds.includes(likeKey);
           const followBusy = followLoadingIds.includes(post.authorId);
+          const pollKey = `${post.scope || 'global'}-poll-${post.id}-${post.communityId || 'global'}`;
+          const pollBusy = pollVoteBusyIds.includes(pollKey);
           
           return (
             <Post
-              key={`${post.communityId}-${post.type}-${post.id}`}
+              key={`${post.scope || post.communityId || 'global'}-${post.type}-${post.id}`}
               post={post}
               onLike={handleToggleLike}
               onComment={handleCommentPress}
               onShare={handleSharePost}
               onFollow={handleToggleFollow}
               onDelete={handleDeletePost}
+              onPollVote={post.type === 'poll' ? handlePollVote : undefined}
+              pollVoteBusy={post.type === 'poll' ? pollBusy : false}
+              onStartQuiz={post.type === 'quiz' ? handleStartQuiz : undefined}
               isLiked={isLiked}
               isFollowing={isFollowing}
               likeBusy={likeBusy}
@@ -1062,6 +1844,124 @@ const HomeScreen = React.memo(({ navigation }) => {
         <Text style={styles.navButtonText}>Profile</Text>
       </TouchableOpacity>
     </View>
+
+    {/* Quiz Modal */}
+    <Modal
+      visible={quizModalVisible}
+      animationType="slide"
+      onRequestClose={handleCloseQuizModal}
+      transparent={false}
+    >
+      <View style={styles.quizModalContainer}>
+        <View style={styles.quizModalHeader}>
+          <TouchableOpacity onPress={handleCloseQuizModal} disabled={quizSubmitting}>
+            <Ionicons name="close" size={28} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.quizModalTitle} numberOfLines={1}>
+            {activeQuiz?.title || 'Quiz'}
+          </Text>
+          <View style={{ width: 28 }} />
+        </View>
+
+        <ScrollView style={styles.quizModalContent}>
+          {Array.isArray(activeQuiz?.questions) && activeQuiz.questions.length > 0 ? (
+            activeQuiz.questions.map((question, qIndex) => {
+              const selectedIndex = quizResponses[qIndex];
+              const hasSubmitted = Boolean(quizResult);
+
+              return (
+                <View key={`quiz-question-${qIndex}`} style={styles.quizQuestionCard}>
+                  <Text style={styles.quizQuestionHeader}>Question {qIndex + 1}</Text>
+                  <Text style={styles.quizQuestionText}>{question?.question || 'No question text.'}</Text>
+
+                  {Array.isArray(question?.options) && question.options.length > 0 ? (
+                    question.options.map((option, optionIndex) => {
+                      const isUserChoice = selectedIndex === optionIndex;
+                      const isCorrectAnswer =
+                        typeof question?.correctAnswer === 'number' &&
+                        question.correctAnswer === optionIndex;
+
+                      const optionStyles = [styles.quizOptionButton];
+                      if (isUserChoice) {
+                        optionStyles.push(styles.quizOptionButtonSelected);
+                      }
+                      if (hasSubmitted) {
+                        if (isCorrectAnswer) {
+                          optionStyles.push(styles.quizOptionButtonCorrect);
+                        } else if (isUserChoice) {
+                          optionStyles.push(styles.quizOptionButtonIncorrect);
+                        }
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={`quiz-question-${qIndex}-option-${optionIndex}`}
+                          style={optionStyles}
+                          activeOpacity={0.85}
+                          onPress={() => handleSelectQuizOption(qIndex, optionIndex)}
+                          disabled={hasSubmitted || quizSubmitting}
+                        >
+                          <View style={styles.quizOptionContent}>
+                            <View style={styles.quizOptionIndicator}>
+                              {hasSubmitted ? (
+                                isCorrectAnswer ? (
+                                  <Ionicons name="checkmark" size={18} color="#0aff8c" />
+                                ) : isUserChoice ? (
+                                  <Ionicons name="close" size={18} color="#ff4b6e" />
+                                ) : null
+                              ) : isUserChoice ? (
+                                <Ionicons name="ellipse" size={14} color="#08FFE2" />
+                              ) : (
+                                <Ionicons name="ellipse-outline" size={14} color="#666" />
+                              )}
+                            </View>
+                            <Text style={styles.quizOptionText}>{option || `Option ${optionIndex + 1}`}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })
+                  ) : (
+                    <Text style={styles.quizOptionEmpty}>No options available for this question.</Text>
+                  )}
+                </View>
+              );
+            })
+          ) : (
+            <View style={styles.quizEmptyState}>
+              <Ionicons name="warning-outline" size={36} color="#666" />
+              <Text style={styles.quizEmptyText}>No questions available for this quiz.</Text>
+            </View>
+          )}
+        </ScrollView>
+
+        {quizResult ? (
+          <View style={styles.quizResultSummary}>
+            <Text style={styles.quizResultTitle}>Quiz complete!</Text>
+            <Text style={styles.quizResultScore}>
+              {quizResult.correctCount} / {quizResult.questionCount} correct ({quizResult.score}%)
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={styles.quizModalFooter}>
+          {quizResult ? (
+            <TouchableOpacity style={styles.quizModalButton} onPress={handleCloseQuizModal}>
+              <Text style={styles.quizModalButtonText}>Close</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.quizModalButton, quizSubmitting && styles.quizModalButtonDisabled]}
+              onPress={handleSubmitQuiz}
+              disabled={quizSubmitting}
+            >
+              <Text style={styles.quizModalButtonText}>
+                {quizSubmitting ? 'Submitting...' : 'Submit Quiz'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </Modal>
 
     {/* Comment Modal */}
     <Modal
@@ -1282,6 +2182,16 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
   },
+  imageFallback: {
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageFallbackText: {
+    color: '#666',
+    marginTop: 8,
+    fontSize: 12,
+  },
   noImagePlaceholder: {
     width: '100%',
     height: 250,
@@ -1298,6 +2208,324 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 14,
     marginTop: 8,
+  },
+  globalPostImageWrapper: {
+    position: 'relative',
+    marginTop: 12,
+  },
+  multipleImagesBadge: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  multipleImagesText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pollContainer: {
+    marginTop: 12,
+    backgroundColor: '#151515',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  pollQuestion: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  pollMeta: {
+    color: '#888',
+    fontSize: 12,
+    marginBottom: 12,
+  },
+  pollOption: {
+    marginBottom: 12,
+    position: 'relative',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  pollOptionBarTrack: {
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: '#1f1f1f',
+    overflow: 'hidden',
+  },
+  pollOptionBarFill: {
+    height: '100%',
+    backgroundColor: '#08FFE233',
+  },
+  pollOptionBarFillSelected: {
+    backgroundColor: '#08FFE299',
+  },
+  pollOptionRow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  pollOptionText: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+    marginRight: 8,
+  },
+  pollOptionTextSelected: {
+    color: '#08FFE2',
+    fontWeight: '600',
+  },
+  pollOptionVotes: {
+    color: '#08FFE2',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  pollOptionSelected: {
+    borderColor: '#08FFE255',
+  },
+  pollOptionDisabled: {
+    opacity: 0.7,
+  },
+  pollEmptyText: {
+    color: '#666',
+    fontSize: 13,
+  },
+  quizContainer: {
+    marginTop: 12,
+    backgroundColor: '#141021',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1f1833',
+  },
+  quizTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  quizMeta: {
+    color: '#8b7be5',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  quizPreview: {
+    marginTop: 12,
+    backgroundColor: '#1a1533',
+    borderRadius: 10,
+    padding: 12,
+  },
+  quizPreviewLabel: {
+    color: '#8b7be5',
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  quizPreviewQuestion: {
+    color: '#fff',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  quizActionButton: {
+    marginTop: 16,
+    backgroundColor: '#08FFE2',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  quizActionButtonText: {
+    color: '#000',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  quizModalContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    paddingTop: 50,
+  },
+  quizModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1f1f1f',
+  },
+  quizModalTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 16,
+  },
+  quizModalContent: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  quizQuestionCard: {
+    backgroundColor: '#111',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#1f1f1f',
+  },
+  quizQuestionHeader: {
+    color: '#08FFE2',
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  quizQuestionText: {
+    color: '#fff',
+    fontSize: 15,
+    marginBottom: 16,
+  },
+  quizOptionButton: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#262626',
+  },
+  quizOptionButtonSelected: {
+    borderColor: '#08FFE2',
+    backgroundColor: '#102020',
+  },
+  quizOptionButtonCorrect: {
+    borderColor: '#0aff8c',
+    backgroundColor: '#0b261d',
+  },
+  quizOptionButtonIncorrect: {
+    borderColor: '#ff4b6e',
+    backgroundColor: '#2a1015',
+  },
+  quizOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  quizOptionIndicator: {
+    width: 28,
+    alignItems: 'center',
+  },
+  quizOptionText: {
+    color: '#fff',
+    fontSize: 14,
+    flex: 1,
+    lineHeight: 20,
+  },
+  quizOptionEmpty: {
+    color: '#666',
+    fontSize: 13,
+  },
+  quizEmptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  quizEmptyText: {
+    color: '#777',
+    marginTop: 12,
+    fontSize: 14,
+  },
+  quizResultSummary: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#1f1f1f',
+    backgroundColor: '#0f1416',
+  },
+  quizResultTitle: {
+    color: '#08FFE2',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  quizResultScore: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  quizModalFooter: {
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#1f1f1f',
+    backgroundColor: '#000',
+  },
+  quizModalButton: {
+    backgroundColor: '#08FFE2',
+    borderRadius: 10,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  quizModalButtonDisabled: {
+    opacity: 0.6,
+  },
+  quizModalButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  questionContainer: {
+    marginTop: 12,
+    backgroundColor: '#101a1f',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#12333d',
+  },
+  questionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  questionTag: {
+    color: '#08FFE2',
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  questionCategory: {
+    color: '#66c9ff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  questionTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  questionDescription: {
+    color: '#b5c6d0',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  questionImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    marginTop: 12,
   },
   postFooter: { 
     flexDirection: 'row', 

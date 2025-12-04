@@ -16,9 +16,8 @@ import {
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { getAuth, createUserWithEmailAndPassword, fetchSignInMethodsForEmail } from 'firebase/auth';
-import { setDoc, doc } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getAuth, createUserWithEmailAndPassword, fetchSignInMethodsForEmail, deleteUser } from 'firebase/auth';
+import { setDoc, doc, getDoc } from 'firebase/firestore';
 import PhoneInput from 'react-native-phone-number-input';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -29,19 +28,25 @@ import {
 } from '@expo-google-fonts/manrope';
 import { app, db } from './firebaseConfig';
 
+const USERNAME_REGEX = /^[a-z0-9._-]{3,20}$/;
+
 export default function WithEmailScreen({ navigation }) {
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   
   // Validation states
+  const [usernameError, setUsernameError] = useState('');
   const [isValidEmail, setIsValidEmail] = useState(true);
   const [isValidPhone, setIsValidPhone] = useState(true);
   const [isStrongPassword, setIsStrongPassword] = useState(true);
   const [passwordsMatch, setPasswordsMatch] = useState(true);
+  const [isCheckingUsername, setIsCheckingUsername] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   
   const phoneInput = useRef(null);
 
@@ -157,9 +162,7 @@ export default function WithEmailScreen({ navigation }) {
   };
 
   const validatePassword = (text) => {
-    // At least 8 characters, 1 uppercase, 1 lowercase, 1 number, 1 special char
-    const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
-    setIsStrongPassword(passwordRegex.test(text));
+    setIsStrongPassword(text.length >= 8);
     setPassword(text);
     if (confirmPassword) {
       setPasswordsMatch(text === confirmPassword);
@@ -171,10 +174,69 @@ export default function WithEmailScreen({ navigation }) {
     setPasswordsMatch(text === password);
   };
 
+  const handleUsernameChange = (text) => {
+    setUsername(text);
+    if (usernameError) {
+      setUsernameError('');
+    }
+  };
+
+  const handleUsernameBlur = async () => {
+    const normalized = username.trim().toLowerCase().replace(/\s+/g, '');
+    setUsername(normalized);
+
+    if (!normalized) {
+      setUsernameError('Username is required');
+      return;
+    }
+
+    if (!USERNAME_REGEX.test(normalized)) {
+      setUsernameError('Username must be 3-20 characters (letters, numbers, ., -, _)');
+      return;
+    }
+
+    setIsCheckingUsername(true);
+    try {
+      const usernameDocRef = doc(db, 'usernames', normalized);
+      const usernameSnap = await getDoc(usernameDocRef);
+      if (usernameSnap.exists()) {
+        setUsernameError('This username is already taken');
+      } else {
+        setUsernameError('');
+      }
+    } catch (error) {
+      console.error('Username check error:', error);
+      setUsernameError('Unable to verify username right now');
+    } finally {
+      setIsCheckingUsername(false);
+    }
+  };
+
   const handleSignup = async () => {
+    if (isSubmitting || isCheckingUsername) {
+      return;
+    }
+
     // Validate all fields
     if (!firstName.trim() || !lastName.trim()) {
       Alert.alert('Error', 'Please enter your full name');
+      return;
+    }
+
+    const normalizedUsername = username.trim().toLowerCase().replace(/\s+/g, '');
+    setUsername(normalizedUsername);
+
+    if (!normalizedUsername) {
+      const message = 'Please choose a username';
+      setUsernameError(message);
+      Alert.alert('Error', message);
+      return;
+    }
+
+    if (!USERNAME_REGEX.test(normalizedUsername)) {
+      const message = 'Username must be 3-20 characters (letters, numbers, ., -, _)';
+      setUsernameError(message);
+      Alert.alert('Error', message);
       return;
     }
 
@@ -189,7 +251,7 @@ export default function WithEmailScreen({ navigation }) {
     }
 
     if (!isStrongPassword) {
-      Alert.alert('Error', 'Password must be at least 8 characters with uppercase, lowercase, number and special character');
+      Alert.alert('Error', 'Password must be at least 8 characters long');
       return;
     }
 
@@ -198,9 +260,31 @@ export default function WithEmailScreen({ navigation }) {
       return;
     }
 
+    setIsCheckingUsername(true);
+    try {
+      const usernameDocRef = doc(db, 'usernames', normalizedUsername);
+      const usernameSnap = await getDoc(usernameDocRef);
+      if (usernameSnap.exists()) {
+        const message = 'This username is already taken. Please choose another one.';
+        setUsernameError('This username is already taken');
+        Alert.alert('Error', message);
+        return;
+      }
+      setUsernameError('');
+    } catch (error) {
+      console.error('Username availability error:', error);
+      const message = 'Unable to verify username. Please try again.';
+      setUsernameError(message);
+      Alert.alert('Error', message);
+      return;
+    } finally {
+      setIsCheckingUsername(false);
+    }
+
     try {
       const auth = getAuth(app);
       // db is now imported globally
+      setIsSubmitting(true);
       
       // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -219,11 +303,28 @@ export default function WithEmailScreen({ navigation }) {
         visits: 0,
         // optional profile defaults
         bio: '',
-        username: '',
+        username: normalizedUsername,
         profileImage: '',
       };
 
       await setDoc(doc(db, 'users', userCredential.user.uid), userData);
+
+      try {
+        await setDoc(doc(db, 'usernames', normalizedUsername), {
+          ownerId: userCredential.user.uid,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (usernameClaimError) {
+        console.error('Username reservation error:', usernameClaimError);
+        try {
+          await deleteUser(userCredential.user);
+        } catch (cleanupError) {
+          console.error('Cleanup after username reservation failure:', cleanupError);
+        }
+        setUsernameError('This username is no longer available. Please choose another one.');
+        Alert.alert('Error', 'This username is no longer available. Please choose another one.');
+        return;
+      }
 
       Alert.alert('Success', 'Account created successfully!', [
         {
@@ -240,6 +341,8 @@ export default function WithEmailScreen({ navigation }) {
     } catch (error) {
       console.error('Signup Error:', error);
       Alert.alert('Error', error.message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -313,6 +416,31 @@ export default function WithEmailScreen({ navigation }) {
                     onChangeText={setLastName}
                   />
                 </LinearGradient>
+
+                {/* Username Input */}
+                <LinearGradient
+                  colors={['rgba(5,0,14,0.5)', 'rgba(52,42,66,0.5)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.inputContainer, usernameError && styles.invalidInput]}>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Username"
+                    placeholderTextColor="#BDBDBD"
+                    value={username}
+                    onChangeText={handleUsernameChange}
+                    onBlur={handleUsernameBlur}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </LinearGradient>
+                {isCheckingUsername ? (
+                  <Text style={styles.validationHelperText}>Checking username availability...</Text>
+                ) : (
+                  usernameError ? (
+                    <Text style={styles.validationText}>{usernameError}</Text>
+                  ) : null
+                )}
 
                 {/* Email Input */}
                 <LinearGradient
@@ -403,7 +531,7 @@ export default function WithEmailScreen({ navigation }) {
                 {/* Password Requirements */}
                 {password && !isStrongPassword && (
                   <Text style={styles.requirementText}>
-                    Password must contain at least 8 characters, including uppercase, lowercase, number and special character
+                    Password must be at least 8 characters long
                   </Text>
                 )}
 
@@ -415,13 +543,19 @@ export default function WithEmailScreen({ navigation }) {
                 </Text>
 
                 {/* Sign Up Button */}
-                <TouchableOpacity onPress={handleSignup} activeOpacity={0.8}>
+                <TouchableOpacity
+                  onPress={handleSignup}
+                  activeOpacity={0.8}
+                  disabled={isSubmitting || isCheckingUsername}
+                >
                   <LinearGradient
                     colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
-                    style={styles.button}>
-                    <Text style={styles.buttonText}>Create Account</Text>
+                    style={[styles.button, (isSubmitting || isCheckingUsername) && styles.buttonDisabled]}>
+                    <Text style={styles.buttonText}>
+                      {isSubmitting ? 'Creating...' : 'Create Account'}
+                    </Text>
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
@@ -576,6 +710,16 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
 
+  validationHelperText: {
+    fontFamily: 'Manrope_400Regular',
+    fontSize: 12,
+    color: '#BDBDBD',
+    textAlign: 'left',
+    width: 300,
+    marginTop: -15,
+    marginBottom: 15,
+  },
+
   termsText: {
     fontFamily: 'Manrope_500Medium',
     fontSize: 10,
@@ -605,6 +749,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.6,
     shadowRadius: 9.9,
     elevation: 8,
+  },
+
+  buttonDisabled: {
+    opacity: 0.6,
   },
 
   buttonText: {

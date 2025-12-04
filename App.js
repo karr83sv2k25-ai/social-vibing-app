@@ -103,6 +103,12 @@ const SearchInChatScreen = React.lazy(() => import('./screens/SearchInChatScreen
 import MessageOptionsScreen from './MessageOptionsScreen';
 import ChatActionsScreen from './ChatActionsScreen';
 import BlockedUsersScreen from './BlockedUsersScreen';
+import CreatePostScreen from './CreatePostScreen';
+import CreateStoryScreen from './CreateStoryScreen';
+import CreatePollScreen from './CreatePollScreen';
+import CreateQuizScreen from './CreateQuizScreen';
+import DraftScreen from './DraftScreen';
+import CreateQuestionScreen from './CreateQuestionScreen';
 
 const Stack = createStackNavigator();
 
@@ -195,6 +201,12 @@ export default function App() {
              <Stack.Screen name="MessageOptions" component={MessageOptionsScreen} options={{ headerShown: false }}/>
              <Stack.Screen name="ChatActions" component={ChatActionsScreen} options={{ headerShown: false }}/>
              <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="CreatePoll" component={CreatePollScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="CreateQuiz" component={CreateQuizScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="Draft" component={DraftScreen} options={{ headerShown: false }}/>
+             <Stack.Screen name="CreateQuestion" component={CreateQuestionScreen} options={{ headerShown: false }}/>
       </Stack.Navigator>
     </NavigationContainer>
   );
