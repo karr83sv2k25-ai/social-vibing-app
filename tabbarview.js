@@ -21,33 +21,40 @@ export default function BottomTabs() {
     setShowAddOptions(false);
     switch (option.id) {
       case 'post':
-        // Navigate to post creation (you can create a PostScreen or use existing)
-        Alert.alert('Post', 'Post creation feature coming soon');
+        // Navigate to create post - open WhatsHappening screen
+        navigation.navigate('WhatsHappening');
         break;
       case 'story':
-        Alert.alert('Story', 'Story creation feature coming soon');
+        // Navigate to create story - can use WhatsHappening with story mode
+        navigation.navigate('WhatsHappening');
         break;
       case 'live':
-        Alert.alert('Go Live', 'Live streaming feature coming soon');
+        // Navigate to screen sharing/live stream
+        navigation.navigate('ScreenSharingRoom');
         break;
       case 'community':
         // Navigate to create community
         navigation.navigate('CreateCommunityScreen');
         break;
       case 'collections':
-        Alert.alert('Collections', 'Collections feature coming soon');
+        // Navigate to marketplace to create collection/store
+        navigation.navigate('StoreManagment');
         break;
       case 'question':
-        Alert.alert('Question', 'Question feature coming soon');
+        // Navigate to create post with question type
+        navigation.navigate('WhatsHappening');
         break;
       case 'quiz':
-        Alert.alert('Quiz', 'Quiz feature coming soon');
+        // Navigate to create quiz post
+        navigation.navigate('WhatsHappening');
         break;
       case 'poll':
-        Alert.alert('Poll', 'Poll feature coming soon');
+        // Navigate to create poll post
+        navigation.navigate('WhatsHappening');
         break;
       case 'draft':
-        Alert.alert('Drafts', 'Drafts feature coming soon');
+        // Navigate to profile or posts management
+        navigation.navigate('Profile');
         break;
       default:
         break;
@@ -107,7 +114,7 @@ export default function BottomTabs() {
             flexDirection: 'row',
             flexWrap: 'wrap',
             justifyContent: 'space-around',
-            gap: 20,
+            paddingHorizontal: 10,
           }}>
             {addOptions.map((option) => (
               <TouchableOpacity
@@ -115,11 +122,9 @@ export default function BottomTabs() {
                 style={{
                   alignItems: 'center',
                   width: '30%',
+                  marginBottom: 20,
                 }}
-                onPress={() => {
-                  setShowAddOptions(false);
-                  handleAddOption(option);
-                }}
+                onPress={() => handleAddOption(option)}
               >
                 <View style={{
                   width: 60,
