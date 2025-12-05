@@ -175,7 +175,9 @@ const Post = ({
   isFollowing, 
   likeBusy, 
   followBusy,
-  currentUser
+  currentUser,
+  imageLoadErrors,
+  setImageLoadErrors,
 }) => {
   // Don't show follow button if post is by current logged-in user
   const showFollowButton = post.authorId && onFollow && currentUser?.id && post.authorId !== currentUser.id;
@@ -311,8 +313,6 @@ const Post = ({
                     console.log('Image load error:', post.images[0], error.nativeEvent?.error);
                     setImageLoadErrors(prev => ({ ...prev, [`${post.id}-0`]: true }));
                   }}
-                  defaultSource={require('./assets/post2.png')}
-                  loadingIndicatorSource={require('./assets/post2.png')}
                 />
               )}
               {post.images.length > 1 && (
@@ -1796,6 +1796,8 @@ const HomeScreen = React.memo(({ navigation }) => {
               likeBusy={likeBusy}
               followBusy={followBusy}
               currentUser={currentUser}
+              imageLoadErrors={imageLoadErrors}
+              setImageLoadErrors={setImageLoadErrors}
             />
           );
         })

@@ -1,2 +1,4 @@
 node_modules
 \n# Ignore backend config keys\nbackend/config/*.json
+
+.expo/
