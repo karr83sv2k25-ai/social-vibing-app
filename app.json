@@ -102,6 +102,14 @@
               {
                 "name": "RecaptchaInterop",
                 "modular_headers": true
+              },
+              {
+                "name": "RNFBApp",
+                "modular_headers": true
+              },
+              {
+                "name": "RNFBAuth",
+                "modular_headers": true
               }
             ]
           }
