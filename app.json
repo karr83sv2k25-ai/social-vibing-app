@@ -69,49 +69,7 @@
           },
           "ios": {
             "useFrameworks": "static",
-            "deploymentTarget": "15.1",
-            "extraPods": [
-              {
-                "name": "FirebaseCore",
-                "modular_headers": true
-              },
-              {
-                "name": "FirebaseAuth",
-                "modular_headers": true
-              },
-              {
-                "name": "FirebaseCoreInternal",
-                "modular_headers": true
-              },
-              {
-                "name": "FirebaseAuthInterop",
-                "modular_headers": true
-              },
-              {
-                "name": "FirebaseAppCheckInterop",
-                "modular_headers": true
-              },
-              {
-                "name": "FirebaseCoreExtension",
-                "modular_headers": true
-              },
-              {
-                "name": "GoogleUtilities",
-                "modular_headers": true
-              },
-              {
-                "name": "RecaptchaInterop",
-                "modular_headers": true
-              },
-              {
-                "name": "RNFBApp",
-                "modular_headers": true
-              },
-              {
-                "name": "RNFBAuth",
-                "modular_headers": true
-              }
-            ]
+            "deploymentTarget": "15.1"
           }
         }
       ],
