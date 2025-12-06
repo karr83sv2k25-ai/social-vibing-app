@@ -86,7 +86,8 @@
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to record voice messages and for live voice chat."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-video"
     ]
   }
 }
