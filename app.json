@@ -68,7 +68,14 @@
             "enableMinifyInReleaseBuilds": false
           },
           "ios": {
-            "deploymentTarget": "15.1"
+            "deploymentTarget": "15.1",
+            "extraPods": [
+              {
+                "name": "React-Core",
+                "configurations": ["Debug", "Release"],
+                "modular_headers": false
+              }
+            ]
           }
         }
       ],
