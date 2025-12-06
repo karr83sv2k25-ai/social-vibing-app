@@ -19,7 +19,6 @@
     },
     "production": {
       "autoIncrement": true,
-      "postInstall": "./eas-hooks/eas-build-post-install.sh",
       "android": {
         "buildType": "apk"
       },
