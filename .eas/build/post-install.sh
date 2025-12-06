@@ -9,45 +9,56 @@ if [ "$EAS_BUILD_PLATFORM" = "ios" ]; then
   PODFILE_PATH="ios/Podfile"
   
   if [ -f "$PODFILE_PATH" ]; then
-    # Add use_modular_headers! after platform declaration if not already present
-    if ! grep -q "use_modular_headers!" "$PODFILE_PATH"; then
-      echo "EAS Hook: Adding use_modular_headers! to Podfile"
-      sed -i.bak "/platform :ios/a\\
-use_modular_headers!
-" "$PODFILE_PATH"
+    echo "EAS Hook: Original Podfile found, creating modified version"
+    
+    # Create a temporary file for the new Podfile
+    TEMP_PODFILE="${PODFILE_PATH}.tmp"
+    
+    # Process the Podfile line by line
+    ADDED_MODULAR_HEADERS=false
+    ADDED_POST_INSTALL=false
+    IN_POST_INSTALL=false
+    
+    while IFS= read -r line; do
+      echo "$line" >> "$TEMP_PODFILE"
+      
+      # Add use_modular_headers! after platform :ios line
+      if [[ "$line" =~ ^[[:space:]]*platform[[:space:]]+:ios ]] && [ "$ADDED_MODULAR_HEADERS" = false ]; then
+        echo "use_modular_headers!" >> "$TEMP_PODFILE"
+        ADDED_MODULAR_HEADERS=true
+        echo "EAS Hook: Added use_modular_headers!"
+      fi
+      
+      # Detect if we're entering post_install block
+      if [[ "$line" =~ ^[[:space:]]*post_install[[:space:]]+do ]]; then
+        IN_POST_INSTALL=true
+      fi
+      
+    done < "$PODFILE_PATH"
+    
+    # If no post_install block exists, add one
+    if [ "$IN_POST_INSTALL" = false ]; then
+      echo "" >> "$TEMP_PODFILE"
+      echo "# Allow non-modular includes for React Native" >> "$TEMP_PODFILE"
+      echo "post_install do |installer|" >> "$TEMP_PODFILE"
+      echo "  installer.pods_project.targets.each do |target|" >> "$TEMP_PODFILE"
+      echo "    target.build_configurations.each do |config|" >> "$TEMP_PODFILE"
+      echo "      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'" >> "$TEMP_PODFILE"
+      echo "    end" >> "$TEMP_PODFILE"
+      echo "  end" >> "$TEMP_PODFILE"
+      echo "end" >> "$TEMP_PODFILE"
+      echo "EAS Hook: Added new post_install hook"
+    else
+      echo "EAS Hook: Found existing post_install block - you may need to manually add CLANG_ALLOW_NON_MODULAR_INCLUDES"
     fi
     
-    # Add post_install hook
-    if grep -q "post_install do |installer|" "$PODFILE_PATH"; then
-      echo "EAS Hook: post_install already exists, appending configuration"
-      # Insert before the final 'end' of post_install
-      sed -i.bak2 '/post_install do |installer|/,/^end$/ {
-        /^end$/ i\
-\  # Allow non-modular includes for React Native\
-\  installer.pods_project.targets.each do |target|\
-\    target.build_configurations.each do |config|\
-\      config.build_settings["CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES"] = "YES"\
-\    end\
-\  end
-      }' "$PODFILE_PATH"
-    else
-      echo "EAS Hook: Creating new post_install hook"
-      cat >> "$PODFILE_PATH" << 'EOF'
-
-# Allow non-modular includes for React Native
-post_install do |installer|
-  installer.pods_project.targets.each do |target|
-    target.build_configurations.each do |config|
-      config.build_settings['CLANG_ALLOW_NON_MODULAR_INCLUDES_IN_FRAMEWORK_MODULES'] = 'YES'
-    end
-  end
-end
-EOF
-    fi
+    # Replace original with modified version
+    mv "$TEMP_PODFILE" "$PODFILE_PATH"
     
     echo "EAS Hook: Podfile configured successfully"
-    echo "=== First 60 lines of Podfile ==="
-    head -60 "$PODFILE_PATH"
+    echo "=== Modified Podfile (first 80 lines) ==="
+    head -80 "$PODFILE_PATH"
+    echo "=== End of Podfile preview ==="
   else
     echo "EAS Hook: Warning - Podfile not found at $PODFILE_PATH"
   fi
