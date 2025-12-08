@@ -1,9 +1,9 @@
-# Node modules
-/node_modules/
+﻿node_modules
+.expo/
 
-# Backend config files
+# Ignore backend config keys
 backend/config/*.json
 
-# Expo local state folder
-/.expo/
-    
+# Firebase service account keys (SECURITY: Never commit these!)
+serviceAccountKey.json
+*-firebase-adminsdk-*.json

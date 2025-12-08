@@ -21,7 +21,7 @@ import {
 } from '@expo-google-fonts/manrope';
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -99,24 +99,98 @@ export default function LoginScreen({ navigation }) {
       
       console.log('✅ Login successful for user:', user.uid);
       
-      // Verify user document exists in Firestore, create if missing
+      // Verify user document exists in Firestore, create/update if missing or incomplete
+      // IMPORTANT: Preserve all existing website user data
       try {
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
         
         if (!userSnap.exists()) {
-          console.log('📝 User document not found, creating one...');
-          // Create basic user document
+          console.log('📝 User document not found, creating complete user profile for migrated user...');
+          // Create complete user document with all required fields for old/migrated users
           await setDoc(userRef, {
             email: user.email,
             displayName: user.displayName || email.split('@')[0],
-            profileImage: user.photoURL || null,
-            createdAt: new Date().toISOString(),
+            firstName: user.displayName?.split(' ')[0] || email.split('@')[0],
+            lastName: user.displayName?.split(' ')[1] || '',
+            profileImage: user.photoURL || '',
+            phoneNumber: user.phoneNumber || '',
+            createdAt: user.metadata?.creationTime || new Date().toISOString(),
+            lastLogin: new Date().toISOString(),
+            // Social stats - initialize for old users
+            followers: 0,
+            following: 0,
+            friends: 0,
+            visits: 0,
+            // Profile defaults
+            bio: '',
+            username: email.split('@')[0],
             characterCollection: [],
+            interests: [],
+            // Migration flag to track old users
+            migratedFromWeb: true,
+            migrationDate: new Date().toISOString(),
           });
-          console.log('✅ User document created');
+          console.log('✅ Complete user document created for migrated user');
         } else {
-          console.log('✅ User document exists');
+          console.log('✅ User document exists, preserving existing data and adding only missing fields...');
+          const userData = userSnap.data();
+          const updates = {};
+          
+          // PRESERVE EXISTING DATA - Only add missing required fields
+          // Never overwrite existing user data from website
+          if (userData.firstName === undefined || userData.firstName === null || userData.firstName === '') {
+            updates.firstName = user.displayName?.split(' ')[0] || email.split('@')[0];
+          }
+          if (userData.lastName === undefined || userData.lastName === null || userData.lastName === '') {
+            updates.lastName = user.displayName?.split(' ')[1] || '';
+          }
+          if (userData.username === undefined || userData.username === null || userData.username === '') {
+            updates.username = email.split('@')[0];
+          }
+          if (userData.followers === undefined || userData.followers === null) {
+            updates.followers = 0;
+          }
+          if (userData.following === undefined || userData.following === null) {
+            updates.following = 0;
+          }
+          if (userData.friends === undefined || userData.friends === null) {
+            updates.friends = 0;
+          }
+          if (userData.visits === undefined || userData.visits === null) {
+            updates.visits = 0;
+          }
+          if (userData.bio === undefined || userData.bio === null) {
+            updates.bio = '';
+          }
+          if (userData.profileImage === undefined || userData.profileImage === null) {
+            updates.profileImage = '';
+          }
+          if (userData.characterCollection === undefined || userData.characterCollection === null) {
+            updates.characterCollection = [];
+          }
+          if (userData.interests === undefined || userData.interests === null) {
+            updates.interests = [];
+          }
+          if (userData.displayName === undefined || userData.displayName === null) {
+            updates.displayName = user.displayName || email.split('@')[0];
+          }
+          if (userData.email === undefined || userData.email === null) {
+            updates.email = user.email;
+          }
+          
+          // Always update last login to track mobile app usage
+          updates.lastLogin = new Date().toISOString();
+          
+          if (Object.keys(updates).length > 1) { // More than just lastLogin
+            console.log('📝 Adding missing fields while preserving existing data:', Object.keys(updates));
+            await updateDoc(userRef, updates);
+            console.log('✅ User document updated - all existing website data preserved');
+          } else {
+            // Just update last login
+            await updateDoc(userRef, { lastLogin: new Date().toISOString() });
+            console.log('✅ User document complete - all existing website data preserved');
+          }
         }
       } catch (firestoreError) {
         console.warn('⚠️  Firestore check failed, but auth succeeded:', firestoreError);

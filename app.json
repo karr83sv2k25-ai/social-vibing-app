@@ -66,6 +66,10 @@
             "enableProguardInReleaseBuilds": false,
             "enableShrinkResourcesInReleaseBuilds": false,
             "enableMinifyInReleaseBuilds": false
+          },
+          "ios": {
+            "deploymentTarget": "15.1",
+            "unstable_networkInspector": false
           }
         }
       ],

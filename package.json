@@ -5,8 +5,8 @@
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-community/netinfo": "^11.4.1",
-    "@react-native-firebase/app": "^23.4.1",
-    "@react-native-firebase/auth": "^23.4.1",
+    "@react-native-firebase/app": "21.8.0",
+    "@react-native-firebase/auth": "21.8.0",
     "@react-native-google-signin/google-signin": "^16.0.0",
     "@react-navigation/bottom-tabs": "*",
     "@react-navigation/native": "*",
@@ -48,6 +48,13 @@
   },
   "devDependencies": {
     "@react-native-community/cli": "latest"
+  },
+  "overrides": {
+    "react-native-phone-number-input": {
+      "react": "19.1.0",
+      "react-dom": "19.1.0",
+      "react-native-web": "^0.21.0"
+    }
   },
   "name": "Fiver Project",
   "version": "1.0.0",
