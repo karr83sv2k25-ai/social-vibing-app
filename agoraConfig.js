@@ -5,12 +5,14 @@ export const AGORA_CONFIG = {
   // App ID from Agora Console - Social-Vibing-production Project
   appId: '6158a2b02c6a422aa3646ee2c116efb8',
   
-  // Production Token Server URL - ENABLED FOR PRODUCTION MODE
-  // Local development server (change to your deployed URL for production)
-  tokenServerUrl: 'http://10.196.231.201:3000/api/agora/token',
+  // Token Server URL - Set to null to work without App Certificate (FREE mode)
+  // IMPORTANT: Disable App Certificate in Agora Console for this to work
+  tokenServerUrl: null,
   
-  // For Firebase Cloud Functions deployment, use:
-  // tokenServerUrl: 'https://your-project.cloudfunctions.net/generateAgoraToken',
+  // For production with token server, use one of these:
+  // tokenServerUrl: 'http://10.196.231.201:3000/api/agora/token', // Local server
+  // tokenServerUrl: 'https://your-app.onrender.com/api/agora/token', // Render.com
+  // tokenServerUrl: 'https://your-project.cloudfunctions.net/generateAgoraToken', // Firebase
   
   // Channel configuration
   channelProfile: 0, // 0 = Communication (for calls)
