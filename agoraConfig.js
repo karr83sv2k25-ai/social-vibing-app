@@ -2,8 +2,8 @@
 // Get your App ID from: https://console.agora.io
 
 export const AGORA_CONFIG = {
-  // App ID from Agora Console - Social-Vibing-production Project
-  appId: '6158a2b02c6a422aa3646ee2c116efb8',
+  // App ID from Agora Console - SV Project
+  appId: 'b87976b214f84df7a7485d7f8732459c',
   
   // Token Server URL - Set to null to work without App Certificate (FREE mode)
   // IMPORTANT: Disable App Certificate in Agora Console for this to work
