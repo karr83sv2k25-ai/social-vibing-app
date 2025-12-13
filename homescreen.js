@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Share,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -541,6 +542,7 @@ const HomeScreen = React.memo(({ navigation }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [allImagesInPost, setAllImagesInPost] = useState([]);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Fetch current user
   useEffect(() => {
@@ -623,8 +625,10 @@ const HomeScreen = React.memo(({ navigation }) => {
   const hasFetchedPosts = useRef(false);
 
   // Fetch all posts (global + community)
-  const fetchAllPosts = useCallback(async () => {
-    setLoading(true);
+  const fetchAllPosts = useCallback(async (isRefreshing = false) => {
+    if (!isRefreshing) {
+      setLoading(true);
+    }
     const combinedPosts = [];
     const authorCache = {}; // Cache authors to avoid duplicate fetches
     
@@ -929,7 +933,11 @@ const HomeScreen = React.memo(({ navigation }) => {
     } catch (e) {
       console.log('Error fetching all posts:', e);
     } finally {
-      setLoading(false);
+      if (isRefreshing) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -1681,6 +1689,11 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   };
 
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchAllPosts(true);
+  }, [fetchAllPosts]);
+
   return (
     <>
     <ScrollView 
@@ -1688,6 +1701,14 @@ const HomeScreen = React.memo(({ navigation }) => {
       contentContainerStyle={styles.scrollContent}
       showsVerticalScrollIndicator={false}
       bounces={true}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          tintColor="#fff"
+          colors={['#BF2EF0', '#05FF00', '#FFD913']}
+        />
+      }
     >
       {/* Top Bar */}
       <View style={styles.topBar}>

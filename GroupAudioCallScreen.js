@@ -564,6 +564,44 @@ export default function GroupAudioCallScreen() {
                     await agoraEngine.leaveChannel();
                   }
                   await leaveGroupCall(callId, currentUser.id);
+                  
+                  // Update message status to ended since creator is leaving
+                  try {
+                    // Try community_chats first
+                    const messagesRef = collection(db, 'community_chats', communityId, 'messages');
+                    const q = query(messagesRef, where('roomId', '==', actualRoomId));
+                    const snapshot = await getDocs(q);
+                    if (!snapshot.empty) {
+                      const messageDoc = snapshot.docs[0];
+                      await updateDoc(messageDoc.ref, { isActive: false });
+                    } else {
+                      // Try conversations collection
+                      // Only check conversations where current user is a participant
+                      const conversationsRef = collection(db, 'conversations');
+                      const userConversationsQuery = query(
+                        conversationsRef,
+                        where('participants', 'array-contains', currentUser.id)
+                      );
+                      const conversationsSnapshot = await getDocs(userConversationsQuery);
+                      
+                      for (const convDoc of conversationsSnapshot.docs) {
+                        const convMessagesRef = collection(db, 'conversations', convDoc.id, 'messages');
+                        const convQuery = query(convMessagesRef, where('roomId', '==', actualRoomId));
+                        const convSnapshot = await getDocs(convQuery);
+                        
+                        if (!convSnapshot.empty) {
+                          const messageDoc = convSnapshot.docs[0];
+                          await updateDoc(messageDoc.ref, { isActive: false }).catch(err => 
+                            console.log('[Agora] Error updating message:', err)
+                          );
+                          break;
+                        }
+                      }
+                    }
+                  } catch (e) {
+                    console.log('[Agora] Error updating message status on leave:', e);
+                  }
+                  
                   navigation.goBack();
                 },
               },
@@ -623,18 +661,41 @@ export default function GroupAudioCallScreen() {
             try {
               const { endGroupRoom } = require('./callHelpers');
               await endGroupRoom(communityId, actualRoomId, callDuration);
-              // Update the corresponding message in community_chats/messages to isActive: false
+              // Update the corresponding message to isActive: false in both community_chats and conversations
               try {
                 // Find the message with roomId == actualRoomId
+                // Try community_chats first
                 const messagesRef = collection(db, 'community_chats', communityId, 'messages');
                 const q = query(messagesRef, where('roomId', '==', actualRoomId));
                 const snapshot = await getDocs(q);
                 if (!snapshot.empty) {
                   const messageDoc = snapshot.docs[0];
                   await updateDoc(messageDoc.ref, { isActive: false });
-                  console.log('[Agora] Updated message status to ended');
+                  console.log('[Agora] Updated message status to ended in community_chats');
                 } else {
-                  console.log('[Agora] No matching message found for roomId:', actualRoomId);
+                  // Try conversations collection (one-on-one chat)
+                  // Only check conversations where current user is a participant
+                  const conversationsRef = collection(db, 'conversations');
+                  const userConversationsQuery = query(
+                    conversationsRef,
+                    where('participants', 'array-contains', currentUser.id)
+                  );
+                  const conversationsSnapshot = await getDocs(userConversationsQuery);
+                  
+                  for (const convDoc of conversationsSnapshot.docs) {
+                    const convMessagesRef = collection(db, 'conversations', convDoc.id, 'messages');
+                    const convQuery = query(convMessagesRef, where('roomId', '==', actualRoomId));
+                    const convSnapshot = await getDocs(convQuery);
+                    
+                    if (!convSnapshot.empty) {
+                      const messageDoc = convSnapshot.docs[0];
+                      await updateDoc(messageDoc.ref, { isActive: false }).catch(err => 
+                        console.log('[Agora] Error updating message:', err)
+                      );
+                      console.log('[Agora] Updated message status to ended in conversations');
+                      break;
+                    }
+                  }
                 }
               } catch (e) {
                 console.log('[Agora] Error updating message status:', e);

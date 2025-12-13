@@ -217,17 +217,6 @@ export const AttachmentPicker = ({ visible, onClose, onImageSelected, onFileSele
               </View>
               <Text style={styles.optionText}>Crop Image</Text>
             </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.option}
-              onPress={handleFileSelection}
-              activeOpacity={0.7}
-            >
-              <View style={[styles.iconContainer, { backgroundColor: ACCENT + '33' }]}>
-                <Ionicons name="document" size={28} color={ACCENT} />
-              </View>
-              <Text style={styles.optionText}>Files</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </TouchableOpacity>

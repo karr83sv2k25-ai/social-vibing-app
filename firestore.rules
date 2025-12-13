@@ -148,15 +148,17 @@ service cloud.firestore {
       allow delete: if isSignedIn();
     }
     
-    // Helper function to check conversation participant
+    // Helper function to check conversation participant (safer version)
     function isConversationParticipant(conversationId) {
       return isSignedIn() && 
+        exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
     }
     
-    // Helper function to check conversation admin
+    // Helper function to check conversation admin (safer version)
     function isConversationAdmin(conversationId) {
       return isSignedIn() && 
+        exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.admins;
     }
     
@@ -183,13 +185,23 @@ service cloud.firestore {
       
       // Messages within a conversation
       match /messages/{messageId} {
+        // Allow read if user is signed in and conversation exists with user as participant
         allow read: if isConversationParticipant(conversationId);
-        allow create: if isConversationParticipant(conversationId) && 
-                        (request.resource.data.senderId == request.auth.uid ||
-                         request.resource.data.type == 'system');
-        allow update: if isConversationParticipant(conversationId) && 
+        
+        // Allow create if user is sender and either:
+        // 1. Conversation exists and user is participant
+        // 2. Conversation doesn't exist yet (first message/conversation creation)
+        allow create: if isSignedIn() && 
+                        request.resource.data.senderId == request.auth.uid &&
+                        (
+                          isConversationParticipant(conversationId) ||
+                          !exists(/databases/$(database)/documents/conversations/$(conversationId))
+                        );
+        
+        allow update: if isSignedIn() && 
                         (resource.data.senderId == request.auth.uid || 
-                         request.resource.data.keys().hasOnly(['status', 'reactions', 'deletedFor']));
+                         isConversationParticipant(conversationId) ||
+                         request.resource.data.keys().hasOnly(['status', 'reactions', 'deletedFor', 'isActive', 'closedAt', 'closedBy']));
         allow delete: if resource.data.senderId == request.auth.uid;
       }
     }

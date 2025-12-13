@@ -569,7 +569,10 @@ export default function ScreenSharingRoom() {
               // db is now imported globally
               const screenRoomRef = doc(db, 'screening_rooms', roomId);
               
-              // Find and update the chat message efficiently
+              // Find and update the chat message in both community_chats and conversations
+              const updatePromises = [];
+              
+              // Check community_chats
               const chatRef = collection(db, 'community_chats', communityId, 'messages');
               const q = query(
                 chatRef,
@@ -578,20 +581,56 @@ export default function ScreenSharingRoom() {
               );
               const messagesSnap = await getDocs(q);
               
-              // Update chat messages and delete room in parallel
-              const updatePromises = messagesSnap.docs.map(msgDoc =>
-                updateDoc(doc(db, 'community_chats', communityId, 'messages', msgDoc.id), {
+              messagesSnap.docs.forEach(msgDoc => {
+                updatePromises.push(
+                  updateDoc(doc(db, 'community_chats', communityId, 'messages', msgDoc.id), {
+                    isActive: false,
+                    closedAt: serverTimestamp(),
+                    closedBy: currentUser.id,
+                  })
+                );
+              });
+              
+              // Check conversations collection (one-on-one chat)
+              // Only check conversations where current user is a participant
+              const conversationsRef = collection(db, 'conversations');
+              const userConversationsQuery = query(
+                conversationsRef,
+                where('participants', 'array-contains', currentUser.id)
+              );
+              const conversationsSnapshot = await getDocs(userConversationsQuery);
+              
+              for (const convDoc of conversationsSnapshot.docs) {
+                const convMessagesRef = collection(db, 'conversations', convDoc.id, 'messages');
+                const convQuery = query(
+                  convMessagesRef,
+                  where('type', '==', 'screeningRoom'),
+                  where('roomId', '==', roomId)
+                );
+                const convSnapshot = await getDocs(convQuery);
+                
+                convSnapshot.docs.forEach(msgDoc => {
+                  updatePromises.push(
+                    updateDoc(doc(db, 'conversations', convDoc.id, 'messages', msgDoc.id), {
+                      isActive: false,
+                      closedAt: serverTimestamp(),
+                      closedBy: currentUser.id,
+                    }).catch(err => console.log('Error updating conversation message:', err))
+                  );
+                });
+              }
+
+              // Update room status instead of deleting
+              updatePromises.push(
+                updateDoc(screenRoomRef, {
                   isActive: false,
                   closedAt: serverTimestamp(),
                   closedBy: currentUser.id,
-                })
+                }).catch(err => console.log('Error updating screening room:', err))
               );
-
+              
               // Wait for all operations to complete
-              await Promise.all([
-                ...updatePromises,
-                deleteDoc(screenRoomRef)
-              ]);
+              await Promise.allSettled(updatePromises);
               
               Alert.alert('Session Ended', 'The screening room has been closed for all participants.');
               navigation.goBack();

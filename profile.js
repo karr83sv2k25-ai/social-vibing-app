@@ -9,6 +9,7 @@ import {
   Dimensions,
   Alert,
   ActivityIndicator,
+  Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
@@ -88,6 +89,18 @@ export default function ProfileScreen() {
   const [targetUserId, setTargetUserId] = useState(null);
   const [stories, setStories] = useState([]);
   const [storiesLoading, setStoriesLoading] = useState(false);
+  const [viewingStory, setViewingStory] = useState(null);
+  const [storyModalVisible, setStoryModalVisible] = useState(false);
+
+  const handleStoryPress = (story) => {
+    setViewingStory(story);
+    setStoryModalVisible(true);
+  };
+
+  const closeStoryModal = () => {
+    setStoryModalVisible(false);
+    setTimeout(() => setViewingStory(null), 300);
+  };
 
   const getStoryLabel = (dateValue) => {
     if (!(dateValue instanceof Date)) {
@@ -357,7 +370,10 @@ export default function ProfileScreen() {
                 <Ionicons name="person" size={16} color={C.cyan} style={{ marginLeft: 6 }} />
               </View>
               <Text style={styles.handle}>
-                {userData?.email} · {userData?.phoneNumber ? `Phone: ${userData.phoneNumber}` : 'No phone'}
+                {isOwnProfile 
+                  ? `${userData?.email || ''} · ${userData?.phoneNumber ? `Phone: ${userData.phoneNumber}` : 'No phone'}`
+                  : `@${userData?.username || 'user'}`
+                }
               </Text>
             </View>
 
@@ -498,7 +514,12 @@ export default function ProfileScreen() {
           </View>
         ) : (
           stories.map((story) => (
-            <TouchableOpacity key={story.id} style={styles.story} activeOpacity={0.85}>
+            <TouchableOpacity 
+              key={story.id} 
+              style={styles.story} 
+              activeOpacity={0.85}
+              onPress={() => handleStoryPress(story)}
+            >
               {story.image ? (
                 <Image source={{ uri: story.image }} style={styles.storyImg} />
               ) : (
@@ -554,6 +575,67 @@ export default function ProfileScreen() {
           </View>
         </>
       )}
+
+      {/* Story Viewer Modal */}
+      <Modal
+        visible={storyModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={closeStoryModal}
+      >
+        <View style={styles.storyModalOverlay}>
+          <TouchableOpacity 
+            style={styles.storyModalClose}
+            onPress={closeStoryModal}
+            activeOpacity={0.9}
+          >
+            <Ionicons name="close-circle" size={40} color="#fff" />
+          </TouchableOpacity>
+
+          {viewingStory && (
+            <View style={styles.storyModalContent}>
+              {/* Story Header */}
+              <View style={styles.storyModalHeader}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Image 
+                    source={userData?.profileImage ? { uri: userData.profileImage } : require("./assets/profile.png")} 
+                    style={styles.storyModalAvatar} 
+                  />
+                  <View style={{ marginLeft: 12 }}>
+                    <Text style={styles.storyModalName}>
+                      {userData?.firstName || ''} {userData?.lastName || ''}
+                    </Text>
+                    <Text style={styles.storyModalTime}>
+                      {getStoryLabel(viewingStory.createdAt)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Story Image */}
+              {viewingStory.image ? (
+                <Image 
+                  source={{ uri: viewingStory.image }} 
+                  style={styles.storyModalImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <View style={styles.storyModalImagePlaceholder}>
+                  <Ionicons name="image-outline" size={80} color={C.dim} />
+                  <Text style={styles.storyModalPlaceholderText}>No image</Text>
+                </View>
+              )}
+
+              {/* Story Caption if exists */}
+              {viewingStory.caption && (
+                <View style={styles.storyModalCaptionContainer}>
+                  <Text style={styles.storyModalCaption}>{viewingStory.caption}</Text>
+                </View>
+              )}
+            </View>
+          )}
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -727,5 +809,79 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   logoutText: { color: C.text, fontWeight: "800", fontSize: 14 },
+  storyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyModalClose: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 10,
+  },
+  storyModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyModalHeader: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 80,
+    zIndex: 5,
+  },
+  storyModalAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: C.cyan,
+  },
+  storyModalName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  storyModalTime: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  storyModalImage: {
+    width: width,
+    height: width * 1.5,
+    maxHeight: '80%',
+  },
+  storyModalImagePlaceholder: {
+    width: width * 0.8,
+    height: width * 1.2,
+    backgroundColor: C.card,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyModalPlaceholderText: {
+    color: C.dim,
+    fontSize: 16,
+    marginTop: 12,
+  },
+  storyModalCaptionContainer: {
+    position: 'absolute',
+    bottom: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    padding: 16,
+    borderRadius: 12,
+  },
+  storyModalCaption: {
+    color: '#fff',
+    fontSize: 15,
+    lineHeight: 22,
+  },
 });
 
