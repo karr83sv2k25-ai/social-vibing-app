@@ -11,13 +11,18 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
 import { doc, onSnapshot, updateDoc, increment, collection, getDocs, query, where, getDoc, setDoc, deleteDoc } from "firebase/firestore";
 import { app, db } from "./firebaseConfig";
 import CacheManager from "./cacheManager";
+import StatusBadge from "./components/StatusBadge";
+import StatusSelector from "./components/StatusSelector";
+import { useStatus } from "./contexts/StatusContext";
+import VerifiedBadge from './components/VerifiedBadge';
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 18;
@@ -74,6 +79,52 @@ export default function ProfileScreen() {
   const [storiesLoading, setStoriesLoading] = useState(false);
   const [viewingStory, setViewingStory] = useState(null);
   const [storyModalVisible, setStoryModalVisible] = useState(false);
+  const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const lastFocusTimeRef = React.useRef(Date.now());
+
+  // Check if updated data was passed from edit profile
+  useEffect(() => {
+    if (route?.params?.userData) {
+      console.log('🎯 Received updated userData from navigation');
+      const passedData = route.params.userData;
+      setUserData(passedData);
+      setFollowingCount(passedData.followingCount || 0);
+      setFollowersCount(passedData.followersCount || 0);
+      setLoading(false);
+
+      // Cache the updated data immediately for immediate display
+      const auth = getAuth(app);
+      const currentUser = auth.currentUser;
+      if (currentUser) {
+        CacheManager.saveUserProfile(currentUser.uid, passedData)
+          .then(() => console.log('✅ Updated profile cached immediately'))
+          .catch(err => console.log('⚠️ Cache save error:', err));
+      }
+
+      // Clear the param after a short delay to ensure it's been processed
+      setTimeout(() => {
+        navigation.setParams({ userData: undefined });
+      }, 100);
+    }
+  }, [route?.params?.userData, route?.params?.refresh]);
+
+  // Only refresh when returning from edit (not on every focus)
+  useFocusEffect(
+    React.useCallback(() => {
+      const now = Date.now();
+      const timeSinceLastFocus = now - lastFocusTimeRef.current;
+
+      // Only refresh if more than 2 seconds passed (means navigated away and back)
+      // This prevents refresh on initial mount
+      if (timeSinceLastFocus > 2000) {
+        console.log('🔄 Profile screen focused - checking for updates');
+        setRefreshKey(prev => prev + 1);
+      }
+
+      lastFocusTimeRef.current = now;
+    }, [])
+  );
 
   const handleStoryPress = (story) => {
     setViewingStory(story);
@@ -114,11 +165,11 @@ export default function ProfileScreen() {
     const auth = getAuth(app);
     const currentUser = auth.currentUser;
     // db is now imported globally
-    
+
     // Determine which user's profile to show
     const resolvedUserId = userId || (currentUser ? currentUser.uid : null);
     setTargetUserId(resolvedUserId);
-    
+
     if (!resolvedUserId) {
       setLoading(false);
       setStories([]);
@@ -133,34 +184,181 @@ export default function ProfileScreen() {
 
     const userRef = doc(db, 'users', resolvedUserId);
 
+    // Track if data was loaded successfully and if component is mounted
+    let dataLoaded = false;
+    let isMounted = true;
+
     // Load cached profile first for instant UI
     const loadCache = async () => {
-          const cached = await CacheManager.getUserProfile(resolvedUserId);
-      if (cached) {
+      // First check AsyncStorage for pending updates (from edit profile)
+      try {
+        const pendingUpdate = await AsyncStorage.getItem(`profile_update_${resolvedUserId}`);
+        if (pendingUpdate && isMounted) {
+          const updatedData = JSON.parse(pendingUpdate);
+          console.log('🔄 Using pending profile update from AsyncStorage');
+          setUserData(updatedData);
+          setFollowingCount(updatedData.followingCount || 0);
+          setFollowersCount(updatedData.followersCount || 0);
+          setLoading(false);
+          dataLoaded = true;
+
+          // Try to sync to Firestore in background
+          const userRef = doc(db, 'users', resolvedUserId);
+          updateDoc(userRef, updatedData)
+            .then(() => {
+              if (isMounted) {
+                console.log('✅ Synced pending update to Firestore');
+                AsyncStorage.removeItem(`profile_update_${resolvedUserId}`);
+              }
+            })
+            .catch(err => console.log('⚠️ Background sync failed:', err));
+          return true; // Signal that data was loaded
+        }
+      } catch (err) {
+        console.log('⚠️ Error checking AsyncStorage:', err);
+      }
+
+      // If no pending update, use cache
+      const cached = await CacheManager.getUserProfile(resolvedUserId);
+      if (cached && isMounted) {
         console.log('📦 Using cached profile data');
         setUserData(cached);
         setFollowingCount(cached.followingCount || 0);
         setFollowersCount(cached.followersCount || 0);
         setLoading(false);
+        dataLoaded = true;
+        return true; // Signal that data was loaded
       }
+      return false; // No data found
     };
+
+    // Fallback: Try direct fetch if onSnapshot doesn't work
+    const fallbackFetch = setTimeout(async () => {
+      if (dataLoaded || !isMounted) {
+        console.log('✅ Data already loaded or unmounted, skipping fallback');
+        return;
+      }
+
+      if (!userData) {
+        console.log('⏱️ onSnapshot not responding, trying direct fetch...');
+
+        // First check AsyncStorage for recent updates
+        try {
+          const asyncData = await AsyncStorage.getItem(`profile_update_${resolvedUserId}`);
+          if (asyncData && isMounted) {
+            const parsedData = JSON.parse(asyncData);
+            console.log('✅ Using AsyncStorage backup in fallback');
+            setUserData(parsedData);
+            setFollowingCount(parsedData.followingCount || 0);
+            setFollowersCount(parsedData.followersCount || 0);
+            setLoading(false);
+            dataLoaded = true;
+            return;
+          }
+        } catch (e) {
+          console.log('⚠️ Error reading AsyncStorage:', e);
+        }
+
+        // Try Firestore direct fetch
+        try {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists() && isMounted) {
+            const data = userSnap.data();
+            console.log('✅ Profile data loaded via direct fetch');
+            setUserData(data);
+            setFollowingCount(data.followingCount || 0);
+            setFollowersCount(data.followersCount || 0);
+            await CacheManager.saveUserProfile(resolvedUserId, data);
+          } else if (isMounted) {
+            console.log('⚠️ No user document found, creating basic profile from auth');
+            // Create basic profile from auth user
+            const basicProfile = {
+              email: currentUser?.email || '',
+              firstName: currentUser?.email?.split('@')[0] || 'User',
+              lastName: '',
+              username: currentUser?.email?.split('@')[0] || 'user',
+              profileImage: '',
+              bio: '',
+              followingCount: 0,
+              followersCount: 0,
+            };
+            setUserData(basicProfile);
+          }
+        } catch (err) {
+          console.error('❌ Direct fetch failed:', err);
+          if (isMounted) {
+            // Create emergency fallback profile
+            const emergencyProfile = {
+              email: currentUser?.email || '',
+              firstName: currentUser?.email?.split('@')[0] || 'User',
+              lastName: '',
+              username: currentUser?.email?.split('@')[0] || 'user',
+              profileImage: '',
+              bio: '',
+              followingCount: 0,
+              followersCount: 0,
+            };
+            setUserData(emergencyProfile);
+          }
+        }
+        setLoading(false);
+      }
+    }, 3000); // Try direct fetch after 3 seconds
+
+    // Start loading cache
     loadCache();
+
+    // Add timeout to prevent infinite loading
+    const loadingTimeout = setTimeout(() => {
+      if (dataLoaded || !isMounted) {
+        console.log('✅ Data already loaded or unmounted, skipping timeout');
+        return;
+      }
+
+      if (loading && isMounted) {
+        console.log('⏱️ Profile loading timeout - forcing basic profile');
+        if (!userData) {
+          // Emergency: Create profile from auth even if everything fails
+          const emergencyProfile = {
+            email: currentUser?.email || '',
+            firstName: currentUser?.email?.split('@')[0] || 'User',
+            lastName: '',
+            username: currentUser?.email?.split('@')[0] || 'user',
+            profileImage: '',
+            bio: 'Profile loading...',
+            followingCount: 0,
+            followersCount: 0,
+          };
+          setUserData(emergencyProfile);
+          console.log('✅ Emergency profile created');
+        }
+        setLoading(false);
+      }
+    }, 6000); // 6 second timeout
 
     // Real-time listener for user document
     const unsubscribe = onSnapshot(
       userRef,
       async (snap) => {
+        clearTimeout(fallbackFetch); // Cancel fallback if onSnapshot works
         if (snap.exists()) {
           const data = snap.data();
-          setUserData(data);
-          
-          // Cache the profile data
-          await CacheManager.saveUserProfile(resolvedUserId, data);
-          
+          console.log('✅ Profile data loaded from Firestore');
+
+          // Only update if we don't have fresher data from navigation params
+          const hasFreshData = route?.params?.userData;
+          if (!hasFreshData) {
+            setUserData(data);
+            // Cache the profile data
+            await CacheManager.saveUserProfile(resolvedUserId, data);
+          } else {
+            console.log('⏭️ Skipping Firestore update - using fresh navigation data');
+          }
+
           // Use counts from user document if available (much faster)
           setFollowingCount(data.followingCount || 0);
           setFollowersCount(data.followersCount || 0);
-          
+
           // Only fetch actual counts if not stored in document (fallback)
           if (data.followingCount === undefined) {
             try {
@@ -168,14 +366,14 @@ export default function ProfileScreen() {
               const followingSnapshot = await getDocs(followingCol);
               const count = followingSnapshot.size;
               setFollowingCount(count);
-              
+
               // Update the document with the count for future use
               await updateDoc(userRef, { followingCount: count });
             } catch (e) {
               console.log('Error fetching following count:', e);
             }
           }
-          
+
           // Note: Followers count should be managed when users follow/unfollow
           // For now, use stored value or show 0
         } else {
@@ -189,7 +387,7 @@ export default function ProfileScreen() {
         setLoading(false);
       }
     );
-    
+
     // Real-time listener for followers count
     const followersRef = collection(db, 'users', resolvedUserId, 'followers');
     const unsubscribeFollowers = onSnapshot(followersRef, (snapshot) => {
@@ -197,11 +395,11 @@ export default function ProfileScreen() {
       console.log(`👥 Followers count updated: ${count} for user ${resolvedUserId}`);
       setFollowersCount(count);
       // Update user document with latest count
-      updateDoc(userRef, { followersCount: count }).catch(() => {});
+      updateDoc(userRef, { followersCount: count }).catch(() => { });
     }, (error) => {
       console.log('Error listening to followers:', error);
     });
-    
+
     // Real-time listener for following count
     const followingRef = collection(db, 'users', resolvedUserId, 'following');
     const unsubscribeFollowing = onSnapshot(followingRef, (snapshot) => {
@@ -209,11 +407,11 @@ export default function ProfileScreen() {
       console.log(`👤 Following count updated: ${count} for user ${resolvedUserId}`);
       setFollowingCount(count);
       // Update user document with latest count
-      updateDoc(userRef, { followingCount: count }).catch(() => {});
+      updateDoc(userRef, { followingCount: count }).catch(() => { });
     }, (error) => {
       console.log('Error listening to following:', error);
     });
-    
+
     // Check if current user is following this profile
     let unsubscribeIsFollowing = null;
     if (!ownProfile && currentUser) {
@@ -237,6 +435,9 @@ export default function ProfileScreen() {
     }
 
     return () => {
+      isMounted = false; // Mark component as unmounted
+      clearTimeout(loadingTimeout);
+      clearTimeout(fallbackFetch);
       unsubscribe();
       unsubscribeFollowers();
       unsubscribeFollowing();
@@ -244,7 +445,7 @@ export default function ProfileScreen() {
         unsubscribeIsFollowing();
       }
     };
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   // Removed daily rewards functionality
 
@@ -252,23 +453,23 @@ export default function ProfileScreen() {
   const handleFollowToggle = async () => {
     const auth = getAuth(app);
     const currentUser = auth.currentUser;
-    
+
     if (!currentUser || !targetUserId || isOwnProfile || followLoading) return;
-    
+
     setFollowLoading(true);
     console.log(`🔄 Toggling follow for user: ${targetUserId}`);
     console.log(`👤 Current user: ${currentUser.uid}`);
     console.log(`🎯 Target user: ${targetUserId}`);
-    
+
     try {
       const followDocRef = doc(db, 'users', currentUser.uid, 'following', targetUserId);
       const followerDocRef = doc(db, 'users', targetUserId, 'followers', currentUser.uid);
       const currentUserRef = doc(db, 'users', currentUser.uid);
       const targetUserRef = doc(db, 'users', targetUserId);
-      
+
       console.log(`📄 Follow doc path: users/${currentUser.uid}/following/${targetUserId}`);
       console.log(`📄 Follower doc path: users/${targetUserId}/followers/${currentUser.uid}`);
-      
+
       if (isFollowing) {
         // Unfollow
         console.log('❌ Unfollowing user');
@@ -276,11 +477,11 @@ export default function ProfileScreen() {
         await deleteDoc(followerDocRef);
         await updateDoc(currentUserRef, { followingCount: increment(-1) });
         await updateDoc(targetUserRef, { followersCount: increment(-1) });
-        
+
         console.log('✅ Unfollow action completed successfully!');
         console.log(`📋 Updated following count for ${currentUser.uid}`);
         console.log(`📋 Updated followers count for ${targetUserId}`);
-        
+
         // Send unfollow notification
         try {
           const currentUserDoc = await getDoc(currentUserRef);
@@ -298,7 +499,7 @@ export default function ProfileScreen() {
         } catch (e) {
           console.log('⚠️ Notification error:', e);
         }
-        
+
         setIsFollowing(false);
       } else {
         // Follow
@@ -313,11 +514,11 @@ export default function ProfileScreen() {
         });
         await updateDoc(currentUserRef, { followingCount: increment(1) });
         await updateDoc(targetUserRef, { followersCount: increment(1) });
-        
+
         console.log('✅ Follow action completed successfully!');
         console.log(`📋 Updated following count for ${currentUser.uid}`);
         console.log(`📋 Updated followers count for ${targetUserId}`);
-        
+
         // Send follow notification
         try {
           const currentUserDoc = await getDoc(currentUserRef);
@@ -335,7 +536,7 @@ export default function ProfileScreen() {
         } catch (e) {
           console.log('⚠️ Notification error:', e);
         }
-        
+
         setIsFollowing(true);
       }
     } catch (error) {
@@ -402,7 +603,27 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 36 }}>
+    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 36, paddingTop: 40 }}>
+      {/* Back Button - Show at top when viewing other user's profile */}
+      {!isOwnProfile && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 50,
+            left: 10,
+            zIndex: 10,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            borderRadius: 20,
+            width: 40,
+            height: 40,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
       {/* ===== PROFILE CARD ===== */}
       <LinearGradient
         colors={["#0EE7B7", "#8A2BE2"]}
@@ -413,9 +634,9 @@ export default function ProfileScreen() {
         <View style={styles.profileInner}>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             {userData?.profileImage || userData?.user_picture ? (
-              <Image 
-                source={{ uri: userData.profileImage || userData.user_picture }} 
-                style={styles.avatar} 
+              <Image
+                source={{ uri: userData.profileImage || userData.user_picture }}
+                style={styles.avatar}
               />
             ) : (
               <View style={[styles.avatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
@@ -425,78 +646,90 @@ export default function ProfileScreen() {
             <View style={{ marginLeft: 12, flex: 1 }}>
               <View style={{ flexDirection: "row", alignItems: "center" }}>
                 <Text style={styles.name}>{userData?.firstName || userData?.user_firstname || ''} {userData?.lastName || userData?.user_lastname || ''}</Text>
-                <Ionicons name="person" size={16} color={C.cyan} style={{ marginLeft: 6 }} />
+                <VerifiedBadge isVerified={userData?.isVerified} size={16} style={{ marginLeft: 6 }} />
+                {/* Gender Icon - Changes based on user's selected gender */}
+                {userData?.gender && (
+                  <Ionicons
+                    name={
+                      userData.gender === 'Male' ? 'male' :
+                      userData.gender === 'Female' ? 'female' :
+                      'male-female'
+                    }
+                    size={16}
+                    color="#08FFE2"
+                    style={{ marginLeft: 6 }}
+                  />
+                )}
               </View>
-              <Text style={styles.handle}>
-                {isOwnProfile 
-                  ? `${userData?.email || userData?.user_email || ''} · ${userData?.phoneNumber || userData?.user_phone ? `Phone: ${userData.phoneNumber || userData?.user_phone}` : 'No phone'}`
-                  : `@${userData?.username || userData?.user_name || 'user'}`
-                }
-              </Text>
-              {/* Online/Offline Status */}
-              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-                <View style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: userData?.isOnline ? '#0EE7B7' : '#666',
-                  marginRight: 6
-                }} />
-                <Text style={{
-                  color: userData?.isOnline ? '#0EE7B7' : '#888',
-                  fontSize: 11,
-                  fontWeight: '600'
-                }}>
-                  {userData?.isOnline ? 'Online' : userData?.lastSeen ? `Last seen ${formatTimestamp(userData.lastSeen)}` : 'Offline'}
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Text style={styles.handle}>
+                  {isOwnProfile
+                    ? `${userData?.email || userData?.user_email || ''} · ${userData?.phoneNumber || userData?.user_phone ? `Phone: ${userData.phoneNumber || userData?.user_phone}` : 'No phone'}`
+                    : `@${userData?.username || userData?.user_name || 'user'}`
+                  }
                 </Text>
+              </View>
+
+              {/* User Status Badge - Single status display */}
+              <View style={{ marginTop: 6 }}>
+                <StatusBadge
+                  userId={isOwnProfile ? null : targetUserId}
+                  isOwnStatus={isOwnProfile}
+                  onPress={isOwnProfile ? () => setStatusSelectorVisible(true) : null}
+                  size="small"
+                  showEditIcon={isOwnProfile}
+                />
               </View>
             </View>
 
             {/* Edit Profile Button - Only show for own profile */}
             {isOwnProfile && (
-              <TouchableOpacity
-                style={styles.iconBtn}
-                onPress={() => navigation.navigate("EditProfile")}
-              >
-                <Feather name="edit-2" size={16} color={C.text} />
-              </TouchableOpacity>
-            )}
-            {/* Back Button - Show when viewing other user's profile */}
-            {!isOwnProfile && (
               <View style={{ flexDirection: 'row', gap: 8 }}>
                 <TouchableOpacity
                   style={styles.iconBtn}
-                  onPress={() => navigation.goBack()}
+                  onPress={() => navigation.navigate("EditProfile", { userData })}
                 >
-                  <Ionicons name="arrow-back" size={16} color={C.text} />
+                  <Feather name="edit-2" size={16} color={C.text} />
                 </TouchableOpacity>
                 
-                <TouchableOpacity
-                  style={[
-                    styles.followBtn,
-                    isFollowing && styles.followingBtn,
-                    followLoading && styles.followBtnDisabled
-                  ]}
-                  onPress={handleFollowToggle}
-                  disabled={followLoading}
-                  activeOpacity={0.8}
-                >
-                  {followLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons 
-                        name={isFollowing ? "checkmark" : "person-add"} 
-                        size={14} 
-                        color="#fff" 
-                      />
-                      <Text style={styles.followBtnText}>
-                        {isFollowing ? 'Following' : 'Follow'}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
+                {/* Admin Panel Button - Only show for admins */}
+                {(userData?.isAdmin || userData?.role === 'admin') && (
+                  <TouchableOpacity
+                    style={[styles.iconBtn, { backgroundColor: 'rgba(8, 255, 226, 0.15)' }]}
+                    onPress={() => navigation.navigate("AdminModeration")}
+                  >
+                    <Ionicons name="shield-checkmark" size={16} color="#08FFE2" />
+                  </TouchableOpacity>
+                )}
               </View>
+            )}
+            {/* Follow Button - Show when viewing other user's profile */}
+            {!isOwnProfile && (
+              <TouchableOpacity
+                style={[
+                  styles.followBtn,
+                  isFollowing && styles.followingBtn,
+                  followLoading && styles.followBtnDisabled
+                ]}
+                onPress={handleFollowToggle}
+                disabled={followLoading}
+                activeOpacity={0.8}
+              >
+                {followLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name={isFollowing ? "checkmark" : "person-add"}
+                      size={14}
+                      color="#fff"
+                    />
+                    <Text style={styles.followBtnText}>
+                      {isFollowing ? 'Following' : 'Follow'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
           </View>
 
@@ -509,20 +742,20 @@ export default function ProfileScreen() {
 
           {/* Stats (real-time from Firestore) */}
           <View style={styles.statsRow}>
-            <Stat 
-              value={followersCount} 
-              label="Followers" 
-              onPress={() => navigation.navigate('FollowersFollowing', { 
-                userId: targetUserId || userId, 
-                type: 'followers' 
+            <Stat
+              value={followersCount}
+              label="Followers"
+              onPress={() => navigation.navigate('FollowersFollowing', {
+                userId: targetUserId || userId,
+                type: 'followers'
               })}
             />
-            <Stat 
-              value={followingCount} 
-              label="Following" 
-              onPress={() => navigation.navigate('FollowersFollowing', { 
-                userId: targetUserId || userId, 
-                type: 'following' 
+            <Stat
+              value={followingCount}
+              label="Following"
+              onPress={() => navigation.navigate('FollowersFollowing', {
+                userId: targetUserId || userId,
+                type: 'following'
               })}
             />
             <Stat value={userData?.friends ?? 0} label="Friends" />
@@ -596,9 +829,9 @@ export default function ProfileScreen() {
           </View>
         ) : (
           stories.map((story) => (
-            <TouchableOpacity 
-              key={story.id} 
-              style={styles.story} 
+            <TouchableOpacity
+              key={story.id}
+              style={styles.story}
               activeOpacity={0.85}
               onPress={() => handleStoryPress(story)}
             >
@@ -624,7 +857,7 @@ export default function ProfileScreen() {
               {/* ✅ Only My Store navigates */}
               <ListRow title="My Store" onPress={() => navigation.navigate("MyStore")} />
               <View style={styles.divider} />
-              <ListRow title="Membership" onPress={() => navigation.navigate("Membership")}  />
+              <ListRow title="Membership" onPress={() => navigation.navigate("Membership")} />
               <View style={styles.divider} />
               <ListRow title="Help Center" />
               <View style={styles.divider} />
@@ -633,13 +866,22 @@ export default function ProfileScreen() {
               <ListRow title="Account Setting" />
             </View>
 
-            <TouchableOpacity 
-              activeOpacity={0.9} 
+            <TouchableOpacity
+              activeOpacity={0.9}
               style={styles.logoutBtn}
               onPress={async () => {
                 try {
                   const auth = getAuth();
+
+                  // Clear AsyncStorage to prevent auto-login
+                  console.log('🗑️ Clearing saved login state from AsyncStorage...');
+                  await AsyncStorage.multiRemove(['userLoggedIn', 'userEmail']);
+
+                  // Sign out from Firebase
                   await signOut(auth);
+
+                  console.log('✅ User logged out successfully');
+
                   navigation.reset({
                     index: 0,
                     routes: [{ name: 'Login' }],
@@ -664,7 +906,7 @@ export default function ProfileScreen() {
         onRequestClose={closeStoryModal}
       >
         <View style={styles.storyModalOverlay}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.storyModalClose}
             onPress={closeStoryModal}
             activeOpacity={0.9}
@@ -678,9 +920,9 @@ export default function ProfileScreen() {
               <View style={styles.storyModalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                   {userData?.profileImage ? (
-                    <Image 
-                      source={{ uri: userData.profileImage }} 
-                      style={styles.storyModalAvatar} 
+                    <Image
+                      source={{ uri: userData.profileImage }}
+                      style={styles.storyModalAvatar}
                     />
                   ) : (
                     <View style={[styles.storyModalAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
@@ -700,8 +942,8 @@ export default function ProfileScreen() {
 
               {/* Story Image */}
               {viewingStory.image ? (
-                <Image 
-                  source={{ uri: viewingStory.image }} 
+                <Image
+                  source={{ uri: viewingStory.image }}
                   style={styles.storyModalImage}
                   resizeMode="contain"
                 />
@@ -722,6 +964,13 @@ export default function ProfileScreen() {
           )}
         </View>
       </Modal>
+
+      {/* Status Selector Modal */}
+      <StatusSelector
+        visible={statusSelectorVisible}
+        onClose={() => setStatusSelectorVisible(false)}
+        title="Update Your Status"
+      />
     </ScrollView>
   );
 }

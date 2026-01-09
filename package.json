@@ -6,13 +6,12 @@
     "@react-native-clipboard/clipboard": "github:react-native-clipboard/clipboard",
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-community/netinfo": "^11.4.1",
-    "@react-native-firebase/app": "21.8.0",
-    "@react-native-firebase/auth": "21.8.0",
     "@react-native-google-signin/google-signin": "^16.0.0",
     "@react-navigation/bottom-tabs": "*",
     "@react-navigation/native": "*",
     "@react-navigation/native-stack": "*",
     "@react-navigation/stack": "*",
+    "axios": "^1.13.2",
     "expo": "~54.0.27",
     "expo-auth-session": "~7.0.10",
     "expo-av": "~16.0.8",
@@ -20,16 +19,20 @@
     "expo-build-properties": "~1.0.10",
     "expo-dev-client": "~6.0.20",
     "expo-document-picker": "~14.0.8",
+    "expo-file-system": "~19.0.21",
     "expo-font": "~14.0.9",
     "expo-image-manipulator": "~14.0.8",
-    "expo-image-picker": "~17.0.9",
+    "expo-image-picker": "~17.0.10",
     "expo-linear-gradient": "~15.0.8",
+    "expo-media-library": "~18.2.1",
     "expo-random": "^14.0.1",
     "expo-screen-orientation": "~9.0.8",
-    "expo-splash-screen": "~31.0.12",
+    "expo-sharing": "~14.0.8",
+    "expo-splash-screen": "~31.0.13",
     "expo-video": "~3.0.15",
     "expo-web-browser": "~15.0.10",
-    "firebase": "^12.4.0",
+    "firebase": "^12.7.0",
+    "firebase-admin": "^13.6.0",
     "react": "19.1.0",
     "react-async-hook": "^4.0.0",
     "react-dom": "19.1.0",
@@ -48,7 +51,8 @@
     "react-native-webview": "13.15.0"
   },
   "devDependencies": {
-    "@react-native-community/cli": "latest"
+    "@react-native-community/cli": "latest",
+    "typescript": "~5.9.2"
   },
   "overrides": {
     "react-native-phone-number-input": {

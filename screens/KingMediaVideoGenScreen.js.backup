@@ -1,0 +1,533 @@
+// screens/KingMediaVideoGenScreen.js - AI Video Generator
+import React, { useState, useEffect } from 'react';
+import {
+    View,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    StyleSheet,
+    ScrollView,
+    Alert,
+    ActivityIndicator,
+    KeyboardAvoidingView,
+    Platform,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Video } from 'expo-av';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { aiAPI, getRateLimitInfo, formatError } from '../services/kingMediaService';
+
+export default function KingMediaVideoGenScreen({ navigation }) {
+    const [prompt, setPrompt] = useState('');
+    const [provider, setProvider] = useState('veo'); // veo, kingai
+    const [loading, setLoading] = useState(false);
+    const [jobId, setJobId] = useState(null);
+    const [videoUrl, setVideoUrl] = useState(null);
+    const [generatedVideo, setGeneratedVideo] = useState(null);
+    const [pollingInterval, setPollingInterval] = useState(null);
+
+    useEffect(() => {
+        checkLoginStatus();
+    }, []);
+
+    const checkLoginStatus = async () => {
+        const token = await AsyncStorage.getItem('kingmedia_jwt_token');
+        if (!token) {
+            Alert.alert(
+                'Login Required',
+                'Please login to King Media to use AI Video Generator',
+                [
+                    { text: 'Cancel', onPress: () => navigation.goBack() },
+                    { text: 'Login', onPress: () => navigation.navigate('KingMediaLogin') }
+                ]
+            );
+        }
+    };
+
+    const handleGenerate = async () => {
+        if (!prompt.trim()) {
+            Alert.alert('Error', 'Please enter a video description');
+            return;
+        }
+
+        setLoading(true);
+        setVideoUrl(null);
+        setGeneratedVideo(null);
+        setJobId(null);
+
+        try {
+            const result = await aiAPI.generateVideo(prompt, provider);
+            console.log('📦 Video generation result:', result);
+
+            if (result.success) {
+                if (result.video_url) {
+                    // Video generated immediately
+                    setVideoUrl(result.video_url);
+                    setGeneratedVideo({
+                        url: result.video_url,
+                        prompt: prompt,
+                        provider: result.provider,
+                        timestamp: new Date().toISOString(),
+                    });
+                    Alert.alert('Success! 🎬', 'Your video has been generated!');
+                    setLoading(false);
+                } else if (result.job_id) {
+                    // Video is being processed - job_id can be boolean or number
+                    const actualJobId = result.job_id === true ? Date.now() : result.job_id;
+                    setJobId(actualJobId);
+                    Alert.alert(
+                        'Processing Video',
+                        `Your video is being generated. Job ID: ${actualJobId}\n\nThis may take ${result.estimated_time || '2-5 minutes'}...`,
+                        [{ text: 'OK' }]
+                    );
+                    startPollingJob(actualJobId);
+                }
+            } else {
+                // Handle API errors like OpenAI key not configured
+                Alert.alert('Error', result.message || 'Video generation failed');
+                setLoading(false);
+            }
+        } catch (error) {
+            console.log('❌ Video generation error:', error);
+            Alert.alert('Error', error.message || 'Failed to generate video. Please try again.');
+            setLoading(false);
+        }
+    };
+
+    const startPollingJob = (jobId) => {
+        const interval = setInterval(async () => {
+            try {
+                const result = await aiAPI.getJob(jobId);
+
+                if (result.success && result.job) {
+                    const { status, video_url } = result.job;
+
+                    if (status === 'completed' && video_url) {
+                        clearInterval(interval);
+                        setVideoUrl(video_url);
+                        setGeneratedVideo({
+                            url: video_url,
+                            prompt: prompt,
+                            provider: provider,
+                            jobId: jobId,
+                            timestamp: new Date().toISOString(),
+                        });
+                        setLoading(false);
+                        Alert.alert('Success! 🎬', 'Your video is ready!');
+                    } else if (status === 'failed') {
+                        clearInterval(interval);
+                        setLoading(false);
+                        Alert.alert('Error', 'Video generation failed. Please try again.');
+                    }
+                }
+            } catch (error) {
+                console.error('Polling error:', error);
+            }
+        }, 5000); // Poll every 5 seconds
+
+        setPollingInterval(interval);
+
+        // Stop polling after 5 minutes
+        setTimeout(() => {
+            clearInterval(interval);
+            if (loading) {
+                setLoading(false);
+                Alert.alert('Timeout', 'Video generation is taking longer than expected. Check "My Jobs" for status.');
+            }
+        }, 300000);
+    };
+
+    const providers = [
+        { id: 'veo', name: 'Google Veo', icon: 'logo-google' },
+        { id: 'kingai', name: 'King AI', icon: 'flash' },
+    ];
+
+    return (
+        <KeyboardAvoidingView
+            style={styles.container}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            keyboardVerticalOffset={90}
+        >
+            {/* Header */}
+            <LinearGradient
+                colors={['#F59E0B', '#EF4444']}
+                style={styles.header}
+            >
+                <TouchableOpacity onPress={() => navigation.goBack()}>
+                    <Ionicons name="arrow-back" size={24} color="#fff" />
+                </TouchableOpacity>
+                <View style={styles.headerContent}>
+                    <Ionicons name="videocam" size={28} color="#fff" />
+                    <Text style={styles.headerTitle}>AI Video Generator</Text>
+                </View>
+                <View style={{ width: 24 }} />
+            </LinearGradient>
+
+            <ScrollView style={styles.content}>
+                {/* Provider Selector */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Select AI Provider</Text>
+                    <View style={styles.providerRow}>
+                        {providers.map(p => (
+                            <TouchableOpacity
+                                key={p.id}
+                                style={[
+                                    styles.providerChip,
+                                    provider === p.id && styles.providerChipActive
+                                ]}
+                                onPress={() => setProvider(p.id)}
+                                disabled={loading}
+                            >
+                                <Ionicons
+                                    name={p.icon}
+                                    size={18}
+                                    color={provider === p.id ? '#F59E0B' : '#9CA3AF'}
+                                />
+                                <Text style={[
+                                    styles.providerText,
+                                    provider === p.id && styles.providerTextActive
+                                ]}>
+                                    {p.name}
+                                </Text>
+                            </TouchableOpacity>
+                        ))}
+                    </View>
+                </View>
+
+                {/* Prompt Input */}
+                <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Video Description</Text>
+                    <TextInput
+                        style={styles.promptInput}
+                        placeholder="Describe the video you want to generate..."
+                        placeholderTextColor="#6B7280"
+                        value={prompt}
+                        onChangeText={setPrompt}
+                        multiline
+                        maxLength={500}
+                        editable={!loading}
+                    />
+                    <Text style={styles.charCount}>{prompt.length}/500</Text>
+                </View>
+
+                {/* Generate Button */}
+                <TouchableOpacity
+                    style={[styles.generateButton, loading && styles.generateButtonDisabled]}
+                    onPress={handleGenerate}
+                    disabled={loading}
+                >
+                    <LinearGradient
+                        colors={loading ? ['#6B7280', '#4B5563'] : ['#F59E0B', '#EF4444']}
+                        style={styles.generateGradient}
+                    >
+                        {loading ? (
+                            <>
+                                <ActivityIndicator size="small" color="#fff" />
+                                <Text style={styles.generateText}>
+                                    {jobId ? 'Processing...' : 'Generating...'}
+                                </Text>
+                            </>
+                        ) : (
+                            <>
+                                <Ionicons name="sparkles" size={20} color="#fff" />
+                                <Text style={styles.generateText}>Generate Video</Text>
+                            </>
+                        )}
+                    </LinearGradient>
+                </TouchableOpacity>
+
+                {/* Job Status */}
+                {loading && jobId && (
+                    <View style={styles.jobStatusCard}>
+                        <ActivityIndicator size="small" color="#F59E0B" />
+                        <View style={{ flex: 1 }}>
+                            <Text style={styles.jobStatusTitle}>Processing Video</Text>
+                            <Text style={styles.jobStatusId}>Job ID: {jobId}</Text>
+                            <Text style={styles.jobStatusDesc}>
+                                This may take 2-5 minutes. You can check status in "My Jobs"
+                            </Text>
+                        </View>
+                    </View>
+                )}
+
+                {/* Rate Limit Info */}
+                <View style={styles.infoCard}>
+                    <Ionicons name="information-circle" size={20} color="#F59E0B" />
+                    <Text style={styles.infoText}>
+                        You can generate up to 2 videos per hour. Video generation may take a few minutes.
+                    </Text>
+                </View>
+
+                {/* Generated Video Preview */}
+                {videoUrl && (
+                    <View style={styles.resultSection}>
+                        <Text style={styles.resultTitle}>Generated Video</Text>
+                        <View style={styles.videoCard}>
+                            <Video
+                                source={{ uri: videoUrl }}
+                                style={styles.generatedVideo}
+                                useNativeControls
+                                resizeMode="contain"
+                                shouldPlay={false}
+                            />
+                            <View style={styles.videoInfo}>
+                                <Text style={styles.videoPrompt} numberOfLines={2}>
+                                    {generatedVideo?.prompt}
+                                </Text>
+                                <View style={styles.videoMeta}>
+                                    <View style={styles.providerBadge}>
+                                        <Ionicons name="flash" size={12} color="#F59E0B" />
+                                        <Text style={styles.providerBadgeText}>
+                                            {generatedVideo?.provider}
+                                        </Text>
+                                    </View>
+                                    {generatedVideo?.jobId && (
+                                        <Text style={styles.jobIdText}>
+                                            Job #{generatedVideo.jobId}
+                                        </Text>
+                                    )}
+                                </View>
+                            </View>
+                        </View>
+                    </View>
+                )}
+
+                {/* Empty State */}
+                {!loading && !videoUrl && (
+                    <View style={styles.emptyState}>
+                        <Ionicons name="videocam-outline" size={80} color="#374151" />
+                        <Text style={styles.emptyTitle}>No Video Generated Yet</Text>
+                        <Text style={styles.emptyDesc}>
+                            Enter a description and tap "Generate Video" to create your AI video
+                        </Text>
+                    </View>
+                )}
+            </ScrollView>
+        </KeyboardAvoidingView>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#0B0B0E',
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        paddingTop: 50,
+    },
+    headerContent: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    headerTitle: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+    },
+    content: {
+        flex: 1,
+    },
+    section: {
+        padding: 16,
+    },
+    sectionTitle: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '600',
+        marginBottom: 12,
+    },
+    providerRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
+    providerChip: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 12,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        backgroundColor: '#17171C',
+        borderWidth: 2,
+        borderColor: '#23232A',
+    },
+    providerChipActive: {
+        backgroundColor: '#F59E0B20',
+        borderColor: '#F59E0B',
+    },
+    providerText: {
+        color: '#9CA3AF',
+        fontSize: 14,
+        fontWeight: '600',
+    },
+    providerTextActive: {
+        color: '#F59E0B',
+    },
+    promptInput: {
+        backgroundColor: '#17171C',
+        borderWidth: 1,
+        borderColor: '#23232A',
+        borderRadius: 12,
+        padding: 16,
+        color: '#fff',
+        fontSize: 14,
+        minHeight: 120,
+        textAlignVertical: 'top',
+    },
+    charCount: {
+        color: '#6B7280',
+        fontSize: 12,
+        textAlign: 'right',
+        marginTop: 8,
+    },
+    generateButton: {
+        marginHorizontal: 16,
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 16,
+    },
+    generateButtonDisabled: {
+        opacity: 0.6,
+    },
+    generateGradient: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 8,
+        paddingVertical: 16,
+    },
+    generateText: {
+        color: '#fff',
+        fontSize: 16,
+        fontWeight: '700',
+    },
+    jobStatusCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        backgroundColor: '#17171C',
+        marginHorizontal: 16,
+        padding: 16,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F59E0B40',
+        marginBottom: 16,
+    },
+    jobStatusTitle: {
+        color: '#fff',
+        fontSize: 15,
+        fontWeight: '600',
+        marginBottom: 4,
+    },
+    jobStatusId: {
+        color: '#F59E0B',
+        fontSize: 13,
+        fontWeight: '500',
+        marginBottom: 6,
+    },
+    jobStatusDesc: {
+        color: '#9CA3AF',
+        fontSize: 12,
+        lineHeight: 18,
+    },
+    infoCard: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 10,
+        backgroundColor: '#F59E0B20',
+        marginHorizontal: 16,
+        padding: 14,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: '#F59E0B40',
+        marginBottom: 20,
+    },
+    infoText: {
+        flex: 1,
+        color: '#F59E0B',
+        fontSize: 13,
+        fontWeight: '500',
+        lineHeight: 18,
+    },
+    resultSection: {
+        padding: 16,
+    },
+    resultTitle: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+        marginBottom: 16,
+    },
+    videoCard: {
+        backgroundColor: '#17171C',
+        borderRadius: 16,
+        borderWidth: 1,
+        borderColor: '#23232A',
+        overflow: 'hidden',
+    },
+    generatedVideo: {
+        width: '100%',
+        height: 300,
+        backgroundColor: '#000',
+    },
+    videoInfo: {
+        padding: 16,
+    },
+    videoPrompt: {
+        color: '#fff',
+        fontSize: 14,
+        marginBottom: 12,
+    },
+    videoMeta: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+    },
+    providerBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: '#F59E0B20',
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 8,
+    },
+    providerBadgeText: {
+        color: '#F59E0B',
+        fontSize: 12,
+        fontWeight: '600',
+        textTransform: 'uppercase',
+    },
+    jobIdText: {
+        color: '#6B7280',
+        fontSize: 11,
+    },
+    emptyState: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 40,
+        marginTop: 40,
+    },
+    emptyTitle: {
+        color: '#fff',
+        fontSize: 18,
+        fontWeight: '700',
+        marginTop: 16,
+        marginBottom: 8,
+    },
+    emptyDesc: {
+        color: '#6B7280',
+        fontSize: 14,
+        textAlign: 'center',
+        lineHeight: 20,
+    },
+});

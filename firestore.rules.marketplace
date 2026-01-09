@@ -1,0 +1,98 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ==================== HELPER FUNCTIONS ====================
+    
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    // Check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    // ==================== USERS COLLECTION ====================
+    
+    match /users/{userId} {
+      // Users can read their own document
+      allow read: if isOwner(userId);
+      
+      // Users can create their own document (on signup)
+      allow create: if isOwner(userId);
+      
+      // Users can only update their own non-sensitive fields
+      allow update: if isOwner(userId) 
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+          'wallet',  // Prevent direct wallet modifications
+          'ownedProducts'  // Prevent direct product ownership changes
+        ]);
+      
+      // Allow updating activeCustomizations (frames, bubbles)
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'activeCustomizations'
+        ]);
+    }
+    
+    // ==================== PRODUCTS COLLECTION ====================
+    
+    match /products/{productId} {
+      // Anyone can read active products
+      allow read: if resource.data.status == 'active';
+      
+      // Only admins/creators can create products (handled by Cloud Functions)
+      allow create: if false;
+      
+      // Only admins can update/delete products
+      allow update, delete: if false;
+    }
+    
+    // ==================== ORDERS COLLECTION ====================
+    
+    match /orders/{orderId} {
+      // Users can only read their own orders
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // Orders can only be created by Cloud Functions (not directly by clients)
+      allow create, update, delete: if false;
+    }
+    
+    // ==================== LIBRARIES COLLECTION ====================
+    
+    match /libraries/{userId} {
+      // Users can only read their own library
+      allow read: if isOwner(userId);
+      
+      // Libraries can only be modified by Cloud Functions
+      allow create, update, delete: if false;
+    }
+    
+    // ==================== IAP TRANSACTIONS ====================
+    
+    match /iap_transactions/{transactionId} {
+      // Users can read their own IAP transactions
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid;
+      
+      // IAP transactions can only be created by Cloud Functions
+      allow create, update, delete: if false;
+    }
+    
+    // ==================== REVIEWS (OPTIONAL) ====================
+    
+    match /reviews/{reviewId} {
+      // Anyone can read reviews
+      allow read: if true;
+      
+      // Users can create reviews for products they own
+      allow create: if isAuthenticated()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.productId != null;
+      
+      // Users can update/delete their own reviews
+      allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+  }
+}

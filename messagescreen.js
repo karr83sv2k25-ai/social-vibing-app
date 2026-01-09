@@ -19,6 +19,9 @@ import { collection, query, where, orderBy, onSnapshot, getDocs, limit, getDoc, 
 import { db, auth } from './firebaseConfig';
 import { getFriends } from './utils/friendHelpers';
 import { cacheConversations, getCachedConversations, cacheUsers, getCachedUsers } from './utils/messageCache';
+import StatusBadge from './components/StatusBadge';
+import StatusSelector from './components/StatusSelector';
+import { InlineStatus } from './components/StatusBadge';
 
 // 🎨 Theme Colors
 const ACCENT = "#7C3AED";
@@ -102,7 +105,7 @@ function Avatar({ name, size = 44, color = ACCENT, source }) {
       />
     );
   }
-  
+
   // FIXED: Also handle require() style sources
   if (source && typeof source === 'number') {
     return (
@@ -154,6 +157,7 @@ export default function MessagesScreen({ navigation }) {
   const [pinnedConversations, setPinnedConversations] = useState([]);
   const [mutedConversations, setMutedConversations] = useState([]);
   const [archivedConversations, setArchivedConversations] = useState([]);
+  const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
   const currentUser = auth.currentUser;
 
   // Handle notification button
@@ -255,7 +259,7 @@ export default function MessagesScreen({ navigation }) {
           onPress: async () => {
             try {
               // Remove from local state
-              setConversations(prev => 
+              setConversations(prev =>
                 prev.filter(c => (c.conversationId || c.userId) !== (item.conversationId || item.userId))
               );
               Alert.alert('Deleted', 'Conversation has been deleted');
@@ -328,7 +332,7 @@ export default function MessagesScreen({ navigation }) {
       try {
         const followersRef = collection(db, 'users', currentUser.uid, 'followers');
         const unsubscribe = onSnapshot(
-          followersRef, 
+          followersRef,
           (snapshot) => {
             const ids = [];
             snapshot.forEach(doc => {
@@ -401,7 +405,7 @@ export default function MessagesScreen({ navigation }) {
 
     // Combine all user IDs (friends, followers, following) into one unique set
     const allUserIds = new Set([...friendsList, ...followersList, ...followingList]);
-    
+
     if (allUserIds.size === 0) {
       setAllUsers([]);
       setLoading(false);
@@ -419,18 +423,18 @@ export default function MessagesScreen({ navigation }) {
     const fetchUsersBatch = async () => {
       const users = [];
       const userIdsArray = Array.from(allUserIds);
-      
+
       // Fetch in batches of 10 (Firestore 'in' query limit)
       for (let i = 0; i < userIdsArray.length; i += 10) {
         const batch = userIdsArray.slice(i, i + 10);
         const usersRef = collection(db, 'users');
         const q = query(usersRef, where('__name__', 'in', batch));
-        
+
         try {
           const snapshot = await getDocs(q);
           snapshot.forEach((doc) => {
             const userData = doc.data();
-            
+
             // DEBUG: Log user data to check what fields exist
             console.log('👤 User data from batch for', doc.id, ':', {
               username: userData.username,
@@ -440,16 +444,16 @@ export default function MessagesScreen({ navigation }) {
               profilePicture: userData.profilePicture,
               email: userData.email,
             });
-            
-            // Build display name from available fields
+
+            // Build display name - prioritize first + last name
             let displayName = 'User';
-            
-            if (userData.username && userData.username.trim()) {
-              displayName = userData.username;
-            } else if (userData.firstName || userData.lastName) {
+
+            if (userData.firstName || userData.lastName) {
               const first = userData.firstName || '';
               const last = userData.lastName || '';
               displayName = `${first} ${last}`.trim();
+            } else if (userData.username && userData.username.trim()) {
+              displayName = userData.username;
             } else if (userData.displayName && userData.displayName.trim()) {
               displayName = userData.displayName;
             } else if (userData.fullName && userData.fullName.trim()) {
@@ -459,28 +463,28 @@ export default function MessagesScreen({ navigation }) {
             } else if (userData.email) {
               displayName = userData.email.split('@')[0];
             }
-            
+
             // Try multiple field names for avatar/profile picture
-            const avatarUri = userData.profileImage || 
-                             userData.profilePicture || 
-                             userData.avatar || 
-                             userData.photoURL ||
-                             null;
-            
-            const handle = userData.username ? `@${userData.username}` : 
-                         userData.handle || 
-                         (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
-            
+            const avatarUri = userData.profileImage ||
+              userData.profilePicture ||
+              userData.avatar ||
+              userData.photoURL ||
+              null;
+
+            const handle = userData.username ? `@${userData.username}` :
+              userData.handle ||
+              (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
+
             console.log('👤 Built user object:', {
               name: displayName,
               handle: handle,
               hasAvatar: !!avatarUri,
               avatarUri: avatarUri
             });
-            
+
             // FIXED: Don't use { uri: null }, use fallback image directly
             const avatar = avatarUri ? { uri: avatarUri } : null;
-            
+
             users.push({
               id: doc.id,
               name: displayName,
@@ -493,16 +497,16 @@ export default function MessagesScreen({ navigation }) {
           console.error('Error fetching user batch:', error);
         }
       }
-      
+
       setAllUsers(users);
       setLoading(false);
-      
+
       // Cache users for next load
       cacheUsers(users);
     };
 
     fetchUsersBatch();
-    
+
     // No real-time listener needed here - data refreshes when lists change
   }, [currentUser, friendsList, followersList, followingList]);
 
@@ -535,11 +539,11 @@ export default function MessagesScreen({ navigation }) {
         console.log('🔍 Starting conversation listener for user:', currentUser.uid);
 
         const unsubscribe = onSnapshot(
-          q, 
+          q,
           async (snapshot) => {
             console.log('📨 Conversations snapshot received, docs:', snapshot.docs.length);
             const convos = [];
-            
+
             // OPTIMIZATION: Batch fetch all user IDs at once instead of one by one
             const userIds = new Set();
             snapshot.docs.forEach(docSnap => {
@@ -548,171 +552,171 @@ export default function MessagesScreen({ navigation }) {
               if (otherUserId) userIds.add(otherUserId);
             });
 
-      // Fetch all users in batches
-      const userDataMap = new Map();
-      const userIdsArray = Array.from(userIds);
-      
-      for (let i = 0; i < userIdsArray.length; i += 10) {
-        const batch = userIdsArray.slice(i, i + 10);
-        try {
-          const usersRef = collection(db, 'users');
-          const userQuery = query(usersRef, where('__name__', 'in', batch));
-          const userSnapshot = await getDocs(userQuery);
-          
-          userSnapshot.forEach(userDoc => {
-            userDataMap.set(userDoc.id, userDoc.data());
+            // Fetch all users in batches
+            const userDataMap = new Map();
+            const userIdsArray = Array.from(userIds);
+
+            for (let i = 0; i < userIdsArray.length; i += 10) {
+              const batch = userIdsArray.slice(i, i + 10);
+              try {
+                const usersRef = collection(db, 'users');
+                const userQuery = query(usersRef, where('__name__', 'in', batch));
+                const userSnapshot = await getDocs(userQuery);
+
+                userSnapshot.forEach(userDoc => {
+                  userDataMap.set(userDoc.id, userDoc.data());
+                });
+              } catch (error) {
+                console.error('Error fetching conversation users:', error);
+              }
+            }
+
+            // Build conversations with cached user data
+            const conversationUserIds = new Set(); // Track users we've already added to conversations
+
+            for (const docSnap of snapshot.docs) {
+              const data = docSnap.data();
+
+              // Handle group conversations differently
+              if (data.type === 'group') {
+                const groupIcon = data.groupIcon || null;
+
+                console.log('📦 Group conversation found:', {
+                  id: docSnap.id,
+                  name: data.groupName,
+                  participants: data.participants?.length,
+                  lastMessageTime: data.lastMessageTime?.toDate(),
+                  hasLastMessageTime: !!data.lastMessageTime
+                });
+
+                convos.push({
+                  id: docSnap.id,
+                  name: data.groupName || 'Group Chat',
+                  handle: `${data.participants?.length || 0} members`,
+                  time: formatTime(data.lastMessageTime?.toDate()),
+                  unread: data.unreadCount?.[currentUser.uid] || 0,
+                  last: data.lastMessage?.text || data.lastMessage || '',
+                  avatar: groupIcon ? { uri: groupIcon } : null,
+                  conversationId: docSnap.id,
+                  hasConversation: true,
+                  isGroup: true,
+                });
+                continue;
+              }
+
+              // Handle 1-on-1 conversations
+              const otherUserId = data.participants.find(id => id !== currentUser.uid);
+
+              // Skip if we've already added this user (prevents duplicate conversations)
+              if (conversationUserIds.has(otherUserId)) {
+                continue;
+              }
+              conversationUserIds.add(otherUserId);
+
+              const userData = userDataMap.get(otherUserId);
+
+              if (userData) {
+                // DEBUG: Log user data to see what fields are available
+                console.log('🔍 User data for', otherUserId, ':', {
+                  username: userData.username,
+                  firstName: userData.firstName,
+                  lastName: userData.lastName,
+                  displayName: userData.displayName,
+                  name: userData.name,
+                  profileImage: userData.profileImage,
+                  profilePicture: userData.profilePicture,
+                  avatar: userData.avatar,
+                  photoURL: userData.photoURL,
+                });
+
+                // Build display name - prioritize first + last name
+                let displayName = 'User';
+
+                if (userData.firstName || userData.lastName) {
+                  const first = userData.firstName || '';
+                  const last = userData.lastName || '';
+                  displayName = `${first} ${last}`.trim();
+                } else if (userData.username && userData.username.trim()) {
+                  displayName = userData.username;
+                } else if (userData.displayName && userData.displayName.trim()) {
+                  displayName = userData.displayName;
+                } else if (userData.fullName && userData.fullName.trim()) {
+                  displayName = userData.fullName;
+                } else if (userData.name && userData.name.trim()) {
+                  displayName = userData.name;
+                } else if (userData.email) {
+                  displayName = userData.email.split('@')[0];
+                }
+
+                // Try multiple field names for avatar/profile picture
+                const avatarUri = userData.profileImage ||
+                  userData.profilePicture ||
+                  userData.avatar ||
+                  userData.photoURL ||
+                  null;
+
+                const handle = userData.username ? `@${userData.username}` :
+                  userData.handle ||
+                  (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
+
+                console.log('✅ Conversation built:', {
+                  name: displayName,
+                  handle: handle,
+                  avatarUri: avatarUri,
+                  hasAvatar: !!avatarUri
+                });
+
+                // FIXED: Don't use { uri: null }, use null so Avatar component shows initials
+                const avatar = avatarUri ? { uri: avatarUri } : null;
+
+                convos.push({
+                  id: docSnap.id,
+                  name: displayName,
+                  handle: handle,
+                  time: formatTime(data.lastMessageTime?.toDate()),
+                  unread: data.unreadCount?.[currentUser.uid] || 0,
+                  last: data.lastMessage || '',
+                  avatar: avatar,
+                  userId: otherUserId,
+                  conversationId: docSnap.id,
+                  hasConversation: true,
+                  isGroup: data.type === 'group', // Add group indicator
+                });
+              } else {
+                // If user data not found, still show conversation with minimal info
+                convos.push({
+                  id: docSnap.id,
+                  name: 'User',
+                  handle: '@user',
+                  time: formatTime(data.lastMessageTime?.toDate()),
+                  unread: data.unreadCount?.[currentUser.uid] || 0,
+                  last: data.lastMessage || '',
+                  avatar: null, // FIXED: Use null to show initials instead of trying to load image
+                  userId: otherUserId,
+                  conversationId: docSnap.id,
+                  hasConversation: true,
+                  isGroup: false,
+                });
+              }
+            }
+
+            // FIXED: Only show actual conversations, not all friends/followers
+            // Users can start new conversations by going to profile or using Add Friends
+            console.log('💬 Total conversations loaded:', convos.length);
+            console.log('📊 Groups:', convos.filter(c => c.isGroup).length);
+            console.log('📊 Private:', convos.filter(c => !c.isGroup).length);
+
+            setConversations(convos);
+            setLoading(false);
+
+            // Cache conversations for next load
+            cacheConversations(convos);
+          },
+          (error) => {
+            // Silently handle errors - SDK will retry
+            // Keep cached data on error
+            setLoading(false);
           });
-        } catch (error) {
-          console.error('Error fetching conversation users:', error);
-        }
-      }
-      
-      // Build conversations with cached user data
-      const conversationUserIds = new Set(); // Track users we've already added to conversations
-      
-      for (const docSnap of snapshot.docs) {
-        const data = docSnap.data();
-        
-        // Handle group conversations differently
-        if (data.type === 'group') {
-          const groupIcon = data.groupIcon || null;
-          
-          console.log('📦 Group conversation found:', {
-            id: docSnap.id,
-            name: data.groupName,
-            participants: data.participants?.length,
-            lastMessageTime: data.lastMessageTime?.toDate(),
-            hasLastMessageTime: !!data.lastMessageTime
-          });
-          
-          convos.push({
-            id: docSnap.id,
-            name: data.groupName || 'Group Chat',
-            handle: `${data.participants?.length || 0} members`,
-            time: formatTime(data.lastMessageTime?.toDate()),
-            unread: data.unreadCount?.[currentUser.uid] || 0,
-            last: data.lastMessage?.text || data.lastMessage || '',
-            avatar: groupIcon ? { uri: groupIcon } : null,
-            conversationId: docSnap.id,
-            hasConversation: true,
-            isGroup: true,
-          });
-          continue;
-        }
-        
-        // Handle 1-on-1 conversations
-        const otherUserId = data.participants.find(id => id !== currentUser.uid);
-        
-        // Skip if we've already added this user (prevents duplicate conversations)
-        if (conversationUserIds.has(otherUserId)) {
-          continue;
-        }
-        conversationUserIds.add(otherUserId);
-        
-        const userData = userDataMap.get(otherUserId);
-        
-        if (userData) {
-          // DEBUG: Log user data to see what fields are available
-          console.log('🔍 User data for', otherUserId, ':', {
-            username: userData.username,
-            firstName: userData.firstName,
-            lastName: userData.lastName,
-            displayName: userData.displayName,
-            name: userData.name,
-            profileImage: userData.profileImage,
-            profilePicture: userData.profilePicture,
-            avatar: userData.avatar,
-            photoURL: userData.photoURL,
-          });
-          
-          // Build display name from available fields
-          let displayName = 'User';
-          
-          if (userData.username && userData.username.trim()) {
-            displayName = userData.username;
-          } else if (userData.firstName || userData.lastName) {
-            const first = userData.firstName || '';
-            const last = userData.lastName || '';
-            displayName = `${first} ${last}`.trim();
-          } else if (userData.displayName && userData.displayName.trim()) {
-            displayName = userData.displayName;
-          } else if (userData.fullName && userData.fullName.trim()) {
-            displayName = userData.fullName;
-          } else if (userData.name && userData.name.trim()) {
-            displayName = userData.name;
-          } else if (userData.email) {
-            displayName = userData.email.split('@')[0];
-          }
-          
-          // Try multiple field names for avatar/profile picture
-          const avatarUri = userData.profileImage || 
-                           userData.profilePicture || 
-                           userData.avatar || 
-                           userData.photoURL ||
-                           null;
-          
-          const handle = userData.username ? `@${userData.username}` : 
-                       userData.handle || 
-                       (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
-          
-          console.log('✅ Conversation built:', {
-            name: displayName,
-            handle: handle,
-            avatarUri: avatarUri,
-            hasAvatar: !!avatarUri
-          });
-          
-          // FIXED: Don't use { uri: null }, use null so Avatar component shows initials
-          const avatar = avatarUri ? { uri: avatarUri } : null;
-          
-          convos.push({
-            id: docSnap.id,
-            name: displayName,
-            handle: handle,
-            time: formatTime(data.lastMessageTime?.toDate()),
-            unread: data.unreadCount?.[currentUser.uid] || 0,
-            last: data.lastMessage || '',
-            avatar: avatar,
-            userId: otherUserId,
-            conversationId: docSnap.id,
-            hasConversation: true,
-            isGroup: data.type === 'group', // Add group indicator
-          });
-        } else {
-          // If user data not found, still show conversation with minimal info
-          convos.push({
-            id: docSnap.id,
-            name: 'User',
-            handle: '@user',
-            time: formatTime(data.lastMessageTime?.toDate()),
-            unread: data.unreadCount?.[currentUser.uid] || 0,
-            last: data.lastMessage || '',
-            avatar: null, // FIXED: Use null to show initials instead of trying to load image
-            userId: otherUserId,
-            conversationId: docSnap.id,
-            hasConversation: true,
-            isGroup: false,
-          });
-        }
-      }
-      
-      // FIXED: Only show actual conversations, not all friends/followers
-      // Users can start new conversations by going to profile or using Add Friends
-      console.log('💬 Total conversations loaded:', convos.length);
-      console.log('📊 Groups:', convos.filter(c => c.isGroup).length);
-      console.log('📊 Private:', convos.filter(c => !c.isGroup).length);
-      
-      setConversations(convos);
-      setLoading(false);
-      
-      // Cache conversations for next load
-      cacheConversations(convos);
-    }, 
-    (error) => {
-      // Silently handle errors - SDK will retry
-      // Keep cached data on error
-      setLoading(false);
-    });
 
         return () => unsubscribe();
       } catch (error) {
@@ -731,7 +735,7 @@ export default function MessagesScreen({ navigation }) {
     if (!date) return '';
     const now = new Date();
     const diff = now - date;
-    
+
     if (diff < 60000) return 'now';
     if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
     if (diff < 86400000) {
@@ -778,7 +782,7 @@ export default function MessagesScreen({ navigation }) {
   const handleChatPress = async (item) => {
     // If conversation exists, navigate directly
     if (item.conversationId) {
-      navigation.navigate("Chat", { 
+      navigation.navigate("Chat", {
         user: item,
         conversationId: item.conversationId,
         otherUserId: item.userId,
@@ -791,8 +795,8 @@ export default function MessagesScreen({ navigation }) {
     try {
       const { getOrCreateConversation } = await import('./messageHelpers');
       const conversationId = await getOrCreateConversation(currentUser.uid, item.userId);
-      
-      navigation.navigate("Chat", { 
+
+      navigation.navigate("Chat", {
         user: item,
         conversationId: conversationId,
         otherUserId: item.userId,
@@ -808,7 +812,7 @@ export default function MessagesScreen({ navigation }) {
     const id = item.conversationId || item.userId;
     const isPinned = pinnedConversations.includes(id);
     const isMuted = mutedConversations.includes(id);
-    
+
     return (
       <TouchableOpacity
         activeOpacity={0.85}
@@ -842,6 +846,16 @@ export default function MessagesScreen({ navigation }) {
               {"  "}{item.last}
             </Text>
           </View>
+          {/* Show user's status if they have one */}
+          {!item.isGroup && item.userId && (
+            <View style={{ marginTop: 6 }}>
+              <InlineStatus
+                userId={item.userId}
+                isOwnStatus={false}
+                textStyle={{ fontSize: 13, color: '#9CA3AF' }}
+              />
+            </View>
+          )}
         </View>
 
         {item.unread > 0 ? (
@@ -885,20 +899,28 @@ export default function MessagesScreen({ navigation }) {
           <Ionicons name="chatbubbles" size={22} color={CYAN} />
           <Text style={styles.headerTitle}>Messages</Text>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
-          <TouchableOpacity 
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {/* User Status Badge - Click to edit */}
+          <StatusBadge
+            isOwnStatus={true}
+            size="medium"
+            showEditIcon={true}
+            onPress={() => setStatusSelectorVisible(true)}
+          />
+
+          <TouchableOpacity
             style={styles.hIcon}
             onPress={handleNotificationPress}
           >
             <Ionicons name="notifications-outline" size={20} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.hIcon}
             onPress={() => navigation.navigate('AddFriends')}
           >
             <Ionicons name="person-add-outline" size={20} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.hIcon}
             onPress={handleOptionsPress}
           >
@@ -924,28 +946,28 @@ export default function MessagesScreen({ navigation }) {
 
       {/* 🔹 Segments */}
       <View style={styles.segmentRow}>
-        <Chip 
-          active={activeTab === 'private'} 
-          icon="lock-closed" 
-          label="Private" 
+        <Chip
+          active={activeTab === 'private'}
+          icon="lock-closed"
+          label="Private"
           onPress={() => setActiveTab('private')}
         />
-        <Chip 
-          active={activeTab === 'groups'} 
-          icon="people" 
-          label="Groups" 
+        <Chip
+          active={activeTab === 'groups'}
+          icon="people"
+          label="Groups"
           onPress={() => setActiveTab('groups')}
         />
-        <Chip 
-          active={activeTab === 'invites'} 
-          icon="mail-open-outline" 
-          label="Invites" 
+        <Chip
+          active={activeTab === 'invites'}
+          icon="mail-open-outline"
+          label="Invites"
           onPress={() => setActiveTab('invites')}
         />
-        <Chip 
-          active={activeTab === 'mentions'} 
-          icon="at" 
-          label="Mentions" 
+        <Chip
+          active={activeTab === 'mentions'}
+          icon="at"
+          label="Mentions"
           onPress={() => setActiveTab('mentions')}
         />
       </View>
@@ -953,7 +975,7 @@ export default function MessagesScreen({ navigation }) {
       {/* Create Group Button - Only show when Groups tab is active */}
       {activeTab === 'groups' && (
         <View style={styles.createGroupContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.createGroupButton}
             onPress={handleCreateGroup}
           >
@@ -976,7 +998,7 @@ export default function MessagesScreen({ navigation }) {
           let title = "No messages yet";
           let subtitle = "Start a conversation!";
           let showButton = false;
-          
+
           if (activeTab === 'invites') {
             icon = "mail-open-outline";
             title = "No invites";
@@ -997,7 +1019,7 @@ export default function MessagesScreen({ navigation }) {
             subtitle = "Add friends or follow people to start chatting!";
             showButton = true;
           }
-          
+
           return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 50 }}>
               <Ionicons name={icon} size={64} color={TEXT_DIM} />
@@ -1008,13 +1030,13 @@ export default function MessagesScreen({ navigation }) {
                 {subtitle}
               </Text>
               {showButton && (
-                <TouchableOpacity 
-                  style={{ 
-                    marginTop: 20, 
-                    backgroundColor: ACCENT, 
-                    paddingHorizontal: 24, 
-                    paddingVertical: 12, 
-                    borderRadius: 20 
+                <TouchableOpacity
+                  style={{
+                    marginTop: 20,
+                    backgroundColor: ACCENT,
+                    paddingHorizontal: 24,
+                    paddingVertical: 12,
+                    borderRadius: 20
                   }}
                   onPress={() => navigation.navigate('AddFriends')}
                 >
@@ -1028,39 +1050,39 @@ export default function MessagesScreen({ navigation }) {
 
       {/* Bottom Navigation Bar */}
       <View style={styles.bottomNavBar}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => navigation.navigate('Home')}
         >
           <Ionicons name="home-outline" size={24} color="#888" />
           <Text style={styles.navButtonText}>Home</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => navigation.navigate('Community')}
         >
           <Ionicons name="people-outline" size={24} color="#888" />
           <Text style={styles.navButtonText}>Community</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => navigation.navigate('MarketPlace')}
         >
           <Ionicons name="cart-outline" size={24} color="#888" />
           <Text style={styles.navButtonText}>Market</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => navigation.navigate('Message')}
         >
           <Ionicons name="chatbubbles" size={24} color="#08FFE2" />
           <Text style={[styles.navButtonText, { color: '#08FFE2' }]}>Messages</Text>
         </TouchableOpacity>
-        
-        <TouchableOpacity 
+
+        <TouchableOpacity
           style={styles.navButton}
           onPress={() => navigation.navigate('Profile')}
         >
@@ -1068,6 +1090,13 @@ export default function MessagesScreen({ navigation }) {
           <Text style={styles.navButtonText}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Status Selector Modal */}
+      <StatusSelector
+        visible={statusSelectorVisible}
+        onClose={() => setStatusSelectorVisible(false)}
+        title="Update Your Status"
+      />
     </SafeAreaView>
   );
 }

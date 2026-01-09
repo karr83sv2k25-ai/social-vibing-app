@@ -66,10 +66,10 @@ const isVoiceRoomType = (type) => {
 };
 
 // Optimized RenderMessages component with useMemo to prevent array recreation
-const RenderMessages = memo(({ 
-  messages, 
-  currentUser, 
-  setSelectedImageModal, 
+const RenderMessages = memo(({
+  messages,
+  currentUser,
+  setSelectedImageModal,
   setVideoRefs,
   playingVideoId,
   setPlayingVideoId,
@@ -88,12 +88,12 @@ const RenderMessages = memo(({
 }) => {
   // Memoize current user ID to avoid recalculation
   const currentUserId = useMemo(() => currentUser?.id, [currentUser?.id]);
-  
+
   // Memoize the entire message list to prevent recreation on every render
   const messageElements = useMemo(() => {
     return messages.map((msg) => {
       const isCurrentUser = currentUserId && msg.senderId === currentUserId;
-      
+
       return (
         <MessageRow
           key={msg.id}
@@ -119,14 +119,14 @@ const RenderMessages = memo(({
         />
       );
     });
-  }, [messages, currentUserId, currentUser, playingVideoId, playingVoiceId, 
-      navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress]);
-  
+  }, [messages, currentUserId, currentUser, playingVideoId, playingVoiceId,
+    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress]);
+
   return <>{messageElements}</>;
 });
 
 // Memoized Message Row component
-const MessageRow = memo(({ 
+const MessageRow = memo(({
   msg,
   isCurrentUser,
   currentUser,
@@ -155,7 +155,7 @@ const MessageRow = memo(({
       ]}
     >
       {!isCurrentUser && (
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => handleProfilePress(msg.senderId)}
           activeOpacity={0.7}
         >
@@ -171,26 +171,26 @@ const MessageRow = memo(({
           )}
         </TouchableOpacity>
       )}
-      <View 
+      <View
         style={[
-          styles.chatMessageBox, 
-          isCurrentUser 
-            ? styles.chatMessageBoxOwn 
+          styles.chatMessageBox,
+          isCurrentUser
+            ? styles.chatMessageBoxOwn
             : styles.chatMessageBoxOther
         ]}
       >
         {!isCurrentUser && (
           <Text style={styles.chatMessageTitle}>{msg.sender || 'User'}</Text>
         )}
-        
+
         {/* Image Message */}
         {msg.imageUrl && (
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setSelectedImageModal(msg.imageUrl)}
             activeOpacity={0.9}
           >
-            <Image 
-              source={{ uri: msg.imageUrl }} 
+            <Image
+              source={{ uri: msg.imageUrl }}
               style={styles.chatMessageImage}
               resizeMode="cover"
             />
@@ -226,14 +226,14 @@ const MessageRow = memo(({
         {/* Voice Room Message - Only show active rooms */}
         {(msg.type === 'voiceChat' || isVoiceRoomType(msg.type)) && (
           <View>
-            <View style={msg.isActive ? undefined : {alignItems: 'center', marginBottom: 4}}>
+            <View style={msg.isActive ? undefined : { alignItems: 'center', marginBottom: 4 }}>
               {!msg.isActive && (
-                <View style={{backgroundColor: '#EF4444', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4}}>
-                  <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 13}}>Voice Chat Ended</Text>
+                <View style={{ backgroundColor: '#EF4444', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                  <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 13 }}>Voice Chat Ended</Text>
                 </View>
               )}
               <TouchableOpacity
-                style={msg.isActive ? [styles.voiceChatMessageContainer, {flexWrap: 'wrap', minHeight: 80}] : [styles.voiceChatMessageContainer, {opacity: 0.7, flexWrap: 'wrap', minHeight: 80}]}
+                style={msg.isActive ? [styles.voiceChatMessageContainer, { flexWrap: 'wrap', minHeight: 80 }] : [styles.voiceChatMessageContainer, { opacity: 0.7, flexWrap: 'wrap', minHeight: 80 }]}
                 disabled={!msg.isActive}
                 onPress={() => msg.isActive && handleJoinVoiceChat(msg.id, msg.roomId, msg.participants || [])}
                 activeOpacity={0.7}
@@ -327,11 +327,11 @@ const MessageRow = memo(({
               {msg.isActive && (
                 <View style={styles.liveIndicator}>
                   <View style={styles.liveDot} />
-                    <Text style={styles.liveText}>{msg.isActive ? 'LIVE' : 'ENDED'}</Text>
+                  <Text style={styles.liveText}>{msg.isActive ? 'LIVE' : 'ENDED'}</Text>
                 </View>
               )}
             </View>
-            
+
             <Text style={styles.roleplayText} numberOfLines={2} ellipsizeMode="tail">
               {msg.senderName || 'User'} started a roleplay session
             </Text>
@@ -347,8 +347,8 @@ const MessageRow = memo(({
                     <View key={index} style={styles.roleplayCharacterCard}>
                       {/* Character Avatar */}
                       {char.avatar ? (
-                        <Image 
-                          source={{ uri: char.avatar }} 
+                        <Image
+                          source={{ uri: char.avatar }}
                           style={styles.roleplayCharacterAvatar}
                         />
                       ) : (
@@ -356,10 +356,10 @@ const MessageRow = memo(({
                           <Ionicons name="person" size={24} color="#666" />
                         </View>
                       )}
-                      
+
                       <View style={styles.roleplayCharacterInfo}>
                         {/* Character Name with Theme Color */}
-                        <Text 
+                        <Text
                           style={[
                             styles.roleplayCharacterName,
                             char.themeColor && { color: char.themeColor }
@@ -368,19 +368,19 @@ const MessageRow = memo(({
                         >
                           {char.name}
                         </Text>
-                        
+
                         {/* Subtitle */}
                         {char.subtitle && (
                           <Text style={styles.roleplayCharacterSubtitle} numberOfLines={1}>
                             {char.subtitle}
                           </Text>
                         )}
-                        
+
                         {/* Author */}
                         <Text style={styles.roleplayCharacterAuthor}>
                           by @{char.ownerName || msg.senderName || 'Unknown'}
                         </Text>
-                        
+
                         {/* Tags */}
                         {char.tags && char.tags.length > 0 && (
                           <View style={styles.roleplayCharacterTags}>
@@ -394,7 +394,7 @@ const MessageRow = memo(({
                             )}
                           </View>
                         )}
-                        
+
                         {/* Attributes */}
                         <View style={styles.roleplayCharacterAttributes}>
                           {char.gender && (
@@ -427,7 +427,7 @@ const MessageRow = memo(({
                 <View style={styles.participantsAvatarRow}>
                   {msg.participantsDetails.slice(0, 7).map((participant, index) => {
                     const isCreator = participant.userId === msg.senderId;
-                    
+
                     return (
                       <View key={index} style={styles.participantAvatarContainer}>
                         {isCreator && (
@@ -436,8 +436,8 @@ const MessageRow = memo(({
                           </View>
                         )}
                         <Image
-                          source={{ 
-                            uri: participant.profileImage || 'https://via.placeholder.com/50' 
+                          source={{
+                            uri: participant.profileImage || 'https://via.placeholder.com/50'
                           }}
                           style={styles.participantAvatar}
                         />
@@ -494,7 +494,7 @@ const MessageRow = memo(({
               <MaterialIcons name="groups" size={24} color="#8B2EF0" />
               <Text style={styles.communityInviteTitle}>Community Invitation</Text>
             </View>
-            
+
             {msg.communityImage && (
               <Image
                 source={{ uri: msg.communityImage }}
@@ -502,14 +502,14 @@ const MessageRow = memo(({
                 resizeMode="cover"
               />
             )}
-            
+
             <View style={styles.communityInviteContent}>
               <Text style={styles.communityInviteName}>{msg.communityName}</Text>
               <Text style={styles.communityInviteText}>
                 {msg.sender} invites you to join this community! 🎉
               </Text>
             </View>
-            
+
             <View style={styles.communityInviteButton}>
               <MaterialIcons name="login" size={18} color="#fff" />
               <Text style={styles.communityInviteButtonText}>Tap to Join</Text>
@@ -520,7 +520,7 @@ const MessageRow = memo(({
         {/* Voice Message */}
         {msg.voiceUrl && msg.type !== 'voiceChat' && !isVoiceRoomType(msg.type) && (
           <View style={styles.chatVoiceContainer}>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
                 styles.chatVoiceButton,
                 playingVoiceId === msg.id && styles.chatVoiceButtonPlaying
@@ -533,20 +533,20 @@ const MessageRow = memo(({
                     setVoiceSound(null);
                     return;
                   }
-                  
+
                   if (voiceSound) {
                     await voiceSound.stopAsync();
                     await voiceSound.unloadAsync();
                   }
-                  
+
                   const { sound } = await Audio.Sound.createAsync(
                     { uri: msg.voiceUrl },
                     { shouldPlay: true }
                   );
-                  
+
                   setVoiceSound(sound);
                   setPlayingVoiceId(msg.id);
-                  
+
                   sound.setOnPlaybackStatusUpdate((status) => {
                     if (status.didJustFinish) {
                       setPlayingVoiceId(null);
@@ -554,7 +554,7 @@ const MessageRow = memo(({
                       sound.unloadAsync();
                     }
                   });
-                  
+
                   await sound.playAsync();
                 } catch (error) {
                   console.error('Error playing voice:', error);
@@ -564,10 +564,10 @@ const MessageRow = memo(({
                 }
               }}
             >
-              <Ionicons 
-                name={playingVoiceId === msg.id ? "pause" : "play"} 
-                size={20} 
-                color="#fff" 
+              <Ionicons
+                name={playingVoiceId === msg.id ? "pause" : "play"}
+                size={20}
+                color="#fff"
               />
               <Text style={styles.chatVoiceText}>
                 {msg.duration ? `${Math.floor(msg.duration)}s` : 'Voice message'}
@@ -609,7 +609,7 @@ const MessageRow = memo(({
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for memo - return TRUE to skip re-render when props are same
-  
+
   // Fast path: check simple props first
   if (
     prevProps.msg.id !== nextProps.msg.id ||
@@ -624,35 +624,35 @@ const MessageRow = memo(({
   ) {
     return false;
   }
-  
+
   // Optimized array comparison - only if fast path passes
   const prevParticipants = prevProps.msg.participants;
   const nextParticipants = nextProps.msg.participants;
-  
+
   if (!prevParticipants && !nextParticipants) return true;
   if (!prevParticipants || !nextParticipants) return false;
   if (prevParticipants.length !== nextParticipants.length) return false;
-  
+
   // Shallow comparison of array elements (IDs are strings/numbers)
   return prevParticipants.every((id, index) => id === nextParticipants[index]);
 });
 
 
 export default function GroupInfoScreen() {
-    // Call this after ending a voice room session
-    const handleVoiceRoomSessionEnd = useCallback(async (messageId) => {
-      // 1. Send system message
-      await sendSessionEndSystemMessage(communityId, currentUser);
-      // 2. Update the voice room message's isActive to false in Firestore
-      try {
-        if (!communityId || !messageId) return;
-        const firestore = await import('firebase/firestore');
-        const messageRef = firestore.doc(db, 'community_chats', communityId, 'messages', messageId);
-        await firestore.updateDoc(messageRef, { isActive: false });
-      } catch (e) {
-        console.log('Error updating voice room message to ended:', e);
-      }
-    }, [communityId, currentUser]);
+  // Call this after ending a voice room session
+  const handleVoiceRoomSessionEnd = useCallback(async (messageId) => {
+    // 1. Send system message
+    await sendSessionEndSystemMessage(communityId, currentUser);
+    // 2. Update the voice room message's isActive to false in Firestore
+    try {
+      if (!communityId || !messageId) return;
+      const firestore = await import('firebase/firestore');
+      const messageRef = firestore.doc(db, 'community_chats', communityId, 'messages', messageId);
+      await firestore.updateDoc(messageRef, { isActive: false });
+    } catch (e) {
+      console.log('Error updating voice room message to ended:', e);
+    }
+  }, [communityId, currentUser]);
   const navigation = useNavigation();
   const route = useRoute();
   const { communityId, groupTitle, openCharacterSelector, roleplaySessionId, returnToRoleplay } = route.params || {};
@@ -702,6 +702,8 @@ export default function GroupInfoScreen() {
   const [admins, setAdmins] = useState([]);
   const [moderators, setModerators] = useState([]);
   const [recentlyJoined, setRecentlyJoined] = useState([]);
+  const [currentAdminIds, setCurrentAdminIds] = useState([]);
+  const [currentModeratorIds, setCurrentModeratorIds] = useState([]);
   const [activityStats, setActivityStats] = useState({
     chatting: 0,
     liveChatting: 0,
@@ -752,15 +754,22 @@ export default function GroupInfoScreen() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showMembersModal, setShowMembersModal] = useState(false);
+  const [membersModalContext, setMembersModalContext] = useState('all'); // 'all' or 'online'
   const [showShareModal, setShowShareModal] = useState(false);
   const [inviteLink, setInviteLink] = useState('');
   const [qrCodeValue, setQrCodeValue] = useState('');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
-  
+  const [announcements, setAnnouncements] = useState([]);
+  const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
+  const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+  const [featuredPosts, setFeaturedPosts] = useState([]);
+  const [showFeaturedModal, setShowFeaturedModal] = useState(false);
+  const memberStatusUnsubscribersRef = useRef([]);
+
   // Active audio call state
   const [activeAudioCall, setActiveAudioCall] = useState(null);
   const [audioCallParticipants, setAudioCallParticipants] = useState([]);
-  
+
   // Roleplay setup modal
   const [showRoleplaySetup, setShowRoleplaySetup] = useState(false);
   const [roleplayScenario, setRoleplayScenario] = useState('');
@@ -771,16 +780,16 @@ export default function GroupInfoScreen() {
   const [customRoleName, setCustomRoleName] = useState('');
   const [customRoleDescription, setCustomRoleDescription] = useState('');
   const [showCustomRoleInput, setShowCustomRoleInput] = useState(false);
-  
+
   // Character selection for joining roleplay
   const [showCharacterSelectorForJoin, setShowCharacterSelectorForJoin] = useState(false);
   const [selectedCharacterForRoleplay, setSelectedCharacterForRoleplay] = useState(null);
   const [pendingRoleplayJoin, setPendingRoleplayJoin] = useState(null); // Store messageId, sessionId, roles
-  
+
   // Feature selection modal
   const [showFeatureModal, setShowFeatureModal] = useState(false);
   const [showMiniScreen, setShowMiniScreen] = useState(null); // 'voice', 'screening', 'roleplay'
-  
+
   // Roleplay character creation (3 pages)
   const [roleplayPage, setRoleplayPage] = useState(1); // 1, 2, 3, 4
   const [characterAvatar, setCharacterAvatar] = useState('');
@@ -798,17 +807,17 @@ export default function GroupInfoScreen() {
   const [characterCollection, setCharacterCollection] = useState([]); // All created characters
   const [selectedCharactersForSession, setSelectedCharactersForSession] = useState([]); // Characters selected for this roleplay
   const [editingCharacterId, setEditingCharacterId] = useState(null); // For editing existing character
-  
+
   // Predefined tag suggestions
   const suggestedTags = ['Friendly', 'Romantic', 'Mysterious', 'Adventurous', 'Wise', 'Playful', 'Serious', 'Funny', 'Creative', 'Athletic', 'Intellectual', 'Caring'];
   const themeColors = ['#FFD700', '#FF6B6B', '#4CAF50', '#2196F3', '#9C27B0', '#FF9800', '#E91E63', '#00BCD4', '#8BC34A', '#FF5722'];
   const languages = ['English', 'Urdu', 'Hindi', 'Arabic', 'Spanish', 'French', 'German', 'Japanese', 'Korean', 'Chinese'];
-  
+
   // Text color picker
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [selectedTextColor, setSelectedTextColor] = useState('#fff');
   const textColors = ['#fff', '#FF4444', '#FF6B6B', '#FFA500', '#FFD700', '#4CAF50', '#00CED1', '#4169E1', '#8B2EF0', '#FF1493'];
-  
+
   // Ref for scrolling to bottom of chat
   const chatScrollRef = React.useRef(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -832,12 +841,12 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     const loadCharacterCollection = async () => {
       if (!currentUser?.id) return;
-      
+
       try {
         // db is now imported globally
         const userRef = doc(db, 'users', currentUser.id);
         const userSnap = await getDoc(userRef);
-        
+
         if (userSnap.exists()) {
           const userData = userSnap.data();
           setCharacterCollection(userData.characterCollection || []);
@@ -854,11 +863,11 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     if (openCharacterSelector && roleplaySessionId) {
       // Set pending roleplay join with session details
-      setPendingRoleplayJoin({ 
+      setPendingRoleplayJoin({
         sessionId: roleplaySessionId,
-        returnToRoleplay: returnToRoleplay 
+        returnToRoleplay: returnToRoleplay
       });
-      
+
       // Open the mini screen for roleplay character selection
       setShowMiniScreen('roleplay');
       setRoleplayPage(1); // Start at character selection page
@@ -874,48 +883,58 @@ export default function GroupInfoScreen() {
       setLoading(true);
       setError(null);
 
-        // db is now imported globally
-        const communityRef = doc(db, 'communities', communityId);
+      // db is now imported globally
+      const communityRef = doc(db, 'communities', communityId);
 
       const firestore = await import('firebase/firestore');
       unsubscribe = firestore.onSnapshot(communityRef, async (communitySnap) => {
         try {
-        if (communitySnap.exists()) {
-          const data = communitySnap.data();
-          // Get member count: prefer members_count, then community_members, then calculate from members array
-          let memberCount = 0;
-          if (typeof data.members_count === 'number') {
-            memberCount = data.members_count;
-          } else if (typeof data.community_members === 'number') {
-            memberCount = data.community_members;
-          } else if (Array.isArray(data.members)) {
-            memberCount = data.members.length;
-          } else if (Array.isArray(data.community_members)) {
-            memberCount = data.community_members.length;
+          if (communitySnap.exists()) {
+            const data = communitySnap.data();
+            // Get member count: prefer actual arrays (most accurate), then numeric counters
+            let memberCount = 0;
+            if (Array.isArray(data.members)) {
+              memberCount = data.members.length;
+            } else if (Array.isArray(data.community_members)) {
+              memberCount = data.community_members.length;
             } else if (Array.isArray(data.memberIds)) {
               memberCount = data.memberIds.length;
-          }
-          setCommunity({ 
-            id: communitySnap.id, 
-            ...data,
+            } else if (typeof data.members_count === 'number') {
+              memberCount = data.members_count;
+            } else if (typeof data.community_members === 'number') {
+              memberCount = data.community_members;
+            }
+            setCommunity({
+              id: communitySnap.id,
+              ...data,
               memberCount: memberCount
             });
-            
-            // Check if current user is admin (creator) of this community
-            if (auth.currentUser && data.createdBy === auth.currentUser.uid) {
-              setIsAdmin(true);
-              // Generate invite link
+
+            // Determine admin ids from possible fields and check admin status
+            const _adminIds = Array.isArray(data.adminIds)
+              ? data.adminIds
+              : Array.isArray(data.admins)
+                ? data.admins
+                : data.uid && typeof data.uid === 'string'
+                  ? [data.uid]
+                  : [];
+
+            // Check if current user is admin - ONLY based on adminIds array
+            // This allows super admin to fully revoke admin privileges from anyone, including the creator
+            const isCurrentAdmin = auth.currentUser && _adminIds.includes(auth.currentUser.uid);
+
+            setIsAdmin(Boolean(isCurrentAdmin));
+            if (isCurrentAdmin) {
+              // Generate invite link for admins
               setInviteLink(`https://socialvibing.app/community/${communityId}`);
               setQrCodeValue(`https://socialvibing.app/community/${communityId}`);
-            } else {
-              setIsAdmin(false);
             }
-            
+
             // Extract member IDs from various possible formats
             let memberIds = [];
-            
+
             // Format 1: memberIds array
-          if (data.memberIds && Array.isArray(data.memberIds)) {
+            if (data.memberIds && Array.isArray(data.memberIds)) {
               memberIds = data.memberIds;
             }
             // Format 2: members array
@@ -934,14 +953,14 @@ export default function GroupInfoScreen() {
                 console.log('Extracted member IDs from numeric keys:', memberIds);
               }
             }
-            
+
             console.log('Member IDs found:', memberIds.length, memberIds);
-            
+
             // Also check uid field (owner/admin) - add it to memberIds if not already present
             if (data.uid && typeof data.uid === 'string' && data.uid.trim() !== '' && !memberIds.includes(data.uid)) {
               memberIds.push(data.uid);
             }
-            
+
             // If still no members, try fetching from communities_members subcollection
             if (memberIds.length === 0) {
               try {
@@ -958,44 +977,48 @@ export default function GroupInfoScreen() {
                 console.log('Error fetching from communities_members subcollection:', e);
               }
             }
-            
+
             console.log('Final member IDs to fetch:', memberIds.length, memberIds);
-            
+
             // Fetch members from users collection
             if (memberIds.length > 0) {
-            const usersCol = collection(db, 'users');
-              
+              const usersCol = collection(db, 'users');
+
               // Fetch first 5 for preview
-            const memberDocs = await Promise.all(
+              const memberDocs = await Promise.all(
                 memberIds.slice(0, 5).map(async (uid) => {
                   try {
-                const userDoc = await getDoc(doc(usersCol, uid));
-                return userDoc.exists() ? { id: userDoc.id, ...userDoc.data() } : null;
+                    const userDoc = await getDoc(doc(usersCol, uid));
+                    return userDoc.exists() ? { id: userDoc.id, ...userDoc.data() } : null;
                   } catch (e) {
                     return null;
                   }
-              })
-            );
-            setMembers(memberDocs.filter(Boolean));
-              
+                })
+              );
+              setMembers(memberDocs.filter(Boolean));
+
               // Store admin and moderator IDs from community data
               const adminIds = Array.isArray(data.adminIds)
                 ? data.adminIds
                 : Array.isArray(data.admins)
-                ? data.admins
-                : data.uid && typeof data.uid === 'string'
-                ? [data.uid]
-                : [];
+                  ? data.admins
+                  : data.uid && typeof data.uid === 'string'
+                    ? [data.uid]
+                    : [];
               const moderatorIds = Array.isArray(data.moderatorIds)
                 ? data.moderatorIds
                 : Array.isArray(data.moderators)
-                ? data.moderators
-                : [];
-              
+                  ? data.moderators
+                  : [];
+
               // Ensure adminIds and moderatorIds are always arrays
               const safeAdminIds = Array.isArray(adminIds) ? adminIds : [];
               const safeModeratorIds = Array.isArray(moderatorIds) ? moderatorIds : [];
-              
+
+              // Store admin and moderator IDs in state for reactive updates
+              setCurrentAdminIds(safeAdminIds);
+              setCurrentModeratorIds(safeModeratorIds);
+
               // Fetch all members for "Who's Online" section
               const allMemberDocs = await Promise.all(
                 memberIds.map(async (uid) => {
@@ -1012,6 +1035,7 @@ export default function GroupInfoScreen() {
                         joinedAt: userData.joinedAt || userData.createdAt || null,
                         isAdmin: safeAdminIds.includes(uid),
                         isModerator: safeModeratorIds.includes(uid),
+                        currentStatus: userData.currentStatus || null,
                       };
                     }
                   } catch (e) {
@@ -1022,11 +1046,40 @@ export default function GroupInfoScreen() {
               );
               const validMembers = allMemberDocs.filter(Boolean);
               setAllMembers(validMembers);
-              
+
+              // Set up real-time listeners for each member's status
+              const statusUnsubscribers = validMembers.map((member) => {
+                const userRef = doc(db, 'users', member.id);
+                return onSnapshot(userRef, (userSnap) => {
+                  if (userSnap.exists()) {
+                    const userData = userSnap.data();
+                    setAllMembers(prevMembers =>
+                      prevMembers.map(m =>
+                        m.id === member.id
+                          ? { ...m, currentStatus: userData.currentStatus || 'offline' }
+                          : m
+                      )
+                    );
+                  }
+                }, (error) => {
+                  console.log('Error listening to member status:', error);
+                });
+              });
+
+              // Clean up old listeners before setting new ones
+              memberStatusUnsubscribersRef.current.forEach(unsub => {
+                if (typeof unsub === 'function') {
+                  unsub();
+                }
+              });
+
+              // Store unsubscribers to clean up later
+              memberStatusUnsubscribersRef.current = statusUnsubscribers;
+
               // Separate admins, moderators, and recently joined
               setAdmins(validMembers.filter(m => m.isAdmin));
               setModerators(validMembers.filter(m => m.isModerator && !m.isAdmin));
-              
+
               // Recently joined (last 10, sorted by joinedAt)
               const recentlyJoinedList = validMembers
                 .filter(m => !m.isAdmin && !m.isModerator)
@@ -1050,7 +1103,7 @@ export default function GroupInfoScreen() {
                   const memberData = doc.data();
                   return memberData.user_id || memberData.userId || memberData.uid;
                 }).filter(Boolean);
-                
+
                 if (memberUserIds.length > 0) {
                   const usersCol = collection(db, 'users');
                   const allMemberDocs = await Promise.all(
@@ -1067,6 +1120,7 @@ export default function GroupInfoScreen() {
                             joinedAt: userData.joinedAt || userData.createdAt || null,
                             isAdmin: false,
                             isModerator: false,
+                            currentStatus: userData.currentStatus || 'offline',
                           };
                         }
                       } catch (e) {
@@ -1077,10 +1131,40 @@ export default function GroupInfoScreen() {
                   );
                   const validMembers = allMemberDocs.filter(Boolean);
                   setAllMembers(validMembers);
+
+                  // Set up real-time listeners for each member's status
+                  const statusUnsubscribers = validMembers.map((member) => {
+                    const userRef = doc(db, 'users', member.id);
+                    return onSnapshot(userRef, (userSnap) => {
+                      if (userSnap.exists()) {
+                        const userData = userSnap.data();
+                        setAllMembers(prevMembers =>
+                          prevMembers.map(m =>
+                            m.id === member.id
+                              ? { ...m, currentStatus: userData.currentStatus || 'offline' }
+                              : m
+                          )
+                        );
+                      }
+                    }, (error) => {
+                      console.log('Error listening to member status:', error);
+                    });
+                  });
+
+                  // Clean up old listeners before setting new ones
+                  memberStatusUnsubscribersRef.current.forEach(unsub => {
+                    if (typeof unsub === 'function') {
+                      unsub();
+                    }
+                  });
+
+                  // Store unsubscribers to clean up later
+                  memberStatusUnsubscribersRef.current = statusUnsubscribers;
+
                   setMembers(validMembers.slice(0, 5));
                   setRecentlyJoined(validMembers.slice(0, 10));
-          } else {
-            setMembers([]);
+                } else {
+                  setMembers([]);
                   setAllMembers([]);
                   setAdmins([]);
                   setModerators([]);
@@ -1094,20 +1178,20 @@ export default function GroupInfoScreen() {
                 setModerators([]);
                 setRecentlyJoined([]);
               }
+            }
+          } else {
+            setError('Community not found');
           }
-        } else {
-          setError('Community not found');
-        }
           setLoading(false);
-      } catch (e) {
+        } catch (e) {
           console.log('Error processing community snapshot:', e);
-        setError('Failed to load community');
+          setError('Failed to load community');
           setLoading(false);
-      }
+        }
       }, (error) => {
         console.log('Error fetching community:', error);
         setError('Failed to load community');
-      setLoading(false);
+        setLoading(false);
       });
     };
 
@@ -1117,8 +1201,31 @@ export default function GroupInfoScreen() {
       if (typeof unsubscribe === 'function') {
         unsubscribe();
       }
+      // Clean up member status listeners
+      memberStatusUnsubscribersRef.current.forEach(unsub => {
+        if (typeof unsub === 'function') {
+          unsub();
+        }
+      });
     };
   }, [communityId]);
+
+  // Recalculate admin/moderator status for all members when admin/mod lists change
+  useEffect(() => {
+    if (allMembers.length === 0) return;
+
+    setAllMembers(prevMembers =>
+      prevMembers.map(member => ({
+        ...member,
+        isAdmin: currentAdminIds.includes(member.id),
+        isModerator: currentModeratorIds.includes(member.id)
+      }))
+    );
+
+    // Update derived lists
+    setAdmins(allMembers.filter(m => currentAdminIds.includes(m.id)));
+    setModerators(allMembers.filter(m => currentModeratorIds.includes(m.id) && !currentAdminIds.includes(m.id)));
+  }, [currentAdminIds, currentModeratorIds]);
 
   // Listen for active audio calls in this community
   useEffect(() => {
@@ -1128,7 +1235,7 @@ export default function GroupInfoScreen() {
     const setupAudioCallListener = async () => {
       // db is now imported globally
       const audioCallsCol = collection(db, 'audio_calls', communityId, 'rooms');
-      
+
       const firestore = await import('firebase/firestore');
       const q = firestore.query(
         audioCallsCol,
@@ -1241,11 +1348,11 @@ export default function GroupInfoScreen() {
     const fetchCurrentUser = async () => {
       try {
         // db is now imported globally
-        
+
         // Get currently logged-in user from Firebase Auth
         if (auth.currentUser) {
           const userId = auth.currentUser.uid;
-          
+
           // Try to load from cache first
           const cachedUser = await CacheManager.getUserProfile(userId);
           if (cachedUser) {
@@ -1257,29 +1364,29 @@ export default function GroupInfoScreen() {
               email: cachedUser.email || auth.currentUser.email
             });
           }
-          
+
           // Fetch fresh data from Firestore in background
           const userRef = doc(db, 'users', userId);
           const userSnap = await getDoc(userRef);
-          
+
           if (userSnap.exists()) {
             const userData = userSnap.data();
             // Try multiple fields to get user name from Firestore
-            const userName = userData.displayName 
-              || userData.name 
-              || userData.fullName 
-              || userData.username 
-              || auth.currentUser.displayName 
+            const userName = userData.displayName
+              || userData.name
+              || userData.fullName
+              || userData.username
+              || auth.currentUser.displayName
               || 'User';
-            
+
             const userProfile = {
-              id: userId, 
+              id: userId,
               name: userName,
               profileImage: userData.profileImage || userData.avatar || null,
               email: userData.email || auth.currentUser.email,
               ...userData
             };
-            
+
             setCurrentUser(userProfile);
             // Cache the user profile
             await CacheManager.saveUserProfile(userId, userProfile);
@@ -1287,7 +1394,7 @@ export default function GroupInfoScreen() {
           } else {
             // If user doc doesn't exist, use auth data
             const basicUser = {
-              id: userId, 
+              id: userId,
               name: auth.currentUser.displayName || 'User',
               profileImage: null,
               email: auth.currentUser.email
@@ -1303,7 +1410,7 @@ export default function GroupInfoScreen() {
         console.log('Error fetching current user:', e);
       }
     };
-    
+
     fetchCurrentUser();
   }, []);
 
@@ -1319,14 +1426,14 @@ export default function GroupInfoScreen() {
         // Get user document which now stores all counts
         const userRef = doc(db, 'users', userId);
         const userSnap = await getDoc(userRef);
-        
+
         if (userSnap.exists()) {
           const userData = userSnap.data();
-          
+
           // Use stored counts (much faster)
           const followingCount = userData.followingCount || 0;
           const followersCount = userData.followersCount || 0;
-          
+
           // Fetch total likes received on user's blogs and posts
           let totalLikes = 0;
           let totalBlogs = 0;
@@ -1338,7 +1445,7 @@ export default function GroupInfoScreen() {
 
           for (const commDoc of communities) {
             const commId = commDoc.id;
-            
+
             // Check blogs
             try {
               const blogsCol = collection(db, 'communities', commId, 'blogs');
@@ -1355,84 +1462,84 @@ export default function GroupInfoScreen() {
             }
 
             // Check posts
-          try {
-            const postsCol = collection(db, 'communities', commId, 'posts');
-            const postsSnapshot = await getDocs(postsCol);
-            postsSnapshot.docs.forEach((postDoc) => {
-              const postData = postDoc.data();
-              if (postData.authorId === userId) {
-                totalPosts++;
-                totalLikes += postData.likes || 0;
-              }
-            });
-          } catch (e) {
-            console.log('Error fetching posts:', e);
-          }
-        }
-
-        // Calculate ranking based on total likes compared to all users
-        let ranking = 0;
-        if (totalLikes > 0) {
-          // Get all users and their total likes
-          const allUsersLikes = [];
-          for (const commDoc of communities) {
-            const commId = commDoc.id;
-            
-            // Check blogs
-            try {
-              const blogsCol = collection(db, 'communities', commId, 'blogs');
-              const blogsSnapshot = await getDocs(blogsCol);
-              blogsSnapshot.docs.forEach((blogDoc) => {
-                const blogData = blogDoc.data();
-                if (blogData.authorId) {
-                  const existing = allUsersLikes.find(u => u.userId === blogData.authorId);
-                  if (existing) {
-                    existing.likes += blogData.likes || 0;
-                  } else {
-                    allUsersLikes.push({ userId: blogData.authorId, likes: blogData.likes || 0 });
-                  }
-                }
-              });
-            } catch (e) {
-              // Ignore errors
-            }
-
-            // Check posts
             try {
               const postsCol = collection(db, 'communities', commId, 'posts');
               const postsSnapshot = await getDocs(postsCol);
               postsSnapshot.docs.forEach((postDoc) => {
                 const postData = postDoc.data();
-                if (postData.authorId) {
-                  const existing = allUsersLikes.find(u => u.userId === postData.authorId);
-                  if (existing) {
-                    existing.likes += postData.likes || 0;
-                  } else {
-                    allUsersLikes.push({ userId: postData.authorId, likes: postData.likes || 0 });
-                  }
+                if (postData.authorId === userId) {
+                  totalPosts++;
+                  totalLikes += postData.likes || 0;
                 }
               });
             } catch (e) {
-              // Ignore errors
+              console.log('Error fetching posts:', e);
             }
           }
-          
-          // Sort by likes descending
-          allUsersLikes.sort((a, b) => b.likes - a.likes);
-          
-          // Find user's position
-          const userIndex = allUsersLikes.findIndex(u => u.userId === userId);
-          ranking = userIndex >= 0 ? userIndex + 1 : allUsersLikes.length + 1;
-        }
 
-        setUserStats({
-          following: followingCount,
-          followers: followersCount,
-          totalLikes,
-          totalBlogs,
-          totalPosts,
-          ranking,
-        });
+          // Calculate ranking based on total likes compared to all users
+          let ranking = 0;
+          if (totalLikes > 0) {
+            // Get all users and their total likes
+            const allUsersLikes = [];
+            for (const commDoc of communities) {
+              const commId = commDoc.id;
+
+              // Check blogs
+              try {
+                const blogsCol = collection(db, 'communities', commId, 'blogs');
+                const blogsSnapshot = await getDocs(blogsCol);
+                blogsSnapshot.docs.forEach((blogDoc) => {
+                  const blogData = blogDoc.data();
+                  if (blogData.authorId) {
+                    const existing = allUsersLikes.find(u => u.userId === blogData.authorId);
+                    if (existing) {
+                      existing.likes += blogData.likes || 0;
+                    } else {
+                      allUsersLikes.push({ userId: blogData.authorId, likes: blogData.likes || 0 });
+                    }
+                  }
+                });
+              } catch (e) {
+                // Ignore errors
+              }
+
+              // Check posts
+              try {
+                const postsCol = collection(db, 'communities', commId, 'posts');
+                const postsSnapshot = await getDocs(postsCol);
+                postsSnapshot.docs.forEach((postDoc) => {
+                  const postData = postDoc.data();
+                  if (postData.authorId) {
+                    const existing = allUsersLikes.find(u => u.userId === postData.authorId);
+                    if (existing) {
+                      existing.likes += postData.likes || 0;
+                    } else {
+                      allUsersLikes.push({ userId: postData.authorId, likes: postData.likes || 0 });
+                    }
+                  }
+                });
+              } catch (e) {
+                // Ignore errors
+              }
+            }
+
+            // Sort by likes descending
+            allUsersLikes.sort((a, b) => b.likes - a.likes);
+
+            // Find user's position
+            const userIndex = allUsersLikes.findIndex(u => u.userId === userId);
+            ranking = userIndex >= 0 ? userIndex + 1 : allUsersLikes.length + 1;
+          }
+
+          setUserStats({
+            following: followingCount,
+            followers: followersCount,
+            totalLikes,
+            totalBlogs,
+            totalPosts,
+            ranking,
+          });
         } // Close if (userSnap.exists())
       } catch (e) {
         console.log('Error fetching user stats:', e);
@@ -1440,15 +1547,15 @@ export default function GroupInfoScreen() {
     };
 
     fetchUserStats();
-    
+
     // Set up real-time listener for following count
     let followingUnsubscribe = null;
     let followersUnsubscribe = null;
-    
+
     const setupRealTimeStats = async () => {
       try {
         const firestore = await import('firebase/firestore');
-        
+
         // Real-time listener for following count
         const followingCol = collection(db, 'users', userId, 'following');
         followingUnsubscribe = firestore.onSnapshot(followingCol, (snapshot) => {
@@ -1457,7 +1564,7 @@ export default function GroupInfoScreen() {
             following: snapshot.size,
           }));
         });
-        
+
         // Periodic refresh for followers count (since it's expensive to listen to all users)
         // Use stored follower/following counts from user document (much faster)
         const userRef = doc(db, 'users', userId);
@@ -1470,7 +1577,7 @@ export default function GroupInfoScreen() {
             followers: userData.followersCount || 0,
           }));
         }
-        
+
         // Listen to user document for real-time updates
         const unsubscribeUser = onSnapshot(userRef, (snap) => {
           if (snap.exists()) {
@@ -1482,7 +1589,7 @@ export default function GroupInfoScreen() {
             }));
           }
         });
-        
+
         return () => {
           unsubscribeUser();
         };
@@ -1491,13 +1598,13 @@ export default function GroupInfoScreen() {
         return null;
       }
     };
-    
+
     let cleanupUnsubscribe = null;
-    
+
     setupRealTimeStats().then((cleanup) => {
       if (cleanup) cleanupUnsubscribe = cleanup;
     });
-    
+
     return () => {
       if (followingUnsubscribe) followingUnsubscribe();
       if (followersUnsubscribe) followersUnsubscribe();
@@ -1541,31 +1648,31 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     if (!communityId) return;
     setChatLoading(true);
-    
+
     // db is now imported globally
     const chatCol = collection(db, 'community_chats', communityId, 'messages');
-    
+
     // Cache to avoid multiple Firestore reads for same user
     const userCache = {};
-    
+
     // Import firestore dynamically but handle listener synchronously
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
         const q = firestore.query(chatCol, firestore.orderBy('createdAt', 'asc'));
-        
+
         unsubscribe = firestore.onSnapshot(q, async (snapshot) => {
           console.log('Chat messages snapshot received:', snapshot.docs.length, 'messages');
-          
+
           // Process all messages and fetch sender details
           const promises = snapshot.docs.map(async (docSnap) => {
             const data = docSnap.data();
             console.log('Processing message:', docSnap.id, 'type:', data.type);
-            
+
             let senderData = { name: data.sender || 'Unknown', profileImage: null };
-            
+
             // Check if we have sender ID
             const senderId = data.senderId;
             if (senderId) {
@@ -1580,13 +1687,13 @@ export default function GroupInfoScreen() {
                   if (userSnap.exists()) {
                     const userData = userSnap.data();
                     // Try multiple fields to get user name
-                    const senderName = userData.displayName 
-                      || userData.name 
-                      || userData.fullName 
-                      || userData.username 
-                      || data.sender 
+                    const senderName = userData.displayName
+                      || userData.name
+                      || userData.fullName
+                      || userData.username
+                      || data.sender
                       || 'Unknown';
-                    
+
                     senderData = {
                       name: senderName,
                       profileImage: userData.profileImage || userData.avatar || null,
@@ -1600,7 +1707,7 @@ export default function GroupInfoScreen() {
                 }
               }
             }
-            
+
             return {
               id: docSnap.id,
               text: data.text || '',
@@ -1625,13 +1732,13 @@ export default function GroupInfoScreen() {
               availableCharacters: data.availableCharacters || 0,
             };
           });
-          
+
           // Wait for all messages to be processed
           const processedMsgs = await Promise.all(promises);
           console.log('Processed messages:', processedMsgs.length, 'Voice rooms:', processedMsgs.filter(m => m.type === 'voiceChat').length);
           setChatMessages(processedMsgs);
           setChatLoading(false);
-          
+
           // Don't scroll here - let useEffect handle it to avoid race conditions
         });
       } catch (error) {
@@ -1639,7 +1746,7 @@ export default function GroupInfoScreen() {
         setChatLoading(false);
       }
     })();
-    
+
     // Cleanup function
     return () => {
       if (unsubscribe) {
@@ -1652,7 +1759,7 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     return () => {
       if (voiceSound) {
-        voiceSound.stopAsync().then(() => voiceSound.unloadAsync()).catch(() => {});
+        voiceSound.stopAsync().then(() => voiceSound.unloadAsync()).catch(() => { });
       }
       // Clean up scroll timeout
       if (scrollTimeoutRef.current) {
@@ -1668,33 +1775,33 @@ export default function GroupInfoScreen() {
       (event) => {
         setKeyboardHeight(event.endCoordinates.height);
         setIsUserScrolling(false);
-        
+
         // Clear any existing timeout
         if (keyboardScrollTimeoutRef.current) {
           clearTimeout(keyboardScrollTimeoutRef.current);
         }
-        
+
         // Scroll to bottom when keyboard opens with multiple attempts
         const scrollToBottomMultipleTimes = () => {
           // First scroll immediately
           if (chatScrollRef.current) {
             chatScrollRef.current.scrollToEnd({ animated: false });
           }
-          
+
           // Second scroll after 100ms
           setTimeout(() => {
             if (chatScrollRef.current) {
               chatScrollRef.current.scrollToEnd({ animated: true });
             }
           }, 100);
-          
+
           // Third scroll after 300ms (ensures keyboard is fully shown)
           setTimeout(() => {
             if (chatScrollRef.current) {
               chatScrollRef.current.scrollToEnd({ animated: true });
             }
           }, 300);
-          
+
           // Final scroll after 500ms
           keyboardScrollTimeoutRef.current = setTimeout(() => {
             if (chatScrollRef.current) {
@@ -1702,7 +1809,7 @@ export default function GroupInfoScreen() {
             }
           }, 500);
         };
-        
+
         scrollToBottomMultipleTimes();
       }
     );
@@ -1711,7 +1818,7 @@ export default function GroupInfoScreen() {
       Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
       () => {
         setKeyboardHeight(0);
-        
+
         // Clear keyboard scroll timeout
         if (keyboardScrollTimeoutRef.current) {
           clearTimeout(keyboardScrollTimeoutRef.current);
@@ -1733,8 +1840,8 @@ export default function GroupInfoScreen() {
     return () => {
       Object.values(videoRefs).forEach((ref) => {
         if (ref && ref.stopAsync) {
-          ref.stopAsync().catch(() => {});
-          ref.unloadAsync().catch(() => {});
+          ref.stopAsync().catch(() => { });
+          ref.unloadAsync().catch(() => { });
         }
       });
     };
@@ -1745,11 +1852,11 @@ export default function GroupInfoScreen() {
     if (activeTab === 'chat' && chatMessages.length > 0 && !chatLoading) {
       // Reset user scrolling state when switching to chat
       setIsUserScrolling(false);
-      
+
       // IMPORTANT: Reset lastMessageId to trigger scroll on every tab open
       // This ensures reload/tab switch always scrolls to bottom
       setLastMessageId(null);
-      
+
       // Update last message ID to current latest after a delay
       const latestMessage = chatMessages[chatMessages.length - 1];
       setTimeout(() => {
@@ -1757,26 +1864,26 @@ export default function GroupInfoScreen() {
           setLastMessageId(latestMessage.id);
         }
       }, 700);
-      
+
       // Immediate scroll without animation
       if (chatScrollRef.current) {
         chatScrollRef.current.scrollToEnd({ animated: false });
       }
-      
+
       // First animated scroll after 100ms
       setTimeout(() => {
         if (chatScrollRef.current) {
           chatScrollRef.current.scrollToEnd({ animated: true });
         }
       }, 100);
-      
+
       // Second scroll after 300ms to ensure all messages are rendered
       setTimeout(() => {
         if (chatScrollRef.current) {
           chatScrollRef.current.scrollToEnd({ animated: true });
         }
       }, 300);
-      
+
       // Final scroll after 500ms
       setTimeout(() => {
         if (chatScrollRef.current) {
@@ -1791,24 +1898,24 @@ export default function GroupInfoScreen() {
     if (chatMessages.length > 0 && !chatLoading && activeTab === 'chat') {
       const latestMessage = chatMessages[chatMessages.length - 1];
       const latestMessageId = latestMessage?.id;
-      
+
       // If no lastMessageId set, this is initial load or reload - always scroll
       if (!lastMessageId && latestMessageId) {
         setLastMessageId(latestMessageId);
-        
+
         // Multiple scroll attempts to ensure we reach bottom
         setTimeout(() => {
           if (chatScrollRef.current) {
             chatScrollRef.current.scrollToEnd({ animated: false });
           }
         }, 100);
-        
+
         setTimeout(() => {
           if (chatScrollRef.current) {
             chatScrollRef.current.scrollToEnd({ animated: true });
           }
         }, 300);
-        
+
         setTimeout(() => {
           if (chatScrollRef.current) {
             chatScrollRef.current.scrollToEnd({ animated: true });
@@ -1825,14 +1932,14 @@ export default function GroupInfoScreen() {
       setVoiceChatParticipants([]);
       return;
     }
-    
+
     try {
       // db is now imported globally
       const participantPromises = participantIds.map(async (userId) => {
         try {
           const userRef = doc(db, 'users', userId);
           const userSnap = await getDoc(userRef);
-          
+
           if (userSnap.exists()) {
             const userData = userSnap.data();
             return {
@@ -1855,7 +1962,7 @@ export default function GroupInfoScreen() {
           };
         }
       });
-      
+
       const participants = await Promise.all(participantPromises);
       setVoiceChatParticipants(participants);
     } catch (error) {
@@ -1867,15 +1974,15 @@ export default function GroupInfoScreen() {
   // Listen for Voice Chat participants updates and fetch initial participants
   useEffect(() => {
     if (!currentVoiceChatSession?.messageId || !communityId) return;
-    
+
     // Fetch initial participant details
     if (currentVoiceChatSession.participants && currentVoiceChatSession.participants.length > 0) {
       fetchParticipantDetails(currentVoiceChatSession.participants);
     }
-    
+
     // db is now imported globally
     const messageRef = doc(db, 'community_chats', communityId, 'messages', currentVoiceChatSession.messageId);
-    
+
     const unsubscribe = onSnapshot(messageRef, async (snap) => {
       if (snap.exists()) {
         const data = snap.data();
@@ -1884,53 +1991,53 @@ export default function GroupInfoScreen() {
           ...prev,
           participants: participants,
         }));
-        
+
         // Fetch participant details
         await fetchParticipantDetails(participants);
       }
     });
-    
+
     return () => unsubscribe();
   }, [currentVoiceChatSession?.messageId, communityId]);
 
   // Listen for Voice Chat Messages
   useEffect(() => {
     if (!currentVoiceChatSession?.messageId || !communityId) return;
-    
+
     // db is now imported globally
     const voiceChatMessagesCol = collection(
-      db, 
-      'community_chats', 
-      communityId, 
-      'messages', 
+      db,
+      'community_chats',
+      communityId,
+      'messages',
       currentVoiceChatSession.messageId,
       'voiceChatMessages'
     );
-    
+
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
         const q = firestore.query(voiceChatMessagesCol, firestore.orderBy('createdAt', 'asc'));
-        
+
         unsubscribe = onSnapshot(q, async (snapshot) => {
           const msgs = [];
-          
+
           // Cache to avoid multiple Firestore reads for same user
           const userCache = {};
-          
+
           for (const docSnap of snapshot.docs) {
             const data = docSnap.data();
             let senderData = { name: data.sender || 'Unknown', profileImage: null };
-            
+
             // Check if we have sender ID
             const senderId = data.senderId;
             if (senderId && !userCache[senderId]) {
               try {
                 const userRef = doc(db, 'users', senderId);
                 const userSnap = await getDoc(userRef);
-                
+
                 if (userSnap.exists()) {
                   const userData = userSnap.data();
                   senderData = {
@@ -1945,7 +2052,7 @@ export default function GroupInfoScreen() {
             } else if (senderId && userCache[senderId]) {
               senderData = userCache[senderId];
             }
-            
+
             msgs.push({
               id: docSnap.id,
               sender: senderData.name,
@@ -1958,9 +2065,9 @@ export default function GroupInfoScreen() {
               createdAt: data.createdAt?.toDate ? data.createdAt.toDate() : (data.createdAt || null),
             });
           }
-          
+
           setVoiceChatMessages(msgs);
-          
+
           // Scroll to bottom
           setTimeout(() => {
             voiceChatScrollRef.current?.scrollToEnd({ animated: true });
@@ -1970,7 +2077,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up voice chat messages listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -1980,7 +2087,7 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     return () => {
       if (voiceChatSound) {
-        voiceChatSound.stopAsync().then(() => voiceChatSound.unloadAsync()).catch(() => {});
+        voiceChatSound.stopAsync().then(() => voiceChatSound.unloadAsync()).catch(() => { });
       }
     };
   }, [voiceChatSound]);
@@ -1988,7 +2095,7 @@ export default function GroupInfoScreen() {
   // Listen for Real-time Audio Chunks from Other Participants
   useEffect(() => {
     if (!currentVoiceChatSession?.messageId || !communityId || !currentUser) return;
-    
+
     // db is now imported globally
     const realTimeAudioCol = collection(
       db,
@@ -1998,49 +2105,49 @@ export default function GroupInfoScreen() {
       currentVoiceChatSession.messageId,
       'realTimeAudio'
     );
-    
+
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
         unsubscribe = onSnapshot(realTimeAudioCol, async (snapshot) => {
           const speakingList = [];
           const newAudioChunks = {};
-          
+
           snapshot.forEach(async (docSnap) => {
             const data = docSnap.data();
             const userId = docSnap.id;
-            
+
             // Don't process current user's own audio
             if (userId === currentUser.id) return;
-            
+
             // Check if user is speaking
             if (data.isSpeaking && data.audioUrl) {
               speakingList.push({
                 userId: userId,
                 userName: data.userName || 'User',
               });
-              
-            // Check if this is a new audio chunk (different URL)
-            // Also check timestamp to ensure it's a recent chunk (within last 3 seconds for live audio)
-            const lastPlayedUrl = playedAudioUrls[userId];
-            const chunkTimestamp = data.timestamp?.toDate?.() || data.timestamp;
-            const now = new Date();
-            const isRecentChunk = chunkTimestamp ? (now - new Date(chunkTimestamp)) < 3000 : true; // 3 seconds for live audio
-            
-            if (data.audioUrl && data.audioUrl !== lastPlayedUrl && isRecentChunk) {
-              newAudioChunks[userId] = data.audioUrl;
-              setPlayedAudioUrls(prev => ({
-                ...prev,
-                [userId]: data.audioUrl,
-              }));
-            }
+
+              // Check if this is a new audio chunk (different URL)
+              // Also check timestamp to ensure it's a recent chunk (within last 3 seconds for live audio)
+              const lastPlayedUrl = playedAudioUrls[userId];
+              const chunkTimestamp = data.timestamp?.toDate?.() || data.timestamp;
+              const now = new Date();
+              const isRecentChunk = chunkTimestamp ? (now - new Date(chunkTimestamp)) < 3000 : true; // 3 seconds for live audio
+
+              if (data.audioUrl && data.audioUrl !== lastPlayedUrl && isRecentChunk) {
+                newAudioChunks[userId] = data.audioUrl;
+                setPlayedAudioUrls(prev => ({
+                  ...prev,
+                  [userId]: data.audioUrl,
+                }));
+              }
             }
           });
-          
+
           setSpeakingUsers(speakingList);
-          
+
           // Play new audio chunks immediately for live communication
           Object.entries(newAudioChunks).forEach(async ([userId, audioUrl]) => {
             if (audioUrl) {
@@ -2055,7 +2162,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up real-time audio listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -2064,7 +2171,7 @@ export default function GroupInfoScreen() {
   // Play Real-time Audio Chunk
   const playRealTimeAudioChunk = async (userId, audioUrl) => {
     if (!audioUrl) return;
-    
+
     try {
       // Stop any currently playing audio for this user (to avoid overlap)
       if (playingAudioChunks[userId]) {
@@ -2076,7 +2183,7 @@ export default function GroupInfoScreen() {
           // Ignore errors if already stopped
         }
       }
-      
+
       // Configure audio mode for playback while recording - Use speaker
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -2085,11 +2192,11 @@ export default function GroupInfoScreen() {
         shouldDuckAndroid: false,
         playThroughEarpieceAndroid: false, // false = use speaker
       });
-      
+
       // Create and play new sound on speaker immediately for live communication
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUrl },
-        { 
+        {
           shouldPlay: false, // Don't auto-play, we'll play manually
           volume: 1.0,
           isMuted: false,
@@ -2097,16 +2204,16 @@ export default function GroupInfoScreen() {
           shouldCorrectPitch: true,
         }
       );
-      
+
       // Track this playing audio
       setPlayingAudioChunks(prev => ({
         ...prev,
         [userId]: sound,
       }));
-      
+
       // Play immediately through speaker
       await sound.playAsync();
-      
+
       // Cleanup when finished
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.didJustFinish) {
@@ -2115,7 +2222,7 @@ export default function GroupInfoScreen() {
             delete updated[userId];
             return updated;
           });
-          sound.unloadAsync().catch(() => {});
+          sound.unloadAsync().catch(() => { });
         }
       });
     } catch (error) {
@@ -2134,17 +2241,17 @@ export default function GroupInfoScreen() {
     return () => {
       // Stop continuous recording
       if (continuousRecording) {
-        continuousRecording.stopAndUnloadAsync().catch(() => {});
+        continuousRecording.stopAndUnloadAsync().catch(() => { });
       }
-      
+
       // Clear interval
       if (audioChunkInterval) {
         clearInterval(audioChunkInterval);
       }
-      
+
       // Stop all playing audio chunks
       Object.values(playingAudioChunks).forEach(sound => {
-        sound.stopAsync().then(() => sound.unloadAsync()).catch(() => {});
+        sound.stopAsync().then(() => sound.unloadAsync()).catch(() => { });
       });
     };
   }, []);
@@ -2153,15 +2260,15 @@ export default function GroupInfoScreen() {
   const handleScroll = useCallback((event) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const distanceFromBottom = contentSize.height - (contentOffset.y + layoutMeasurement.height);
-    
+
     // Show button if user scrolled up more than 100px from bottom
     setShowScrollToBottom(distanceFromBottom > 100);
-    
+
     // Consider user is scrolling if more than 80px from bottom
     // Use a threshold that prevents false positives from new message rendering
     const isManuallyScrolledUp = distanceFromBottom > 80;
     setIsUserScrolling(isManuallyScrolledUp);
-    
+
     // Clear any pending auto-scroll if user manually scrolled
     if (isManuallyScrolledUp && scrollTimeoutRef.current) {
       clearTimeout(scrollTimeoutRef.current);
@@ -2178,27 +2285,27 @@ export default function GroupInfoScreen() {
   // Auto-scroll to bottom when new messages arrive (only if user isn't scrolling up)
   useEffect(() => {
     if (chatMessages.length === 0 || chatLoading) return;
-    
+
     // Get the latest message ID
     const latestMessage = chatMessages[chatMessages.length - 1];
     const latestMessageId = latestMessage?.id;
-    
+
     // Check if this is a new message
     const isNewMessage = latestMessageId && latestMessageId !== lastMessageId;
-    
+
     if (isNewMessage) {
       setLastMessageId(latestMessageId);
-      
+
       // Auto-scroll only if user hasn't manually scrolled up
       if (!isUserScrolling && chatScrollRef.current) {
         // Clear any existing timeout
         if (scrollTimeoutRef.current) {
           clearTimeout(scrollTimeoutRef.current);
         }
-        
+
         // Scroll immediately first
         chatScrollRef.current.scrollToEnd({ animated: false });
-        
+
         // Then scroll again with animation after render completes
         scrollTimeoutRef.current = setTimeout(() => {
           if (chatScrollRef.current) {
@@ -2215,10 +2322,10 @@ export default function GroupInfoScreen() {
     if (!communityId) return;
     // db is now imported globally
     const blogsCol = collection(db, 'communities', communityId, 'blogs');
-    
+
     // Real-time listener for blogs
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
@@ -2242,7 +2349,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up blogs listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -2253,10 +2360,10 @@ export default function GroupInfoScreen() {
     if (!communityId) return;
     // db is now imported globally
     const postsCol = collection(db, 'communities', communityId, 'posts');
-    
+
     // Real-time listener for image posts
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
@@ -2280,7 +2387,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up posts listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -2300,32 +2407,55 @@ export default function GroupInfoScreen() {
     }
   }, []);
 
-  // Combine blogs and posts, sort by createdAt
+  // Combine blogs and posts, sort by createdAt with pinned announcements at top
   useEffect(() => {
     const combined = [...blogs, ...posts];
-    // Sort by createdAt (newest first)
+    const announcementIds = community?.announcements || [];
+    const featuredIds = community?.featuredPosts || [];
+    
+    // Sort: pinned announcements first, then featured, then by date
     combined.sort((a, b) => {
-      const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
-      const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
-      return bTime - aTime; // Descending order
+      const aIsPinned = announcementIds.includes(a.id);
+      const bIsPinned = announcementIds.includes(b.id);
+      const aIsFeatured = featuredIds.includes(a.id);
+      const bIsFeatured = featuredIds.includes(b.id);
+      
+      // 1. Pinned posts have highest priority
+      if (aIsPinned && !bIsPinned) return -1;
+      if (!aIsPinned && bIsPinned) return 1;
+      
+      // 2. If both pinned or both not pinned, check featured status
+      if (aIsPinned === bIsPinned) {
+        if (aIsFeatured && !bIsFeatured) return -1;
+        if (!aIsFeatured && bIsFeatured) return 1;
+        
+        // 3. If both have same pinned and featured status, sort by date
+        if (aIsFeatured === bIsFeatured) {
+          const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+          const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+          return bTime - aTime; // Descending order (newest first)
+        }
+      }
+      
+      return 0;
     });
     setAllPosts(combined);
-  }, [blogs, posts]);
+  }, [blogs, posts, community?.announcements, community?.featuredPosts]);
 
   // Fetch drafts from Firestore
   useEffect(() => {
     if (!communityId || !currentUser?.id) return;
     // db is now imported globally
     const draftsCol = collection(db, 'communities', communityId, 'drafts');
-    
+
     // Real-time listener for drafts
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
         const q = firestore.query(
-          draftsCol, 
+          draftsCol,
           firestore.where('authorId', '==', currentUser.id)
         );
         unsubscribe = firestore.onSnapshot(q, (snapshot) => {
@@ -2346,7 +2476,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up drafts listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -2355,9 +2485,9 @@ export default function GroupInfoScreen() {
   // Real-time listener for community groups
   useEffect(() => {
     if (!communityId) return;
-    
+
     let unsubscribe = null;
-    
+
     (async () => {
       try {
         const firestore = await import('firebase/firestore');
@@ -2367,20 +2497,20 @@ export default function GroupInfoScreen() {
           groupsCol,
           firestore.where('isActive', '==', true)
         );
-        
+
         unsubscribe = firestore.onSnapshot(q, (snapshot) => {
           const groupsList = snapshot.docs.map((docSnap) => ({
             id: docSnap.id,
             ...docSnap.data(),
           }));
-          
+
           // Sort by createdAt on client side
           groupsList.sort((a, b) => {
             const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
             const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
             return bTime - aTime; // Descending order (newest first)
           });
-          
+
           setCommunityGroups(groupsList);
           console.log('Community groups loaded:', groupsList.length);
         }, (error) => {
@@ -2390,7 +2520,7 @@ export default function GroupInfoScreen() {
         console.error('Error setting up groups listener:', error);
       }
     })();
-    
+
     return () => {
       if (unsubscribe) unsubscribe();
     };
@@ -2399,26 +2529,26 @@ export default function GroupInfoScreen() {
   // Check which groups current user has joined
   useEffect(() => {
     if (!communityId || !currentUser?.id || communityGroups.length === 0) return;
-    
+
     const checkJoinedGroups = async () => {
       try {
         const joinedIds = [];
-        
+
         for (const group of communityGroups) {
           const memberRef = doc(db, 'communities', communityId, 'groups', group.id, 'members', currentUser.id);
           const memberSnap = await getDoc(memberRef);
-          
+
           if (memberSnap.exists()) {
             joinedIds.push(group.id);
           }
         }
-        
+
         setJoinedGroupIds(joinedIds);
       } catch (error) {
         console.error('Error checking joined groups:', error);
       }
     };
-    
+
     checkJoinedGroups();
   }, [communityId, currentUser?.id, communityGroups]);
 
@@ -2426,7 +2556,7 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     if (!communityId) return;
     // db is now imported globally
-    
+
     // Listen for online members (users currently viewing this community)
     // This would require a separate collection to track active users
     // For now, we'll use member count as a proxy
@@ -2441,12 +2571,12 @@ export default function GroupInfoScreen() {
         browsing: Math.floor(totalMembers * 0.3),
       });
     };
-    
+
     updateActivityStats();
-    
+
     // Update stats when members change
     const interval = setInterval(updateActivityStats, 30000); // Update every 30 seconds
-    
+
     return () => clearInterval(interval);
   }, [communityId, allMembers.length]);
 
@@ -2462,8 +2592,8 @@ export default function GroupInfoScreen() {
   ];
 
   const TagButton = ({ title, colorActive }) => (
-    <TouchableOpacity style={[styles.tagButton, { borderColor: colorActive }]}> 
-      <Text style={[styles.tagButtonText, { color: colorActive }]}> 
+    <TouchableOpacity style={[styles.tagButton, { borderColor: colorActive }]}>
+      <Text style={[styles.tagButtonText, { color: colorActive }]}>
         {title}
       </Text>
     </TouchableOpacity>
@@ -2545,7 +2675,7 @@ export default function GroupInfoScreen() {
 
   const stopRecording = async () => {
     if (!recording) return;
-    
+
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
     await Audio.setAudioModeAsync({
@@ -2558,7 +2688,7 @@ export default function GroupInfoScreen() {
 
   const cancelRecording = async () => {
     if (!recording) return;
-    
+
     setIsRecording(false);
     await recording.stopAndUnloadAsync();
     setRecording(null);
@@ -2575,7 +2705,7 @@ export default function GroupInfoScreen() {
   const handleVoiceChatClick = async () => {
     setShowGiftOptions(false);
     setSelectedGiftOption(null);
-    
+
     // Create voice room message in chat
     await createVoiceRoomMessage();
   };
@@ -2589,13 +2719,13 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const firestore = await import('firebase/firestore');
-      
+
       // Create a new audio room first
       const roomId = `room_${Date.now()}_${currentUser.id}`;
       const roomRef = doc(db, 'audio_calls', communityId, 'rooms', roomId);
-      
+
       const now = new Date().toISOString();
-      
+
       console.log('Creating audio room:', roomId);
       await setDoc(roomRef, {
         communityId: communityId,
@@ -2617,7 +2747,7 @@ export default function GroupInfoScreen() {
 
       // Create voice room message in chat
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
-      
+
       const messageData = {
         sender: currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
@@ -2633,9 +2763,9 @@ export default function GroupInfoScreen() {
       console.log('Creating voice room message:', messageData);
       const docRef = await firestore.addDoc(chatCol, messageData);
       console.log('Voice room message created with ID:', docRef.id);
-      
+
       Alert.alert('Success', 'Voice room created! Others can now join from chat.');
-      
+
       // Auto-join the room
       setTimeout(() => {
         navigation.navigate('GroupAudioCall', {
@@ -2659,13 +2789,13 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const firestore = await import('firebase/firestore');
-      
+
       // Create a new screening room
       const roomId = `screening_${Date.now()}_${currentUser.id}`;
       const roomRef = doc(db, 'screening_rooms', roomId);
-      
+
       const now = new Date().toISOString();
-      
+
       console.log('Creating screening room:', roomId);
       await setDoc(roomRef, {
         communityId: communityId,
@@ -2687,7 +2817,7 @@ export default function GroupInfoScreen() {
 
       // Create screening room message in chat
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
-      
+
       const messageData = {
         sender: currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
@@ -2703,9 +2833,9 @@ export default function GroupInfoScreen() {
       console.log('Creating screening room message:', messageData);
       const docRef = await firestore.addDoc(chatCol, messageData);
       console.log('Screening room message created with ID:', docRef.id);
-      
+
       Alert.alert('Success', 'Screening room created! Others can now join from chat.');
-      
+
       // Auto-join the room
       setTimeout(() => {
         navigation.navigate('ScreenSharingRoom', {
@@ -2739,13 +2869,13 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const firestore = await import('firebase/firestore');
-      
+
       // Create a new roleplay session
       const sessionId = `roleplay_${Date.now()}_${currentUser.id}`;
       const sessionRef = doc(db, 'roleplay_sessions', communityId, 'sessions', sessionId);
-      
+
       const now = new Date().toISOString();
-      
+
       // Filter out empty roles and add taken status
       const validRoles = roles
         .filter(r => r.name.trim())
@@ -2757,7 +2887,7 @@ export default function GroupInfoScreen() {
           takenBy: null,
           takenByName: null,
         }));
-      
+
       console.log('Creating roleplay session:', sessionId);
       await setDoc(sessionRef, {
         communityId: communityId,
@@ -2782,7 +2912,7 @@ export default function GroupInfoScreen() {
 
       // Create roleplay message in chat
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
-      
+
       const messageData = {
         sender: currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
@@ -2801,9 +2931,9 @@ export default function GroupInfoScreen() {
       console.log('Creating roleplay message:', messageData);
       const docRef = await firestore.addDoc(chatCol, messageData);
       console.log('Roleplay message created with ID:', docRef.id);
-      
+
       Alert.alert('Success', 'Roleplay session created! Others can now join and select roles.');
-      
+
       // Reset form
       setRoleplayScenario('');
       setRoleplayRoles([{ id: 1, name: '', description: '', taken: false, takenBy: null }]);
@@ -2818,12 +2948,12 @@ export default function GroupInfoScreen() {
   // Fetch Voice Chat Details
   const fetchVoiceChatDetails = async (messageId) => {
     if (!communityId || !messageId) return;
-    
+
     try {
       // db is now imported globally
       const messageRef = doc(db, 'community_chats', communityId, 'messages', messageId);
       const messageSnap = await getDoc(messageRef);
-      
+
       if (messageSnap.exists()) {
         const data = messageSnap.data();
         return {
@@ -2869,7 +2999,7 @@ export default function GroupInfoScreen() {
 
   const stopVoiceChatRecording = async () => {
     if (!voiceChatRecording) return;
-    
+
     setIsVoiceChatRecording(false);
     await voiceChatRecording.stopAndUnloadAsync();
     await Audio.setAudioModeAsync({
@@ -2882,7 +3012,7 @@ export default function GroupInfoScreen() {
 
   const cancelVoiceChatRecording = async () => {
     if (!voiceChatRecording) return;
-    
+
     setIsVoiceChatRecording(false);
     await voiceChatRecording.stopAndUnloadAsync();
     setVoiceChatRecording(null);
@@ -2922,16 +3052,16 @@ export default function GroupInfoScreen() {
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
-      
+
       setContinuousRecording(recording);
-      
+
       // Start recording chunks every 1 second for live real-time communication
       const interval = setInterval(async () => {
         if (isMicOn && continuousRecording) {
           await captureAndUploadAudioChunk();
         }
       }, 1000); // 1 second chunks for live real-time voice communication
-      
+
       setAudioChunkInterval(interval);
     } catch (err) {
       console.error('Failed to start real-time recording', err);
@@ -2950,12 +3080,12 @@ export default function GroupInfoScreen() {
         console.error('Error stopping recording:', error);
       }
     }
-    
+
     if (audioChunkInterval) {
       clearInterval(audioChunkInterval);
       setAudioChunkInterval(null);
     }
-    
+
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
     });
@@ -2964,16 +3094,16 @@ export default function GroupInfoScreen() {
   // Capture and Upload Audio Chunk
   const captureAndUploadAudioChunk = async () => {
     if (!continuousRecording || !currentVoiceChatSession?.messageId || !currentUser) return;
-    
+
     try {
       // Stop current recording to get chunk
       await continuousRecording.stopAndUnloadAsync();
       const uri = continuousRecording.getURI();
-      
+
       if (uri) {
         // Upload chunk to Hostinger
         const audioUrl = await uploadAudioToHostinger(uri, 'voice_chat_realtime');
-        
+
         // Save chunk URL to Firestore for other participants
         // db is now imported globally
         const firestore = await import('firebase/firestore');
@@ -2986,14 +3116,14 @@ export default function GroupInfoScreen() {
           'realTimeAudio',
           currentUser.id
         );
-        
+
         await updateDoc(audioChunkRef, {
           audioUrl: audioUrl,
           timestamp: firestore.serverTimestamp(),
           isSpeaking: true,
         });
       }
-      
+
       // Restart recording for next chunk
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
@@ -3001,7 +3131,7 @@ export default function GroupInfoScreen() {
       setContinuousRecording(recording);
     } catch (error) {
       console.error('Error capturing audio chunk:', error);
-      
+
       // Restart recording even if upload failed
       try {
         const { recording } = await Audio.Recording.createAsync(
@@ -3017,24 +3147,24 @@ export default function GroupInfoScreen() {
   // Send Voice Message in Voice Chat
   const sendVoiceChatMessage = async () => {
     if (!currentVoiceChatSession?.messageId || !communityId || !currentUser) return;
-    
+
     // Check if sending text or voice
     if (!voiceChatInput.trim() && !voiceChatRecordingUri) return;
-    
+
     try {
       // db is now imported globally
       const firestore = await import('firebase/firestore');
-      
+
       // Use a subcollection for voice chat messages
       const voiceChatMessagesCol = collection(
-        db, 
-        'community_chats', 
-        communityId, 
-        'messages', 
+        db,
+        'community_chats',
+        communityId,
+        'messages',
         currentVoiceChatSession.messageId,
         'voiceChatMessages'
       );
-      
+
       const messageData = {
         sender: currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
@@ -3042,12 +3172,12 @@ export default function GroupInfoScreen() {
         createdAt: firestore.serverTimestamp(),
         type: voiceChatRecordingUri ? 'voice' : 'text',
       };
-      
+
       // Add text if present
       if (voiceChatInput.trim()) {
         messageData.text = voiceChatInput.trim();
       }
-      
+
       // Add voice if present
       if (voiceChatRecordingUri) {
         try {
@@ -3062,7 +3192,7 @@ export default function GroupInfoScreen() {
           return;
         }
       }
-      
+
       await firestore.addDoc(voiceChatMessagesCol, messageData);
       setVoiceChatInput('');
     } catch (error) {
@@ -3082,7 +3212,7 @@ export default function GroupInfoScreen() {
       // db is now imported globally
       const roomRef = doc(db, 'audio_calls', communityId, 'rooms', roomId);
       const messageRef = doc(db, 'community_chats', communityId, 'messages', messageId);
-      
+
       // Check if room exists
       const roomSnap = await getDoc(roomRef);
       if (!roomSnap.exists()) {
@@ -3104,7 +3234,7 @@ export default function GroupInfoScreen() {
           : currentParticipants.some(p => p.userId === currentUser.id));
       if (!hasUser) {
         const now = new Date().toISOString();
-        
+
         // Update room participants
         await updateDoc(roomRef, {
           participants: arrayUnion({
@@ -3146,7 +3276,7 @@ export default function GroupInfoScreen() {
       // db is now imported globally
       const roomRef = doc(db, 'screening_rooms', roomId);
       const messageRef = doc(db, 'community_chats', communityId, 'messages', messageId);
-      
+
       // Check if room exists
       const roomSnap = await getDoc(roomRef);
       if (!roomSnap.exists()) {
@@ -3168,7 +3298,7 @@ export default function GroupInfoScreen() {
           : currentParticipants.some(p => p.userId === currentUser.id));
       if (!hasUser2) {
         const now = new Date().toISOString();
-        
+
         // Update room participants
         await updateDoc(roomRef, {
           participants: arrayUnion({
@@ -3210,26 +3340,26 @@ export default function GroupInfoScreen() {
       const userRef = doc(db, 'users', currentUser.id);
 
       let updatedCollection;
-      
+
       if (editingCharacterId) {
         // Update existing character
         updatedCollection = characterCollection.map(char =>
           char.id === editingCharacterId
             ? {
-                ...char,
-                avatar: characterAvatar,
-                name: characterName.trim(),
-                subtitle: characterSubtitle.trim(),
-                themeColor: characterThemeColor,
-                gender: characterGender,
-                language: characterLanguage,
-                tags: characterTags,
-                age: characterAge,
-                height: characterHeight,
-                description: characterDescription.trim(),
-                greeting: characterGreeting.trim(),
-                updatedAt: new Date().toISOString(),
-              }
+              ...char,
+              avatar: characterAvatar,
+              name: characterName.trim(),
+              subtitle: characterSubtitle.trim(),
+              themeColor: characterThemeColor,
+              gender: characterGender,
+              language: characterLanguage,
+              tags: characterTags,
+              age: characterAge,
+              height: characterHeight,
+              description: characterDescription.trim(),
+              greeting: characterGreeting.trim(),
+              updatedAt: new Date().toISOString(),
+            }
             : char
         );
       } else {
@@ -3263,14 +3393,14 @@ export default function GroupInfoScreen() {
       // Check if this character creation was for joining a roleplay
       if (pendingRoleplayJoin) {
         // User was creating character to join roleplay
-        const createdCharacter = editingCharacterId 
+        const createdCharacter = editingCharacterId
           ? updatedCollection.find(c => c.id === editingCharacterId)
           : updatedCollection[updatedCollection.length - 1];
-        
+
         // Close roleplay creation screen
         setShowMiniScreen(null);
         setRoleplayPage(1);
-        
+
         // Reset form
         setCharacterAvatar('');
         setCharacterName('');
@@ -3284,10 +3414,10 @@ export default function GroupInfoScreen() {
         setCharacterDescription('');
         setCharacterGreeting('');
         setEditingCharacterId(null);
-        
+
         // Set selected character and proceed to role selection
         setSelectedCharacterForRoleplay(createdCharacter);
-        
+
         Alert.alert(
           'Character Created!',
           `"${createdCharacter.name}" is ready! Now select a role for this roleplay.`,
@@ -3400,12 +3530,12 @@ export default function GroupInfoScreen() {
         if (isReturningToRoleplay && existingParticipantIndex >= 0) {
           // User is switching character - update existing participant
           console.log('Switching character for existing participant');
-          
+
           // Remove old characters owned by this user
           updatedCharacters = updatedCharacters.filter(char => char && char.ownerId !== currentUser.id);
-          
+
           console.log('Characters after removing old:', updatedCharacters.length);
-          
+
           // Add new selected characters
           const newCharacters = selectedCharactersForSession.map(char => ({
             id: char.id || `char_${Date.now()}`,
@@ -3417,28 +3547,28 @@ export default function GroupInfoScreen() {
             ownerName: currentUser.name || currentUser.displayName || 'User',
             available: true,
           }));
-          
+
           updatedCharacters.push(...newCharacters);
           console.log('Characters after adding new:', updatedCharacters.length);
 
           // Update participant's character list
           updatedParticipants[existingParticipantIndex].characters = selectedCharactersForSession.map(c => c.id);
-          
+
           console.log('Updating session with new character data...');
-          
+
           // Update session with modified arrays
           await updateDoc(sessionRef, {
             participants: updatedParticipants,
             characters: updatedCharacters,
             updatedAt: now,
           });
-          
+
           console.log('Session updated successfully');
 
         } else {
           // New user joining - add as new participant
           console.log('Adding new participant to roleplay');
-          
+
           const newParticipant = {
             userId: currentUser.id,
             userName: currentUser.name || currentUser.displayName || 'User',
@@ -3448,7 +3578,7 @@ export default function GroupInfoScreen() {
           };
 
           updatedParticipants.push(newParticipant);
-          
+
           // Add new characters
           const newCharacters = selectedCharactersForSession.map(char => ({
             id: char.id || `char_${Date.now()}`,
@@ -3460,9 +3590,9 @@ export default function GroupInfoScreen() {
             ownerName: currentUser.name || currentUser.displayName || 'User',
             available: true,
           }));
-          
+
           updatedCharacters.push(...newCharacters);
-          
+
           console.log('Updating session with new participant...');
 
           // Update session
@@ -3471,7 +3601,7 @@ export default function GroupInfoScreen() {
             characters: updatedCharacters,
             updatedAt: now,
           });
-          
+
           console.log('Session updated with new participant');
 
           // Update message (only for new joins and if messageRef exists)
@@ -3608,7 +3738,7 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const sessionRef = doc(db, 'roleplay_sessions', communityId, 'sessions', sessionId);
-      
+
       // Check if session exists
       const sessionSnap = await getDoc(sessionRef);
       if (!sessionSnap.exists()) {
@@ -3623,13 +3753,13 @@ export default function GroupInfoScreen() {
       const userCharacters = (sessionData.characters || []).filter(
         char => char.ownerId === currentUser.id
       );
-      
+
       // If user has characters, they can rejoin - but still need to select character via mini screen
       // Always show mini screens - user must select/create character to join
-      
+
       // Store roleplay join details for later use
       setPendingRoleplayJoin({ messageId, sessionId, availableRoles });
-      
+
       // Directly show mini screens for roleplay
       setShowMiniScreen('roleplay');
       setRoleplayPage(1); // Start at character creation page
@@ -3642,10 +3772,10 @@ export default function GroupInfoScreen() {
   // After character is selected, proceed to roleplay mini screens
   const proceedToRoleSelection = () => {
     if (!pendingRoleplayJoin) return;
-    
+
     // Close character selector
     setShowCharacterSelectorForJoin(false);
-    
+
     // Show mini screen with roleplay character creation/selection
     setShowMiniScreen('roleplay');
     setRoleplayPage(1); // Start at character creation page
@@ -3665,10 +3795,10 @@ export default function GroupInfoScreen() {
       // Get current session data
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.data();
-      
+
       // Update the selected role as taken
-      const updatedRoles = sessionData.roles.map(r => 
-        r.id === selectedRole.id 
+      const updatedRoles = sessionData.roles.map(r =>
+        r.id === selectedRole.id
           ? { ...r, taken: true, takenBy: currentUser.id, takenByName: currentUser.name }
           : r
       );
@@ -3697,7 +3827,7 @@ export default function GroupInfoScreen() {
 
       setShowRoleSelectModal(false);
       setSelectedRoleplayToJoin(null);
-      
+
       // Navigate to RoleplayScreen
       navigation.navigate('RoleplayScreen', {
         communityId: communityId,
@@ -3705,7 +3835,7 @@ export default function GroupInfoScreen() {
         groupTitle: community?.name || groupTitle || 'Roleplay',
         selectedRole: selectedRole,
       });
-      
+
     } catch (e) {
       console.log('Error confirming role:', e);
       Alert.alert('Error', 'Failed to join with selected role: ' + e.message);
@@ -3731,7 +3861,7 @@ export default function GroupInfoScreen() {
       // Get current session data
       const sessionSnap = await getDoc(sessionRef);
       const sessionData = sessionSnap.data();
-      
+
       // Create new custom role
       const newRoleId = `custom_${Date.now()}_${currentUser.id}`;
       const customRole = {
@@ -3775,7 +3905,7 @@ export default function GroupInfoScreen() {
       setShowCustomRoleInput(false);
       setShowRoleSelectModal(false);
       setSelectedRoleplayToJoin(null);
-      
+
       // Navigate to RoleplayScreen
       navigation.navigate('RoleplayScreen', {
         communityId: communityId,
@@ -3783,7 +3913,7 @@ export default function GroupInfoScreen() {
         groupTitle: community?.name || groupTitle || 'Roleplay',
         selectedRole: customRole,
       });
-      
+
     } catch (e) {
       console.log('Error creating custom role:', e);
       Alert.alert('Error', 'Failed to create custom role: ' + e.message);
@@ -3793,16 +3923,16 @@ export default function GroupInfoScreen() {
   const handleSendMessage = useCallback(async () => {
     // Check if there's anything to send
     if (chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri) return;
-    
+
     // Prevent multiple simultaneous sends
     if (chatLoading) return;
-    
+
     // Store message data locally before clearing input
     const messageText = chatInput.trim();
     const imageToSend = selectedChatImage;
     const videoToSend = selectedChatVideo;
     const voiceToSend = recordingUri;
-    
+
     // React 18 automatically batches these state updates for optimal performance
     // Clear input and attachments immediately for better UX
     setChatInput('');
@@ -3810,11 +3940,11 @@ export default function GroupInfoScreen() {
     setSelectedChatVideo(null);
     setRecordingUri(null);
     setChatLoading(true);
-    
+
     try {
       // db is now imported globally
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
-      
+
       const messageData = {
         sender: currentUser?.name || currentUser?.displayName || 'User',
         senderName: currentUser?.name || currentUser?.displayName || 'User', // Add for backward compatibility
@@ -3890,10 +4020,10 @@ export default function GroupInfoScreen() {
       // Add message to Firestore
       const firestore = await import('firebase/firestore');
       await firestore.addDoc(chatCol, messageData);
-      
+
       // Success - reset scroll state to re-enable auto-scroll
       setIsUserScrolling(false);
-      
+
       // Force scroll to bottom after sending message with longer delay
       // This ensures the message is received from Firestore listener and rendered
       setTimeout(() => {
@@ -3901,7 +4031,7 @@ export default function GroupInfoScreen() {
           chatScrollRef.current.scrollToEnd({ animated: true });
         }
       }, 300);
-      
+
       // Additional scroll after a bit more time to ensure rendering is complete
       setTimeout(() => {
         if (chatScrollRef.current) {
@@ -4030,7 +4160,7 @@ export default function GroupInfoScreen() {
   // Fetch comments for a specific post
   const fetchCommentsForPost = async (post) => {
     if (!post?.id || !communityId) return;
-    
+
     setCommentsLoading(true);
     try {
       // db is now imported globally
@@ -4043,15 +4173,15 @@ export default function GroupInfoScreen() {
         post.id,
         'comments'
       );
-      
+
       const firestore = await import('firebase/firestore');
       const q = firestore.query(commentsCol, firestore.orderBy('createdAt', 'desc'));
-      
+
       const unsubscribe = firestore.onSnapshot(q, async (snapshot) => {
         const commentsPromises = snapshot.docs.map(async (docSnap) => {
           const commentData = docSnap.data();
           let userProfileImage = commentData.userImage || null;
-          
+
           // If userImage is not in comment, fetch from users collection
           if (!userProfileImage && commentData.userId) {
             try {
@@ -4065,14 +4195,14 @@ export default function GroupInfoScreen() {
               console.log('Error fetching user profile for comment:', e);
             }
           }
-          
+
           return {
             id: docSnap.id,
             ...commentData,
             userImage: userProfileImage,
           };
         });
-        
+
         const commentsList = await Promise.all(commentsPromises);
         setPostComments(commentsList);
         setCommentsLoading(false);
@@ -4080,7 +4210,7 @@ export default function GroupInfoScreen() {
         console.log('Error fetching comments:', error);
         setCommentsLoading(false);
       });
-      
+
       // Store unsubscribe function for cleanup
       setCommentsUnsubscribe(() => unsubscribe);
     } catch (e) {
@@ -4115,7 +4245,7 @@ export default function GroupInfoScreen() {
       );
       const postRef = doc(db, 'communities', communityId, collectionName, selectedPostForComment.id);
       const firestore = await import('firebase/firestore');
-      
+
       // Use transaction to atomically add comment and update count
       await runTransaction(db, async (transaction) => {
         // First, read the current post document to get comment count
@@ -4123,12 +4253,12 @@ export default function GroupInfoScreen() {
         if (!postSnap.exists()) {
           throw new Error('Post not found');
         }
-        
+
         const postData = postSnap.data();
-        const currentComments = typeof postData.comments === 'number' 
-          ? postData.comments 
+        const currentComments = typeof postData.comments === 'number'
+          ? postData.comments
           : 0;
-        
+
         // Add the comment document
         const commentRef = doc(commentsCol);
         transaction.set(commentRef, {
@@ -4138,7 +4268,7 @@ export default function GroupInfoScreen() {
           userImage: currentUser.profileImage || null,
           createdAt: firestore.serverTimestamp(),
         });
-        
+
         // Update comment count atomically
         transaction.update(postRef, {
           comments: currentComments + 1,
@@ -4191,7 +4321,7 @@ export default function GroupInfoScreen() {
       if (isFollowing) {
         // Unfollow
         await deleteDoc(followDocRef);
-        
+
         // Decrement counters
         await updateDoc(currentUserRef, {
           followingCount: increment(-1)
@@ -4199,7 +4329,7 @@ export default function GroupInfoScreen() {
         await updateDoc(targetUserRef, {
           followersCount: increment(-1)
         });
-        
+
         // Update local state
         setFollowingUserIds((prev) => prev.filter((id) => id !== targetUserId));
         setUserStats((prev) => ({
@@ -4212,7 +4342,7 @@ export default function GroupInfoScreen() {
           userId: targetUserId,
           followedAt: new Date().toISOString(),
         });
-        
+
         // Increment counters
         await updateDoc(currentUserRef, {
           followingCount: increment(1)
@@ -4220,7 +4350,7 @@ export default function GroupInfoScreen() {
         await updateDoc(targetUserRef, {
           followersCount: increment(1)
         });
-        
+
         // Update local state
         setFollowingUserIds((prev) => [...prev, targetUserId]);
         setUserStats((prev) => ({
@@ -4310,7 +4440,7 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const draftsCol = collection(db, 'communities', communityId, 'drafts');
-      
+
       import('firebase/firestore').then(firestore => {
         firestore.addDoc(draftsCol, {
           type: 'blog',
@@ -4346,7 +4476,7 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const blogsCol = collection(db, 'communities', communityId, 'blogs');
-      
+
       // Add blog to Firestore
       import('firebase/firestore').then(firestore => {
         firestore.addDoc(blogsCol, {
@@ -4398,7 +4528,7 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const draftsCol = collection(db, 'communities', communityId, 'drafts');
-      
+
       import('firebase/firestore').then(firestore => {
         firestore.addDoc(draftsCol, {
           type: 'image',
@@ -4436,7 +4566,7 @@ export default function GroupInfoScreen() {
       // In production, you'd upload to Firebase Storage first
       // db is now imported globally
       const postsCol = collection(db, 'communities', communityId, 'posts');
-      
+
       import('firebase/firestore').then(firestore => {
         firestore.addDoc(postsCol, {
           caption: imageCaption,
@@ -4496,7 +4626,7 @@ export default function GroupInfoScreen() {
     try {
       // db is now imported globally
       const draftRef = doc(db, 'communities', communityId, 'drafts', draftId);
-      
+
       import('firebase/firestore').then(firestore => {
         firestore.deleteDoc(draftRef).then(() => {
           alert('Draft deleted successfully!');
@@ -4566,7 +4696,7 @@ export default function GroupInfoScreen() {
         },
         {
           text: 'Cancel',
-          onPress: () => {},
+          onPress: () => { },
           style: 'cancel',
         },
       ]
@@ -4620,15 +4750,15 @@ export default function GroupInfoScreen() {
 
                 const communityData = communitySnap.data();
                 let updatedMembers = [];
-                
+
                 // Handle members array
                 if (Array.isArray(communityData.members)) {
                   updatedMembers = communityData.members.filter(id => id !== userId);
                 }
 
                 // Decrement member count
-                const currentCount = communityData.members_count || 
-                                   (Array.isArray(communityData.members) ? communityData.members.length : 0);
+                const currentCount = communityData.members_count ||
+                  (Array.isArray(communityData.members) ? communityData.members.length : 0);
                 const newCount = Math.max(0, currentCount - 1);
 
                 transaction.update(communityRef, {
@@ -4698,15 +4828,15 @@ export default function GroupInfoScreen() {
 
                 const communityData = communitySnap.data();
                 let updatedMembers = [];
-                
+
                 // Handle members array
                 if (Array.isArray(communityData.members)) {
                   updatedMembers = communityData.members.filter(id => id !== memberId);
                 }
 
                 // Decrement member count
-                const currentCount = communityData.members_count || 
-                                   (Array.isArray(communityData.members) ? communityData.members.length : 0);
+                const currentCount = communityData.members_count ||
+                  (Array.isArray(communityData.members) ? communityData.members.length : 0);
                 const newCount = Math.max(0, currentCount - 1);
 
                 transaction.update(communityRef, {
@@ -4757,7 +4887,7 @@ export default function GroupInfoScreen() {
         message: `Join "${community?.name || 'our community'}" on Social Vibing!\n\n${inviteLink}`,
         title: `Join ${community?.name || 'our community'}`,
       });
-      
+
       if (result.action === Share.sharedAction) {
         Alert.alert('Success', 'Community shared successfully!');
       }
@@ -4776,7 +4906,7 @@ export default function GroupInfoScreen() {
       }
 
       const firestore = await import('firebase/firestore');
-      
+
       // Create post data
       const postData = {
         text: `Check out ${community?.name || 'this community'}! 🎉\n\nJoin us to connect with amazing people and share great content!`,
@@ -4795,11 +4925,11 @@ export default function GroupInfoScreen() {
         likedBy: [],
         createdAt: firestore.serverTimestamp(),
       };
-      
+
       // Post to community's posts collection
       const communityPostsCol = collection(db, 'communities', communityId, 'posts');
       await firestore.addDoc(communityPostsCol, postData);
-      
+
       // Also post to home feed (main posts collection for discovery)
       const homePostsCol = collection(db, 'posts');
       await firestore.addDoc(homePostsCol, {
@@ -4862,7 +4992,7 @@ export default function GroupInfoScreen() {
               const firestore = await import('firebase/firestore');
               const q = firestore.query(membershipsQuery, firestore.where('community_id', '==', communityId));
               const membershipsSnapshot = await firestore.getDocs(q);
-              
+
               const deletePromises = membershipsSnapshot.docs.map(doc => deleteDoc(doc.ref));
               await Promise.all(deletePromises);
 
@@ -4882,6 +5012,248 @@ export default function GroupInfoScreen() {
             } catch (error) {
               console.error('Error deleting community:', error);
               Alert.alert('Error', 'Failed to delete community. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  // Load announcements when community loads
+  useEffect(() => {
+    if (!communityId || !community) return;
+    
+    const loadAnnouncements = async () => {
+      try {
+        const announcementIds = community.announcements || [];
+        if (announcementIds.length === 0) {
+          setAnnouncements([]);
+          return;
+        }
+
+        // Fetch announcement posts from allPosts
+        const announcementPosts = allPosts.filter(post => announcementIds.includes(post.id));
+        setAnnouncements(announcementPosts);
+      } catch (error) {
+        console.error('Error loading announcements:', error);
+      }
+    };
+
+    loadAnnouncements();
+  }, [communityId, community, allPosts]);
+
+  // Load featured posts when community loads
+  useEffect(() => {
+    if (!communityId || !community) return;
+    
+    const loadFeaturedPosts = async () => {
+      try {
+        const featuredIds = community.featuredPosts || [];
+        // Store just the IDs, not the full post objects
+        setFeaturedPosts(featuredIds);
+      } catch (error) {
+        console.error('Error loading featured posts:', error);
+      }
+    };
+
+    loadFeaturedPosts();
+  }, [communityId, community, allPosts]);
+
+  // Handle Pin Post as Announcement
+  const handlePinAnnouncement = async (postId) => {
+    if (!isAdmin) {
+      Alert.alert('Permission Denied', 'Only admins can pin announcements');
+      return;
+    }
+
+    try {
+      const currentAnnouncements = community.announcements || [];
+      
+      if (currentAnnouncements.includes(postId)) {
+        Alert.alert('Already Pinned', 'This post is already pinned as an announcement');
+        return;
+      }
+
+      const firestore = await import('firebase/firestore');
+      const communityRef = doc(db, 'communities', communityId);
+      
+      // If already at max (3), remove the oldest announcement first
+      if (currentAnnouncements.length >= 3) {
+        const oldestAnnouncementId = currentAnnouncements[0]; // First one is oldest
+        await updateDoc(communityRef, {
+          announcements: firestore.arrayRemove(oldestAnnouncementId)
+        });
+      }
+      
+      // Add new announcement
+      await updateDoc(communityRef, {
+        announcements: firestore.arrayUnion(postId)
+      });
+
+      Alert.alert('Success', currentAnnouncements.length >= 3 ? 'Post pinned! Oldest announcement was auto-removed.' : 'Post pinned as announcement!');
+    } catch (error) {
+      console.error('Error pinning announcement:', error);
+      Alert.alert('Error', 'Failed to pin announcement');
+    }
+  };
+
+  // Handle Unpin Announcement
+  const handleUnpinAnnouncement = async (postId) => {
+    if (!isAdmin) {
+      Alert.alert('Permission Denied', 'Only admins can unpin announcements');
+      return;
+    }
+
+    try {
+      const firestore = await import('firebase/firestore');
+      const communityRef = doc(db, 'communities', communityId);
+      
+      await updateDoc(communityRef, {
+        announcements: firestore.arrayRemove(postId)
+      });
+
+      Alert.alert('Success', 'Announcement unpinned!');
+    } catch (error) {
+      console.error('Error unpinning announcement:', error);
+      Alert.alert('Error', 'Failed to unpin announcement');
+    }
+  };
+
+  // Handle Post Options Menu (for admins)
+  const handlePostOptions = (post) => {
+    const currentAnnouncements = community?.announcements || [];
+    const currentFeatured = community?.featuredPosts || [];
+    const isPinned = currentAnnouncements.includes(post.id);
+    const isFeatured = currentFeatured.includes(post.id);
+
+    const options = [
+      {
+        text: 'Cancel',
+        style: 'cancel'
+      }
+    ];
+
+    if (isAdmin) {
+      // Announcement options
+      if (isPinned) {
+        options.unshift({
+          text: 'Unpin Announcement',
+          onPress: () => handleUnpinAnnouncement(post.id)
+        });
+      } else {
+        options.unshift({
+          text: 'Pin as Announcement',
+          onPress: () => handlePinAnnouncement(post.id)
+        });
+      }
+
+      // Featured options
+      if (isFeatured) {
+        options.unshift({
+          text: 'Remove from Featured',
+          onPress: () => handleUnfeaturePost(post.id)
+        });
+      } else {
+        options.unshift({
+          text: 'Add to Featured',
+          onPress: () => handleFeaturePost(post.id)
+        });
+      }
+    }
+
+    if (post.authorId === currentUser?.id || isAdmin) {
+      options.unshift({
+        text: 'Delete Post',
+        style: 'destructive',
+        onPress: () => handleDeletePost(post.id, post.type)
+      });
+    }
+
+    Alert.alert('Post Options', 'Choose an action', options);
+  };
+
+  // Handle Feature Post
+  const handleFeaturePost = async (postId) => {
+    if (!isAdmin) {
+      Alert.alert('Permission Denied', 'Only admins can feature posts');
+      return;
+    }
+
+    try {
+      const currentFeatured = community.featuredPosts || [];
+      
+      if (currentFeatured.includes(postId)) {
+        Alert.alert('Already Featured', 'This post is already featured');
+        return;
+      }
+
+      const firestore = await import('firebase/firestore');
+      const communityRef = doc(db, 'communities', communityId);
+      
+      // Add to featured posts
+      await updateDoc(communityRef, {
+        featuredPosts: firestore.arrayUnion(postId)
+      });
+
+      Alert.alert('Success', 'Post added to featured!');
+    } catch (error) {
+      console.error('Error featuring post:', error);
+      Alert.alert('Error', 'Failed to feature post');
+    }
+  };
+
+  // Handle Unfeature Post
+  const handleUnfeaturePost = async (postId) => {
+    if (!isAdmin) {
+      Alert.alert('Permission Denied', 'Only admins can remove featured posts');
+      return;
+    }
+
+    try {
+      const firestore = await import('firebase/firestore');
+      const communityRef = doc(db, 'communities', communityId);
+      
+      await updateDoc(communityRef, {
+        featuredPosts: firestore.arrayRemove(postId)
+      });
+
+      Alert.alert('Success', 'Post removed from featured!');
+    } catch (error) {
+      console.error('Error unfeaturing post:', error);
+      Alert.alert('Error', 'Failed to remove from featured');
+    }
+  };
+
+  // Handle Delete Post
+  const handleDeletePost = async (postId, postType) => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const collectionName = postType === 'blog' ? 'blogs' : 'posts';
+              const postRef = doc(db, 'communities', communityId, collectionName, postId);
+              await deleteDoc(postRef);
+              
+              // Also remove from announcements if pinned
+              const currentAnnouncements = community?.announcements || [];
+              if (currentAnnouncements.includes(postId)) {
+                const firestore = await import('firebase/firestore');
+                const communityRef = doc(db, 'communities', communityId);
+                await updateDoc(communityRef, {
+                  announcements: firestore.arrayRemove(postId)
+                });
+              }
+
+              Alert.alert('Success', 'Post deleted successfully');
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post');
             }
           }
         }
@@ -4921,7 +5293,7 @@ export default function GroupInfoScreen() {
       ) : (
         <>
           {/* Content Area */}
-          <ScrollView 
+          <ScrollView
             style={{ flex: 1 }}
             refreshControl={
               <RefreshControl
@@ -4934,7 +5306,7 @@ export default function GroupInfoScreen() {
             onScroll={(event) => {
               const currentOffset = event.nativeEvent.contentOffset.y;
               const scrollDiff = currentOffset - scrollOffsetRef.current;
-              
+
               // Hide button when scrolling down (scrollDiff > 0)
               // Show button when scrolling up (scrollDiff < 0)
               if (scrollDiff > 10) {
@@ -4942,7 +5314,7 @@ export default function GroupInfoScreen() {
               } else if (scrollDiff < -10) {
                 setShowVoiceRoomButton(true);
               }
-              
+
               scrollOffsetRef.current = currentOffset;
             }}
             scrollEventThrottle={16}
@@ -5004,384 +5376,640 @@ export default function GroupInfoScreen() {
                 </View>
 
                 {/* Button Bar */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{paddingHorizontal: 16, paddingVertical: 12}}>
-                  <TouchableOpacity 
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, paddingVertical: 12 }}>
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('all')}
-                    style={{backgroundColor: communitySection === 'all' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'all' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12}}>
-                    <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>Explore</Text>
+                    style={{ backgroundColor: communitySection === 'all' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'all' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Explore</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
+                    onPress={() => setCommunitySection('featured')}
+                    style={{ backgroundColor: communitySection === 'featured' ? '#FFD700' : 'transparent', borderWidth: communitySection === 'featured' ? 0 : 1, borderColor: '#FFD700', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <MaterialIcons name="star" size={16} color={communitySection === 'featured' ? '#000' : '#FFD700'} />
+                    <Text style={{ color: communitySection === 'featured' ? '#000' : '#FFD700', fontWeight: '700', fontSize: 14 }}>Featured</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('posts')}
-                    style={{backgroundColor: communitySection === 'posts' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'posts' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12}}>
-                    <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>Posts</Text>
+                    style={{ backgroundColor: communitySection === 'posts' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'posts' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Posts</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('parties')}
-                    style={{backgroundColor: communitySection === 'parties' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'parties' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12}}>
-                    <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>Parties</Text>
+                    style={{ backgroundColor: communitySection === 'parties' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'parties' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Parties</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('info')}
-                    style={{backgroundColor: communitySection === 'info' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'info' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12}}>
-                    <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>Info</Text>
+                    style={{ backgroundColor: communitySection === 'info' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'info' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12 }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Info</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('groups')}
-                    style={{backgroundColor: communitySection === 'groups' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'groups' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center'}}>
-                    <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>Groups</Text>
+                    style={{ backgroundColor: communitySection === 'groups' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'groups' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center' }}>
+                    <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Groups</Text>
                   </TouchableOpacity>
                 </ScrollView>
 
-                {/* Groups Section */}
-                {(communitySection === 'all' || communitySection === 'groups') && (
-                <View style={{paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12}}>
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12}}>
-                    <Text style={{color: '#fff', fontSize: 16, fontWeight: '700'}}>
-                      Groups {communityGroups.length > 0 && `(${communityGroups.length})`}
-                    </Text>
-                    <TouchableOpacity 
-                      onPress={() => navigation.navigate('CommunityCreateGroup', { 
-                        communityId: communityId,
-                        communityName: community?.name || groupTitle 
-                      })}
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        backgroundColor: '#8B2EF0',
-                        paddingHorizontal: 16,
-                        paddingVertical: 8,
-                        borderRadius: 20,
-                        gap: 6
-                      }}
-                    >
-                      <Ionicons name="add-circle" size={18} color="#fff" />
-                      <Text style={{color: '#fff', fontSize: 13, fontWeight: '600'}}>Create Group</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {communityGroups.length === 0 ? (
-                    <View style={{backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center'}}>
-                      <Ionicons name="people-outline" size={40} color="#666" />
-                      <Text style={{color: '#888', fontSize: 14, marginTop: 8, textAlign: 'center'}}>
-                        No groups yet. Create a group to organize discussions!
-                      </Text>
-                    </View>
-                  ) : (
-                    <View style={{gap: 12}}>
-                      {communityGroups.map((group) => {
-                        const isJoined = joinedGroupIds.includes(group.id);
-                        return (
+                {/* Featured Posts Section */}
+                {communitySection === 'featured' && (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <MaterialIcons name="star" size={20} color="#FFD700" />
+                        <Text style={{ color: '#FFD700', fontSize: 16, fontWeight: '700' }}>
+                          Featured Posts {featuredPosts.length > 0 && `(${featuredPosts.length})`}
+                        </Text>
+                      </View>
+                      {isAdmin && (
                         <TouchableOpacity
-                          key={group.id}
+                          onPress={() => setShowFeaturedModal(true)}
                           style={{
-                            backgroundColor: '#1e1e1e',
-                            borderRadius: 12,
-                            padding: 14,
                             flexDirection: 'row',
                             alignItems: 'center',
+                            backgroundColor: '#2a2a2a',
+                            paddingHorizontal: 12,
+                            paddingVertical: 6,
+                            borderRadius: 16,
                             borderWidth: 1,
-                            borderColor: isJoined ? '#8B2EF0' : '#333',
+                            borderColor: '#FFD700',
+                            gap: 4
                           }}
-                          activeOpacity={0.7}
-                          onPress={() => navigation.navigate('CommunityGroupChat', {
-                            communityId: communityId,
-                            groupId: group.id,
-                            groupName: group.name,
-                            groupImage: group.groupImage,
-                            groupEmoji: group.theme?.emoji,
-                            groupColor: group.theme?.color,
-                          })}
                         >
-                          {/* Group Image/Emoji */}
-                          <View style={{
-                            width: 56,
-                            height: 56,
-                            borderRadius: 28,
-                            backgroundColor: group.theme?.color || '#8B2EF0',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            marginRight: 12,
-                            overflow: 'hidden'
-                          }}>
-                            {group.groupImage ? (
-                              <Image 
-                                source={{ uri: group.groupImage }} 
-                                style={{width: 56, height: 56}} 
-                              />
-                            ) : (
-                              <Text style={{fontSize: 28}}>
-                                {group.theme?.emoji || '💬'}
-                              </Text>
-                            )}
-                          </View>
-                          
-                          {/* Group Info */}
-                          <View style={{flex: 1}}>
-                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4}}>
-                              <Text style={{
-                                color: '#fff',
-                                fontSize: 16,
-                                fontWeight: '700',
-                              }}>
-                                {group.name}
-                              </Text>
-                              {isJoined && (
-                                <View style={{
-                                  backgroundColor: '#8B2EF0',
-                                  paddingHorizontal: 8,
-                                  paddingVertical: 3,
-                                  borderRadius: 10,
-                                }}>
-                                  <Text style={{color: '#fff', fontSize: 10, fontWeight: '700'}}>
-                                    JOINED
+                          <MaterialIcons name="settings" size={14} color="#FFD700" />
+                          <Text style={{ color: '#FFD700', fontSize: 11, fontWeight: '600' }}>Manage</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {featuredPosts.length === 0 ? (
+                      <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center' }}>
+                        <MaterialIcons name="star-border" size={40} color="#666" />
+                        <Text style={{ color: '#888', fontSize: 14, marginTop: 8 }}>No featured posts yet</Text>
+                        {isAdmin && (
+                          <Text style={{ color: '#666', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+                            Long-press any post and select "Add to Featured"
+                          </Text>
+                        )}
+                      </View>
+                    ) : (
+                      featuredPosts.map((postId) => {
+                        const post = allPosts.find(p => p.id === postId);
+                        if (!post) return null;
+
+                        const isLiked = Array.isArray(post.likedBy) && currentUser?.id
+                          ? post.likedBy.includes(currentUser.id)
+                          : false;
+                        const likeKey = `${post.type}-${post.id}`;
+                        const likeBusy = likeProcessingIds.includes(likeKey);
+                        
+                        return (
+                          <TouchableOpacity
+                            key={post.id}
+                            style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 2, borderColor: '#FFD700' }}
+                            onLongPress={() => handlePostOptions(post)}
+                            activeOpacity={0.9}
+                          >
+                            {/* Featured Badge */}
+                            <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, zIndex: 1 }}>
+                              <MaterialIcons name="star" size={12} color="#000" />
+                              <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>FEATURED</Text>
+                            </View>
+
+                            {/* Author Info */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                {post.authorImage ? (
+                                  <Image
+                                    source={{ uri: post.authorImage }}
+                                    style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="person" size={30} color="#657786" />
+                                  </View>
+                                )}
+                                <View>
+                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{post.authorName || 'User'}</Text>
+                                  <Text style={{ color: '#888', fontSize: 12 }}>
+                                    {post.createdAt
+                                      ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                      : 'Recently'
+                                    }
                                   </Text>
                                 </View>
-                              )}
+                              </View>
+                              {renderFollowButton(post.authorId)}
                             </View>
-                            
-                            {group.description ? (
-                              <Text style={{
-                                color: '#888',
-                                fontSize: 13,
-                                marginBottom: 4
-                              }} numberOfLines={1}>
-                                {group.description}
-                              </Text>
-                            ) : null}
-                            
-                            <View style={{flexDirection: 'row', alignItems: 'center', gap: 12}}>
-                              <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                                <Ionicons name="people" size={14} color="#666" />
-                                <Text style={{color: '#666', fontSize: 12}}>
-                                  {group.memberCount || 0} members
+
+                            {/* Blog Post - Show Title and Content */}
+                            {post.type === 'blog' && (
+                              <>
+                                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8 }}>
+                                  {post.title}
                                 </Text>
-                              </View>
+                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }} numberOfLines={3}>
+                                  {post.content}
+                                </Text>
+                              </>
+                            )}
+
+                            {/* Image Post - Show Image and Caption */}
+                            {post.type === 'image' && (
+                              <>
+                                {post.imageUri && (
+                                  <Image
+                                    source={{ uri: post.imageUri }}
+                                    style={{ width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover' }}
+                                  />
+                                )}
+                                {post.caption && (
+                                  <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                                    {post.caption}
+                                  </Text>
+                                )}
+                              </>
+                            )}
+
+                            {/* Community Share - Show shared community */}
+                            {post.type === 'community_share' && (
+                              <>
+                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                                  {post.text}
+                                </Text>
+                                <TouchableOpacity
+                                  style={{
+                                    backgroundColor: '#252525',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    marginBottom: 12,
+                                    borderWidth: 1,
+                                    borderColor: '#333',
+                                  }}
+                                  onPress={() => {
+                                    if (post.communityId) {
+                                      navigation.navigate('Community', {
+                                        openCommunityId: post.communityId,
+                                        openCommunityData: {
+                                          id: post.communityId,
+                                          community_id: post.communityId,
+                                          name: post.communityName,
+                                          community_title: post.communityName,
+                                          profileImage: post.communityImage,
+                                          img: post.communityImage ? { uri: post.communityImage } : null,
+                                          description: post.communityDescription,
+                                          community_members: post.memberCount || 0,
+                                        }
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {post.communityImage ? (
+                                    <Image
+                                      source={{ uri: post.communityImage }}
+                                      style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12 }}
+                                    />
+                                  ) : (
+                                    <View style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }}>
+                                      <Ionicons name="people" size={28} color="#666" />
+                                    </View>
+                                  )}
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                                      {post.communityName || 'Community'}
+                                    </Text>
+                                    {post.communityDescription ? (
+                                      <Text style={{ color: '#888', fontSize: 13, marginBottom: 4 }} numberOfLines={2}>
+                                        {post.communityDescription}
+                                      </Text>
+                                    ) : null}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                      <Ionicons name="people" size={14} color="#666" />
+                                      <Text style={{ color: '#666', fontSize: 12 }}>
+                                        {post.memberCount || 0} members
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Ionicons name="chevron-forward" size={20} color="#666" />
+                                </TouchableOpacity>
+                              </>
+                            )}
+
+                            {/* Action Buttons */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
+                              <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                onPress={() => handleToggleLike(post)}
+                                disabled={likeBusy}
+                              >
+                                <Ionicons
+                                  name={isLiked ? 'heart' : 'heart-outline'}
+                                  size={20}
+                                  color={isLiked ? '#ff4b6e' : '#888'}
+                                />
+                                <Text style={{ color: isLiked ? '#ff4b6e' : '#888', fontSize: 12 }}>
+                                  {post.likes || 0}
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                onPress={() => handleCommentPress(post)}
+                              >
+                                <Ionicons name="chatbubble-outline" size={20} color="#888" />
+                                <Text style={{ color: '#888', fontSize: 12 }}>{post.comments || 0}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => handleSharePost(post)}>
+                                <Ionicons name="share-social-outline" size={20} color="#888" />
+                              </TouchableOpacity>
                             </View>
-                          </View>
-                          
-                          {/* Arrow */}
-                          <Ionicons name="chevron-forward" size={20} color="#666" />
-                        </TouchableOpacity>
-                      );})}
-                    </View>
-                  )}
-                </View>
+                          </TouchableOpacity>
+                        );
+                      })
+                    )}
+                  </View>
                 )}
 
-                {/* Info Section */}
-                {(communitySection === 'info') && (
-                <View style={{paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20}}>
-                  <View style={{backgroundColor: '#1e1e1e', borderRadius: 12, padding: 16, marginBottom: 12}}>
-                    {/* Category */}
-                    <View style={{marginBottom: 20}}>
-                      <Text style={{color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6}}>CATEGORY</Text>
-                      <Text style={{color: '#fff', fontSize: 16, fontWeight: '700'}}>{community?.category || 'N/A'}</Text>
-                    </View>
-
-                    {/* Created At */}
-                    <View style={{marginBottom: 20}}>
-                      <Text style={{color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6}}>CREATED AT</Text>
-                      <Text style={{color: '#fff', fontSize: 16, fontWeight: '700'}}>
-                        {community?.createdAt 
-                          ? new Date(community.createdAt.toDate?.() || community.createdAt).toLocaleDateString('en-US', {
-                              year: 'numeric',
-                              month: 'short',
-                              day: 'numeric'
-                            })
-                          : 'N/A'
-                        }
+                {/* Groups Section */}
+                {(communitySection === 'all' || communitySection === 'groups') && communitySection !== 'featured' && (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+                        Groups {communityGroups.length > 0 && `(${communityGroups.length})`}
                       </Text>
+                      <TouchableOpacity
+                        onPress={() => navigation.navigate('CommunityCreateGroup', {
+                          communityId: communityId,
+                          communityName: community?.name || groupTitle
+                        })}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: '#8B2EF0',
+                          paddingHorizontal: 16,
+                          paddingVertical: 8,
+                          borderRadius: 20,
+                          gap: 6
+                        }}
+                      >
+                        <Ionicons name="add-circle" size={18} color="#fff" />
+                        <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Create Group</Text>
+                      </TouchableOpacity>
                     </View>
 
-                    {/* Description */}
-                    <View>
-                      <Text style={{color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6}}>DESCRIPTION</Text>
-                      <Text style={{color: '#ccc', fontSize: 14, lineHeight: 20}}>
-                        {community?.description || 'No description available'}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
-                )}
-
-                {/* Social Parties Section / Posts */}
-                {(communitySection === 'all' || communitySection === 'posts') && (
-                <View style={{paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20}}>
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12}}>
-                    <Text style={{color: '#fff', fontSize: 16, fontWeight: '700'}}>Posts</Text>
-                    <TouchableOpacity>
-                      <Text style={{color: '#8B2EF0', fontSize: 13, fontWeight: '600'}}>View all  →</Text>
-                    </TouchableOpacity>
-                  </View>
-                  
-                  {allPosts.length === 0 ? (
-                    <View style={{backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center'}}>
-                      <Ionicons name="document-text-outline" size={40} color="#666" />
-                      <Text style={{color: '#888', fontSize: 14, marginTop: 8}}>No posts yet</Text>
-                    </View>
-                  ) : (
-                    allPosts.map((post) => {
-                      const isLiked = Array.isArray(post.likedBy) && currentUser?.id
-                        ? post.likedBy.includes(currentUser.id)
-                        : false;
-                      const likeKey = `${post.type}-${post.id}`;
-                      const likeBusy = likeProcessingIds.includes(likeKey);
-                      return (
-                      <View key={post.id} style={{backgroundColor: '#1e1e1e', borderRadius: 12, padding: 12, marginBottom: 12}}>
-                        {/* Author Info */}
-                        <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12}}>
-                          <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                            {post.authorImage ? (
-                              <Image 
-                                source={{ uri: post.authorImage }} 
-                                style={{width: 44, height: 44, borderRadius: 22, marginRight: 10}} 
-                              />
-                            ) : (
-                              <View style={{width: 44, height: 44, borderRadius: 22, marginRight: 10, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center'}}>
-                                <Ionicons name="person" size={30} color="#657786" />
-                              </View>
-                            )}
-                            <View>
-                              <Text style={{color: '#fff', fontSize: 14, fontWeight: '600'}}>{post.authorName || 'User'}</Text>
-                              <Text style={{color: '#888', fontSize: 12}}>
-                                {post.createdAt 
-                                  ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})
-                                  : 'Recently'
-                                }
-                              </Text>
-                            </View>
-                          </View>
-                          {renderFollowButton(post.authorId)}
-                        </View>
-
-                        {/* Blog Post - Show Title and Content */}
-                        {post.type === 'blog' && (
-                          <>
-                        <Text style={{color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8}}>
-                              {post.title}
+                    {communityGroups.length === 0 ? (
+                      <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center' }}>
+                        <Ionicons name="people-outline" size={40} color="#666" />
+                        <Text style={{ color: '#888', fontSize: 14, marginTop: 8, textAlign: 'center' }}>
+                          No groups yet. Create a group to organize discussions!
                         </Text>
-                        <Text style={{color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12}} numberOfLines={3}>
-                              {post.content}
-                        </Text>
-                          </>
-                        )}
-
-                        {/* Image Post - Show Image and Caption */}
-                        {post.type === 'image' && (
-                          <>
-                            {post.imageUri && (
-                              <Image 
-                                source={{ uri: post.imageUri }} 
-                                style={{width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover'}} 
-                              />
-                            )}
-                            {post.caption && (
-                              <Text style={{color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12}}>
-                                {post.caption}
-                              </Text>
-                            )}
-                          </>
-                        )}
-
-                        {/* Community Share - Show shared community */}
-                        {post.type === 'community_share' && (
-                          <>
-                            <Text style={{color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12}}>
-                              {post.text}
-                            </Text>
+                      </View>
+                    ) : (
+                      <View style={{ gap: 12 }}>
+                        {communityGroups.map((group) => {
+                          const isJoined = joinedGroupIds.includes(group.id);
+                          return (
                             <TouchableOpacity
+                              key={group.id}
                               style={{
-                                backgroundColor: '#252525',
+                                backgroundColor: '#1e1e1e',
                                 borderRadius: 12,
                                 padding: 14,
                                 flexDirection: 'row',
                                 alignItems: 'center',
-                                marginBottom: 12,
                                 borderWidth: 1,
-                                borderColor: '#333',
+                                borderColor: isJoined ? '#8B2EF0' : '#333',
                               }}
-                              onPress={() => {
-                                if (post.communityId) {
-                                  // Navigate to Community screen which will handle validation flow
-                                  navigation.navigate('Community', {
-                                    openCommunityId: post.communityId,
-                                    openCommunityData: {
-                                      id: post.communityId,
-                                      community_id: post.communityId,
-                                      name: post.communityName,
-                                      community_title: post.communityName,
-                                      profileImage: post.communityImage,
-                                      img: post.communityImage ? { uri: post.communityImage } : null,
-                                      description: post.communityDescription,
-                                      community_members: post.memberCount || 0,
-                                    }
-                                  });
-                                }
-                              }}
+                              activeOpacity={0.7}
+                              onPress={() => navigation.navigate('CommunityGroupChat', {
+                                communityId: communityId,
+                                groupId: group.id,
+                                groupName: group.name,
+                                groupImage: group.groupImage,
+                                groupEmoji: group.theme?.emoji,
+                                groupColor: group.theme?.color,
+                              })}
                             >
-                              {post.communityImage ? (
-                                <Image
-                                  source={{ uri: post.communityImage }}
-                                  style={{width: 56, height: 56, borderRadius: 28, marginRight: 12}}
-                                />
-                              ) : (
-                                <View style={{width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center'}}>
-                                  <Ionicons name="people" size={28} color="#666" />
+                              {/* Group Image/Emoji */}
+                              <View style={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 28,
+                                backgroundColor: group.theme?.color || '#8B2EF0',
+                                justifyContent: 'center',
+                                alignItems: 'center',
+                                marginRight: 12,
+                                overflow: 'hidden'
+                              }}>
+                                {group.groupImage ? (
+                                  <Image
+                                    source={{ uri: group.groupImage }}
+                                    style={{ width: 56, height: 56 }}
+                                  />
+                                ) : (
+                                  <Text style={{ fontSize: 28 }}>
+                                    {group.theme?.emoji || '💬'}
+                                  </Text>
+                                )}
+                              </View>
+
+                              {/* Group Info */}
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                                  <Text style={{
+                                    color: '#fff',
+                                    fontSize: 16,
+                                    fontWeight: '700',
+                                  }}>
+                                    {group.name}
+                                  </Text>
+                                  {isJoined && (
+                                    <View style={{
+                                      backgroundColor: '#8B2EF0',
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      borderRadius: 10,
+                                    }}>
+                                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
+                                        JOINED
+                                      </Text>
+                                    </View>
+                                  )}
                                 </View>
-                              )}
-                              <View style={{flex: 1}}>
-                                <Text style={{color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4}}>
-                                  {post.communityName || 'Community'}
-                                </Text>
-                                {post.communityDescription ? (
-                                  <Text style={{color: '#888', fontSize: 13, marginBottom: 4}} numberOfLines={2}>
-                                    {post.communityDescription}
+
+                                {group.description ? (
+                                  <Text style={{
+                                    color: '#888',
+                                    fontSize: 13,
+                                    marginBottom: 4
+                                  }} numberOfLines={1}>
+                                    {group.description}
                                   </Text>
                                 ) : null}
-                                <View style={{flexDirection: 'row', alignItems: 'center', gap: 4}}>
-                                  <Ionicons name="people" size={14} color="#666" />
-                                  <Text style={{color: '#666', fontSize: 12}}>
-                                    {post.memberCount || 0} members
+
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Ionicons name="people" size={14} color="#666" />
+                                    <Text style={{ color: '#666', fontSize: 12 }}>
+                                      {group.memberCount || 0} members
+                                    </Text>
+                                  </View>
+                                </View>
+                              </View>
+
+                              {/* Arrow */}
+                              <Ionicons name="chevron-forward" size={20} color="#666" />
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* Info Section */}
+                {(communitySection === 'info') && (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
+                    <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 16, marginBottom: 12 }}>
+                      {/* Category */}
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={{ color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>CATEGORY</Text>
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>{community?.category || 'N/A'}</Text>
+                      </View>
+
+                      {/* Created At */}
+                      <View style={{ marginBottom: 20 }}>
+                        <Text style={{ color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>CREATED AT</Text>
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>
+                          {community?.createdAt
+                            ? new Date(community.createdAt.toDate?.() || community.createdAt).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric'
+                            })
+                            : 'N/A'
+                          }
+                        </Text>
+                      </View>
+
+                      {/* Description */}
+                      <View>
+                        <Text style={{ color: '#888', fontSize: 12, fontWeight: '600', marginBottom: 6 }}>DESCRIPTION</Text>
+                        <Text style={{ color: '#ccc', fontSize: 14, lineHeight: 20 }}>
+                          {community?.description || 'No description available'}
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                )}
+
+                {/* Social Parties Section / Posts */}
+                {(communitySection === 'all' || communitySection === 'posts') && communitySection !== 'featured' && (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                      <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Posts</Text>
+                      <TouchableOpacity>
+                        <Text style={{ color: '#8B2EF0', fontSize: 13, fontWeight: '600' }}>View all  →</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {allPosts.length === 0 ? (
+                      <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center' }}>
+                        <Ionicons name="document-text-outline" size={40} color="#666" />
+                        <Text style={{ color: '#888', fontSize: 14, marginTop: 8 }}>No posts yet</Text>
+                      </View>
+                    ) : (
+                      allPosts.map((post) => {
+                        const isLiked = Array.isArray(post.likedBy) && currentUser?.id
+                          ? post.likedBy.includes(currentUser.id)
+                          : false;
+                        const likeKey = `${post.type}-${post.id}`;
+                        const likeBusy = likeProcessingIds.includes(likeKey);
+                        const currentAnnouncements = community?.announcements || [];
+                        const currentFeatured = community?.featuredPosts || [];
+                        const isPinned = currentAnnouncements.includes(post.id);
+                        const isFeatured = currentFeatured.includes(post.id);
+                        
+                        return (
+                          <TouchableOpacity
+                            key={post.id}
+                            style={{ 
+                              backgroundColor: '#1e1e1e', 
+                              borderRadius: 12, 
+                              padding: 12, 
+                              marginBottom: 12, 
+                              borderWidth: isPinned ? 2 : (isFeatured ? 2 : 0), 
+                              borderColor: isPinned ? '#8B2EF0' : (isFeatured ? '#FFD700' : 'transparent') 
+                            }}
+                            onLongPress={() => handlePostOptions(post)}
+                            activeOpacity={0.9}
+                          >
+                            {isPinned && (
+                              <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#8B2EF0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, zIndex: 1 }}>
+                                <MaterialCommunityIcons name="bullhorn" size={12} color="#fff" />
+                                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>PINNED</Text>
+                              </View>
+                            )}
+                            {isFeatured && !isPinned && (
+                              <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, zIndex: 1 }}>
+                                <MaterialIcons name="star" size={12} color="#000" />
+                                <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>FEATURED</Text>
+                              </View>
+                            )}
+                            {/* Author Info */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                {post.authorImage ? (
+                                  <Image
+                                    source={{ uri: post.authorImage }}
+                                    style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="person" size={30} color="#657786" />
+                                  </View>
+                                )}
+                                <View>
+                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{post.authorName || 'User'}</Text>
+                                  <Text style={{ color: '#888', fontSize: 12 }}>
+                                    {post.createdAt
+                                      ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                      : 'Recently'
+                                    }
                                   </Text>
                                 </View>
                               </View>
-                              <Ionicons name="chevron-forward" size={20} color="#666" />
-                            </TouchableOpacity>
-                          </>
-                        )}
+                              {renderFollowButton(post.authorId)}
+                            </View>
 
-                        {/* Action Buttons */}
-                        <View style={{flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222'}}>
-                          <TouchableOpacity
-                            style={{flexDirection: 'row', alignItems: 'center', gap: 4}}
-                            onPress={() => handleToggleLike(post)}
-                            disabled={likeBusy}
-                          >
-                            <Ionicons
-                              name={isLiked ? 'heart' : 'heart-outline'}
-                              size={20}
-                              color={isLiked ? '#ff4b6e' : '#888'}
-                            />
-                            <Text style={{color: isLiked ? '#ff4b6e' : '#888', fontSize: 12}}>
-                              {post.likes || 0}
-                            </Text>
+                            {/* Blog Post - Show Title and Content */}
+                            {post.type === 'blog' && (
+                              <>
+                                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8 }}>
+                                  {post.title}
+                                </Text>
+                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }} numberOfLines={3}>
+                                  {post.content}
+                                </Text>
+                              </>
+                            )}
+
+                            {/* Image Post - Show Image and Caption */}
+                            {post.type === 'image' && (
+                              <>
+                                {post.imageUri && (
+                                  <Image
+                                    source={{ uri: post.imageUri }}
+                                    style={{ width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover' }}
+                                  />
+                                )}
+                                {post.caption && (
+                                  <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                                    {post.caption}
+                                  </Text>
+                                )}
+                              </>
+                            )}
+
+                            {/* Community Share - Show shared community */}
+                            {post.type === 'community_share' && (
+                              <>
+                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
+                                  {post.text}
+                                </Text>
+                                <TouchableOpacity
+                                  style={{
+                                    backgroundColor: '#252525',
+                                    borderRadius: 12,
+                                    padding: 14,
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    marginBottom: 12,
+                                    borderWidth: 1,
+                                    borderColor: '#333',
+                                  }}
+                                  onPress={() => {
+                                    if (post.communityId) {
+                                      // Navigate to Community screen which will handle validation flow
+                                      navigation.navigate('Community', {
+                                        openCommunityId: post.communityId,
+                                        openCommunityData: {
+                                          id: post.communityId,
+                                          community_id: post.communityId,
+                                          name: post.communityName,
+                                          community_title: post.communityName,
+                                          profileImage: post.communityImage,
+                                          img: post.communityImage ? { uri: post.communityImage } : null,
+                                          description: post.communityDescription,
+                                          community_members: post.memberCount || 0,
+                                        }
+                                      });
+                                    }
+                                  }}
+                                >
+                                  {post.communityImage ? (
+                                    <Image
+                                      source={{ uri: post.communityImage }}
+                                      style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12 }}
+                                    />
+                                  ) : (
+                                    <View style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }}>
+                                      <Ionicons name="people" size={28} color="#666" />
+                                    </View>
+                                  )}
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
+                                      {post.communityName || 'Community'}
+                                    </Text>
+                                    {post.communityDescription ? (
+                                      <Text style={{ color: '#888', fontSize: 13, marginBottom: 4 }} numberOfLines={2}>
+                                        {post.communityDescription}
+                                      </Text>
+                                    ) : null}
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                      <Ionicons name="people" size={14} color="#666" />
+                                      <Text style={{ color: '#666', fontSize: 12 }}>
+                                        {post.memberCount || 0} members
+                                      </Text>
+                                    </View>
+                                  </View>
+                                  <Ionicons name="chevron-forward" size={20} color="#666" />
+                                </TouchableOpacity>
+                              </>
+                            )}
+
+                            {/* Action Buttons */}
+                            <View style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
+                              <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                onPress={() => handleToggleLike(post)}
+                                disabled={likeBusy}
+                              >
+                                <Ionicons
+                                  name={isLiked ? 'heart' : 'heart-outline'}
+                                  size={20}
+                                  color={isLiked ? '#ff4b6e' : '#888'}
+                                />
+                                <Text style={{ color: isLiked ? '#ff4b6e' : '#888', fontSize: 12 }}>
+                                  {post.likes || 0}
+                                </Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                                onPress={() => handleCommentPress(post)}
+                              >
+                                <Ionicons name="chatbubble-outline" size={20} color="#888" />
+                                <Text style={{ color: '#888', fontSize: 12 }}>{post.comments || 0}</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity onPress={() => handleSharePost(post)}>
+                                <Ionicons name="share-social-outline" size={20} color="#888" />
+                              </TouchableOpacity>
+                            </View>
                           </TouchableOpacity>
-                          <TouchableOpacity
-                            style={{flexDirection: 'row', alignItems: 'center', gap: 4}}
-                            onPress={() => handleCommentPress(post)}
-                          >
-                            <Ionicons name="chatbubble-outline" size={20} color="#888" />
-                            <Text style={{color: '#888', fontSize: 12}}>{post.comments || 0}</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity onPress={() => handleSharePost(post)}>
-                            <Ionicons name="share-social-outline" size={20} color="#888" />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    );
-                    })
-                  )}
-                </View>
+                        );
+                      })
+                    )}
+                  </View>
                 )}
               </>
             )}
@@ -5390,15 +6018,173 @@ export default function GroupInfoScreen() {
 
 
 
+            {/* Tab 1.5: Featured Feed */}
+            {activeTab === 'featured' && (
+              <>
+                {/* Header */}
+                <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 18 }}>⭐ Featured Posts</Text>
+                    {isAdmin && (
+                      <TouchableOpacity onPress={() => setShowFeaturedModal(true)}>
+                        <MaterialIcons name="settings" size={24} color="#FFD700" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {/* Featured Posts Content */}
+                <ScrollView style={{ flex: 1 }}>
+                  {featuredPosts.length === 0 ? (
+                    <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                      <MaterialIcons name="star-border" size={60} color="#444" />
+                      <Text style={{ color: '#888', fontSize: 16, marginTop: 12 }}>No featured posts yet</Text>
+                      {isAdmin && (
+                        <Text style={{ color: '#666', fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>
+                          Long-press any post and select "Add to Featured"
+                        </Text>
+                      )}
+                    </View>
+                  ) : (
+                    <View style={{ paddingHorizontal: 16, paddingBottom: 20 }}>
+                      {/* First Featured Post - Large Display */}
+                      {featuredPosts.length > 0 && (() => {
+                        const firstFeaturedPostId = featuredPosts[0];
+                        const firstPost = allPosts.find(p => p.id === firstFeaturedPostId);
+                        
+                        if (!firstPost) return null;
+
+                        return (
+                          <TouchableOpacity
+                            key={firstPost.id}
+                            style={[styles.postCard, { marginBottom: 20, borderWidth: 2, borderColor: '#FFD700' }]}
+                            onPress={() => navigation.navigate('CommunityPostDetail', { post: firstPost })}
+                            onLongPress={() => handlePostOptions(firstPost)}
+                            activeOpacity={0.95}
+                          >
+                            {/* Featured Badge */}
+                            <View style={{ position: 'absolute', top: 12, right: 12, zIndex: 10, backgroundColor: '#FFD700', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center' }}>
+                              <MaterialIcons name="star" size={14} color="#000" />
+                              <Text style={{ color: '#000', fontSize: 11, fontWeight: 'bold', marginLeft: 4 }}>FEATURED</Text>
+                            </View>
+
+                            {/* Author Info */}
+                            <View style={styles.postHeader}>
+                              {firstPost.authorImage ? (
+                                <Image source={{ uri: firstPost.authorImage }} style={styles.postAvatar} />
+                              ) : (
+                                <View style={[styles.postAvatar, { backgroundColor: '#555' }]}>
+                                  <Ionicons name="person" size={20} color="#fff" />
+                                </View>
+                              )}
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.postAuthor}>{firstPost.authorName || 'Unknown'}</Text>
+                                <Text style={styles.postTime}>
+                                  {firstPost.createdAt ? new Date(firstPost.createdAt.seconds * 1000).toLocaleDateString() : ''}
+                                </Text>
+                              </View>
+                            </View>
+
+                            {/* Post Image - Large */}
+                            {firstPost.imageURL && (
+                              <Image source={{ uri: firstPost.imageURL }} style={{ width: '100%', height: 400, borderRadius: 8, marginTop: 8 }} />
+                            )}
+
+                            {/* Post Content */}
+                            <Text style={[styles.postContent, { fontSize: 18, fontWeight: '600', marginTop: 12 }]} numberOfLines={3}>
+                              {firstPost.title || firstPost.caption}
+                            </Text>
+
+                            {/* Stats */}
+                            <View style={styles.postStats}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="heart" size={18} color="#FF4458" />
+                                <Text style={styles.postStatText}>{firstPost.likesCount || 0}</Text>
+                              </View>
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <Ionicons name="chatbubble" size={18} color="#8B2EF0" />
+                                <Text style={styles.postStatText}>{firstPost.commentsCount || 0}</Text>
+                              </View>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })()}
+
+                      {/* Remaining Featured Posts - 2 Column Grid */}
+                      {featuredPosts.length > 1 && (
+                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' }}>
+                          {featuredPosts.slice(1).map((postId, index) => {
+                            const post = allPosts.find(p => p.id === postId);
+                            if (!post) return null;
+
+                            return (
+                              <TouchableOpacity
+                                key={post.id}
+                                style={[styles.postCard, { width: '48%', marginBottom: 16, borderWidth: 1.5, borderColor: '#FFD700' }]}
+                                onPress={() => navigation.navigate('CommunityPostDetail', { post })}
+                                onLongPress={() => handlePostOptions(post)}
+                                activeOpacity={0.95}
+                              >
+                                {/* Featured Badge - Smaller */}
+                                <View style={{ position: 'absolute', top: 8, right: 8, zIndex: 10, backgroundColor: '#FFD700', padding: 4, borderRadius: 8 }}>
+                                  <MaterialIcons name="star" size={12} color="#000" />
+                                </View>
+
+                                {/* Post Image */}
+                                {post.imageURL && (
+                                  <Image source={{ uri: post.imageURL }} style={{ width: '100%', height: 150, borderRadius: 8 }} />
+                                )}
+
+                                {/* Post Content */}
+                                <Text style={[styles.postContent, { fontSize: 14, marginTop: 8 }]} numberOfLines={2}>
+                                  {post.title || post.caption}
+                                </Text>
+
+                                {/* Author Info - Compact */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
+                                  {post.authorImage ? (
+                                    <Image source={{ uri: post.authorImage }} style={{ width: 24, height: 24, borderRadius: 12 }} />
+                                  ) : (
+                                    <View style={{ width: 24, height: 24, borderRadius: 12, backgroundColor: '#555', justifyContent: 'center', alignItems: 'center' }}>
+                                      <Ionicons name="person" size={12} color="#fff" />
+                                    </View>
+                                  )}
+                                  <Text style={{ color: '#fff', fontSize: 12, marginLeft: 6, flex: 1 }} numberOfLines={1}>
+                                    {post.authorName || 'Unknown'}
+                                  </Text>
+                                </View>
+
+                                {/* Stats - Compact */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, justifyContent: 'space-around' }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Ionicons name="heart" size={14} color="#FF4458" />
+                                    <Text style={{ color: '#888', fontSize: 12, marginLeft: 4 }}>{post.likesCount || 0}</Text>
+                                  </View>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                    <Ionicons name="chatbubble" size={14} color="#8B2EF0" />
+                                    <Text style={{ color: '#888', fontSize: 12, marginLeft: 4 }}>{post.commentsCount || 0}</Text>
+                                  </View>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </ScrollView>
+              </>
+            )}
+
             {/* Tab 2: Who's Online */}
             {activeTab === 'online' && (
               <>
                 {/* Header */}
-                <View style={{paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8}}>
-                  <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                    <Text style={{color: '#FFD600', fontWeight: 'bold', fontSize: 16}}>⚡ What's Happening Now!</Text>
+                <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={{ color: '#FFD600', fontWeight: 'bold', fontSize: 16 }}>⚡ What's Happening Now!</Text>
                     <TouchableOpacity>
-                      <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 18}}>▼</Text>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>▼</Text>
                     </TouchableOpacity>
                   </View>
 
@@ -5419,58 +6205,64 @@ export default function GroupInfoScreen() {
                     )}
                   </View>
 
-                  <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 4}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <View style={{width: 8, height: 8, borderRadius: 4, backgroundColor: '#40FC6F', marginRight: 6}} />
-                      <Text style={{color: '#fff', fontWeight: '600', fontSize: 14}}>
-                        Members ({allMembers.filter(m => 
-                          !memberSearchQuery || 
-                          m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
-                          m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase())
+                  <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginBottom: 4 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#40FC6F', marginRight: 6 }} />
+                      <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>
+                        Members ({allMembers.filter(m =>
+                          m.currentStatus && m.currentStatus === 'online' &&
+                          (!memberSearchQuery ||
+                            m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                            m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                         ).length})
                       </Text>
                     </View>
-                    <View style={{flex: 1}} />
-                    <TouchableOpacity onPress={() => setShowMembersModal(true)}>
-                      <Text style={{color: '#8B2EF0', fontWeight: '600', fontSize: 14}}>See All</Text>
+                    <View style={{ flex: 1 }} />
+                    <TouchableOpacity onPress={() => {
+                      setMembersModalContext('online');
+                      setShowMembersModal(true);
+                    }}>
+                      <Text style={{ color: '#8B2EF0', fontWeight: '600', fontSize: 14 }}>See All</Text>
                     </TouchableOpacity>
                   </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{marginTop: 8}}>
-                    {allMembers.filter(m => 
-                      !memberSearchQuery || 
-                      m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
-                      m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase())
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 8 }}>
+                    {allMembers.filter(m =>
+                      m.currentStatus && m.currentStatus === 'online' &&
+                      (!memberSearchQuery ||
+                        m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                        m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                     ).length === 0 ? (
-                      <View style={{paddingVertical: 20, alignItems: 'center', width: Dimensions.get('window').width - 32}}>
-                        <Text style={{color: '#888', fontSize: 14}}>
+                      <View style={{ paddingVertical: 20, alignItems: 'center', width: Dimensions.get('window').width - 32 }}>
+                        <Text style={{ color: '#888', fontSize: 14 }}>
                           {memberSearchQuery ? 'No members match your search' : 'No members found'}
                         </Text>
                       </View>
                     ) : (
                       allMembers
-                        .filter(m => 
-                          !memberSearchQuery || 
-                          m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
-                          m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase())
+                        .filter(m =>
+                          m.currentStatus && m.currentStatus === 'online' &&
+                          (!memberSearchQuery ||
+                            m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                            m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                         )
                         .map((member, idx) => (
-                          <TouchableOpacity 
-                            key={member.id || idx} 
-                            style={{alignItems: 'center', marginRight: 18}}
+                          <TouchableOpacity
+                            key={member.id || idx}
+                            style={{ alignItems: 'center', marginRight: 18 }}
                             onPress={() => navigation.navigate('Profile', { userId: member.id })}
                             activeOpacity={0.7}
                           >
                             {member.profileImage ? (
-                              <Image 
-                                source={{ uri: member.profileImage }} 
-                                style={{width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: '#8B2EF0'}} 
+                              <Image
+                                source={{ uri: member.profileImage }}
+                                style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: '#8B2EF0' }}
                               />
                             ) : (
-                              <View style={{width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: '#8B2EF0', backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center'}}>
+                              <View style={{ width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: '#8B2EF0', backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
                                 <Ionicons name="person" size={30} color="#657786" />
                               </View>
                             )}
-                            <Text style={{color: '#fff', fontSize: 12, fontWeight: '500', marginTop: 4, maxWidth: 60}} numberOfLines={1}>
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500', marginTop: 4, maxWidth: 60 }} numberOfLines={1}>
                               {member.name || 'User'}
                             </Text>
                           </TouchableOpacity>
@@ -5480,178 +6272,178 @@ export default function GroupInfoScreen() {
                 </View>
 
                 {/* Activity Cards */}
-                <View style={{paddingHorizontal: 16}}>
+                <View style={{ paddingHorizontal: 16 }}>
                   {/* Card 1: Chatting */}
-                  <View style={{backgroundColor: '#0D8F8F', borderRadius: 16, marginBottom: 16, padding: 16}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <View style={{backgroundColor: '#0D8F8F', borderRadius: 8, padding: 8, marginRight: 12}}>
+                  <View style={{ backgroundColor: '#0D8F8F', borderRadius: 16, marginBottom: 16, padding: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ backgroundColor: '#0D8F8F', borderRadius: 8, padding: 8, marginRight: 12 }}>
                           <Ionicons name="chatbubble-ellipses-outline" size={20} color="#fff" />
                         </View>
                         <View>
-                          <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 18}}>{activityStats.chatting} Members</Text>
-                          <Text style={{color: '#fff', fontSize: 14, fontWeight: '600'}}>Chatting</Text>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{activityStats.chatting} Members</Text>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Chatting</Text>
                         </View>
                       </View>
                       <Ionicons name="chevron-forward" size={24} color="#fff" />
                     </View>
-                    <Text style={{color: '#cfcfcf', marginTop: 12, fontSize: 12}}>
+                    <Text style={{ color: '#cfcfcf', marginTop: 12, fontSize: 12 }}>
                       Count updates whenever members start a new chat thread.
                     </Text>
                   </View>
 
                   {/* Card 2: Live Chatting */}
-                  <View style={{backgroundColor: '#8B2EF0', borderRadius: 16, marginBottom: 16, padding: 16}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <View style={{backgroundColor: '#8B2EF0', borderRadius: 8, padding: 8, marginRight: 12}}>
+                  <View style={{ backgroundColor: '#8B2EF0', borderRadius: 16, marginBottom: 16, padding: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ backgroundColor: '#8B2EF0', borderRadius: 8, padding: 8, marginRight: 12 }}>
                           <Ionicons name="videocam-outline" size={20} color="#fff" />
                         </View>
                         <View>
-                          <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 18}}>{activityStats.liveChatting} Members</Text>
-                          <Text style={{color: '#fff', fontSize: 14, fontWeight: '600'}}>Live Chatting</Text>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{activityStats.liveChatting} Members</Text>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Live Chatting</Text>
                         </View>
                       </View>
                       <Ionicons name="chevron-forward" size={24} color="#fff" />
                     </View>
-                    <Text style={{color: '#dbd1ff', marginTop: 12, fontSize: 12}}>
+                    <Text style={{ color: '#dbd1ff', marginTop: 12, fontSize: 12 }}>
                       Goes up when members start live sessions or audio rooms.
                     </Text>
                   </View>
 
                   {/* Card 3: Reading Posts */}
-                  <View style={{backgroundColor: '#0D8F8F', borderRadius: 16, marginBottom: 16, padding: 16}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <View style={{backgroundColor: '#0D8F8F', borderRadius: 8, padding: 8, marginRight: 12}}>
+                  <View style={{ backgroundColor: '#0D8F8F', borderRadius: 16, marginBottom: 16, padding: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ backgroundColor: '#0D8F8F', borderRadius: 8, padding: 8, marginRight: 12 }}>
                           <Ionicons name="document-text-outline" size={20} color="#fff" />
                         </View>
                         <View>
-                          <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 18}}>{activityStats.readingPosts} Members</Text>
-                          <Text style={{color: '#fff', fontSize: 14, fontWeight: '600'}}>Reading Posts</Text>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{activityStats.readingPosts} Members</Text>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Reading Posts</Text>
                         </View>
                       </View>
                       <Ionicons name="chevron-forward" size={24} color="#fff" />
                     </View>
-                    <Text style={{color: '#cfcfcf', marginTop: 12, fontSize: 12}}>
+                    <Text style={{ color: '#cfcfcf', marginTop: 12, fontSize: 12 }}>
                       Reflects members reading posts or community blogs right now.
                     </Text>
                   </View>
 
                   {/* Card 4: Browsing */}
-                  <View style={{backgroundColor: '#8B2EF0', borderRadius: 16, marginBottom: 16, padding: 16}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'}}>
-                      <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                        <View style={{backgroundColor: '#8B2EF0', borderRadius: 8, padding: 8, marginRight: 12}}>
+                  <View style={{ backgroundColor: '#8B2EF0', borderRadius: 16, marginBottom: 16, padding: 16 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ backgroundColor: '#8B2EF0', borderRadius: 8, padding: 8, marginRight: 12 }}>
                           <Ionicons name="eye-outline" size={20} color="#fff" />
                         </View>
                         <View>
-                          <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 18}}>{activityStats.browsing} Members</Text>
-                          <Text style={{color: '#fff', fontSize: 14, fontWeight: '600'}}>Browsing</Text>
+                          <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{activityStats.browsing} Members</Text>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>Browsing</Text>
                         </View>
                       </View>
                       <Ionicons name="chevron-forward" size={24} color="#fff" />
                     </View>
-                    <Text style={{color: '#dbd1ff', marginTop: 12, fontSize: 12}}>
+                    <Text style={{ color: '#dbd1ff', marginTop: 12, fontSize: 12 }}>
                       Shows members scrolling through feeds, profiles, or stores.
                     </Text>
                   </View>
                   {/* Part 2: Categorized Member List */}
-                  <View style={{marginTop: 8, backgroundColor: '#181818', borderRadius: 8, marginHorizontal: 0, marginBottom: 24}}>
-                    <View style={{flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#222'}}>
-                      <Ionicons name="people" size={20} color="#fff" style={{marginRight: 8}} />
-                      <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 16}}>All Members ({allMembers.length})</Text>
+                  <View style={{ marginTop: 8, backgroundColor: '#181818', borderRadius: 8, marginHorizontal: 0, marginBottom: 24 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#222' }}>
+                      <Ionicons name="people" size={20} color="#fff" style={{ marginRight: 8 }} />
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 16 }}>All Members ({allMembers.length})</Text>
                     </View>
                     {/* Admins */}
                     {admins.length > 0 && (
-                    <View style={{paddingHorizontal: 16, paddingTop: 18, paddingBottom: 4}}>
-                      <Text style={{color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10}}>Admins</Text>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 4 }}>
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10 }}>Admins</Text>
                         {admins.map((member) => (
-                        <View key={member.id} style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-                          <View style={{flexDirection:'row',alignItems:'center'}}>
-                            <TouchableOpacity
-                              onPress={() => navigation.navigate('Profile', { userId: member.id })}
-                              activeOpacity={0.7}
-                            >
-                              {member.profileImage ? (
-                                <Image 
-                                  source={{ uri: member.profileImage }} 
-                                  style={{width:48,height:48,borderRadius:24,marginRight:12}} 
-                                />
-                              ) : (
-                                <View style={{width:48,height:48,borderRadius:24,marginRight:12,backgroundColor:'#E1E8ED',justifyContent:'center',alignItems:'center'}}>
-                                  <Ionicons name="person" size={30} color="#657786" />
-                                </View>
-                              )}
-                            </TouchableOpacity>
-                            <Text style={{color:'#fff',fontSize:15,fontWeight:'500'}}>{member.name}</Text>
-                          </View>
+                          <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <TouchableOpacity
+                                onPress={() => navigation.navigate('Profile', { userId: member.id })}
+                                activeOpacity={0.7}
+                              >
+                                {member.profileImage ? (
+                                  <Image
+                                    source={{ uri: member.profileImage }}
+                                    style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="person" size={30} color="#657786" />
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{member.name}</Text>
+                            </View>
                             {renderFollowButton(member.id)}
-                        </View>
-                      ))}
-                    </View>
+                          </View>
+                        ))}
+                      </View>
                     )}
                     {/* Moderators */}
                     {moderators.length > 0 && (
-                    <View style={{paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4}}>
-                      <Text style={{color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10}}>Moderators</Text>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 }}>
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10 }}>Moderators</Text>
                         {moderators.map((member) => (
-                        <View key={member.id} style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-                          <View style={{flexDirection:'row',alignItems:'center'}}>
-                            <TouchableOpacity
-                              onPress={() => navigation.navigate('Profile', { userId: member.id })}
-                              activeOpacity={0.7}
-                            >
-                              {member.profileImage ? (
-                                <Image 
-                                  source={{ uri: member.profileImage }} 
-                                  style={{width:48,height:48,borderRadius:24,marginRight:12}} 
-                                />
-                              ) : (
-                                <View style={{width:48,height:48,borderRadius:24,marginRight:12,backgroundColor:'#E1E8ED',justifyContent:'center',alignItems:'center'}}>
-                                  <Ionicons name="person" size={30} color="#657786" />
-                                </View>
-                              )}
-                            </TouchableOpacity>
-                            <Text style={{color:'#fff',fontSize:15,fontWeight:'500'}}>{member.name}</Text>
-                          </View>
+                          <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <TouchableOpacity
+                                onPress={() => navigation.navigate('Profile', { userId: member.id })}
+                                activeOpacity={0.7}
+                              >
+                                {member.profileImage ? (
+                                  <Image
+                                    source={{ uri: member.profileImage }}
+                                    style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="person" size={30} color="#657786" />
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{member.name}</Text>
+                            </View>
                             {renderFollowButton(member.id)}
-                        </View>
-                      ))}
-                    </View>
+                          </View>
+                        ))}
+                      </View>
                     )}
                     {/* Recently Joined */}
                     {recentlyJoined.length > 0 && (
-                    <View style={{paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16}}>
-                      <Text style={{color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10}}>Recently Joined</Text>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16 }}>
+                        <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15, marginBottom: 10 }}>Recently Joined</Text>
                         {recentlyJoined.map((member) => (
-                        <View key={member.id} style={{flexDirection:'row',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
-                          <View style={{flexDirection:'row',alignItems:'center'}}>
-                            <TouchableOpacity
-                              onPress={() => navigation.navigate('Profile', { userId: member.id })}
-                              activeOpacity={0.7}
-                            >
-                              {member.profileImage ? (
-                                <Image 
-                                  source={{ uri: member.profileImage }} 
-                                  style={{width:48,height:48,borderRadius:24,marginRight:12}} 
-                                />
-                              ) : (
-                                <View style={{width:48,height:48,borderRadius:24,marginRight:12,backgroundColor:'#E1E8ED',justifyContent:'center',alignItems:'center'}}>
-                                  <Ionicons name="person" size={30} color="#657786" />
-                                </View>
-                              )}
-                            </TouchableOpacity>
-                            <Text style={{color:'#fff',fontSize:15,fontWeight:'500'}}>{member.name}</Text>
-                          </View>
+                          <View key={member.id} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <TouchableOpacity
+                                onPress={() => navigation.navigate('Profile', { userId: member.id })}
+                                activeOpacity={0.7}
+                              >
+                                {member.profileImage ? (
+                                  <Image
+                                    source={{ uri: member.profileImage }}
+                                    style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12 }}
+                                  />
+                                ) : (
+                                  <View style={{ width: 48, height: 48, borderRadius: 24, marginRight: 12, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
+                                    <Ionicons name="person" size={30} color="#657786" />
+                                  </View>
+                                )}
+                              </TouchableOpacity>
+                              <Text style={{ color: '#fff', fontSize: 15, fontWeight: '500' }}>{member.name}</Text>
+                            </View>
                             {renderFollowButton(member.id)}
-                        </View>
-                      ))}
-                    </View>
+                          </View>
+                        ))}
+                      </View>
                     )}
                     {admins.length === 0 && moderators.length === 0 && recentlyJoined.length === 0 && (
-                      <View style={{paddingHorizontal: 16, paddingTop: 18, paddingBottom: 16, alignItems: 'center'}}>
-                        <Text style={{color: '#888', fontSize: 14}}>No members to display</Text>
+                      <View style={{ paddingHorizontal: 16, paddingTop: 18, paddingBottom: 16, alignItems: 'center' }}>
+                        <Text style={{ color: '#888', fontSize: 14 }}>No members to display</Text>
                       </View>
                     )}
                   </View>
@@ -5683,12 +6475,12 @@ export default function GroupInfoScreen() {
             {/* Tab 4: Chat */}
             {activeTab === 'chat' && (
               <View style={{ flex: 1, position: 'relative' }}>
-              <KeyboardAvoidingView 
+                <KeyboardAvoidingView
                   behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                style={{ flex: 1 }}
+                  style={{ flex: 1 }}
                   keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
                   enabled={true}
-              >
+                >
                   <View style={{ flex: 1, flexDirection: 'column' }}>
                     {/* Active Audio Call Banner */}
                     {activeAudioCall && showVoiceRoomButton && (
@@ -5747,31 +6539,31 @@ export default function GroupInfoScreen() {
                         </LinearGradient>
                       </TouchableOpacity>
                     )}
-                    
+
                     {/* Messages ScrollView - Optimized */}
-                  <ScrollView 
-                    ref={chatScrollRef}
-                    style={{ flex: 1 }}
+                    <ScrollView
+                      ref={chatScrollRef}
+                      style={{ flex: 1 }}
                       contentContainerStyle={styles.chatScrollContent}
                       keyboardShouldPersistTaps="handled"
                       showsVerticalScrollIndicator={false}
                       onScroll={handleScroll}
                       scrollEventThrottle={400}
                       nestedScrollEnabled={false}
-                  >
-                    {chatLoading ? (
+                    >
+                      {chatLoading ? (
                         <View style={styles.chatLoadingContainer}>
                           <ActivityIndicator size="small" color="#8B2EF0" />
-                      <Text style={styles.noMessagesText}>Loading chat...</Text>
+                          <Text style={styles.noMessagesText}>Loading chat...</Text>
                         </View>
-                    ) : chatMessages.length === 0 ? (
+                      ) : chatMessages.length === 0 ? (
                         <View style={styles.chatEmptyContainer}>
                           <Ionicons name="chatbubbles-outline" size={60} color="#444" />
                           <Text style={styles.noMessagesText}>No messages yet</Text>
                           <Text style={styles.emptySubtext}>Start the conversation!</Text>
                         </View>
                       ) : (
-                        <RenderMessages 
+                        <RenderMessages
                           messages={chatMessages}
                           currentUser={currentUser}
                           setSelectedImageModal={setSelectedImageModal}
@@ -5791,294 +6583,294 @@ export default function GroupInfoScreen() {
                           setPlayingVoiceId={setPlayingVoiceId}
                           setVoiceSound={setVoiceSound}
                         />
+                      )}
+                    </ScrollView>
+                    {/* Floating Scroll to Bottom Button */}
+                    {showScrollToBottom && (
+                      <TouchableOpacity
+                        style={styles.scrollToBottomButton}
+                        onPress={scrollToBottom}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="chevron-down" size={24} color="#fff" />
+                      </TouchableOpacity>
                     )}
-                  </ScrollView>
-                  {/* Floating Scroll to Bottom Button */}
-                  {showScrollToBottom && (
-                    <TouchableOpacity
-                      style={styles.scrollToBottomButton}
-                      onPress={scrollToBottom}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="chevron-down" size={24} color="#fff" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </KeyboardAvoidingView>
-
-                    {/* Chat Input - Always visible at bottom */}
-              <KeyboardAvoidingView 
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-                style={{ backgroundColor: '#1a1a1a' }}
-                enabled={true}
-              >
-                  <View style={styles.chatInputContainer}>
-                      {/* Selected Image Preview */}
-                      {selectedChatImage && (
-                        <View style={styles.chatImagePreview}>
-                          <Image source={{ uri: selectedChatImage }} style={styles.chatPreviewImage} />
-                          <TouchableOpacity 
-                            style={styles.chatRemoveImage}
-                            onPress={() => setSelectedChatImage(null)}
-                          >
-                            <Ionicons name="close-circle" size={24} color="#ff4444" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-
-                      {/* Selected Video Preview */}
-                      {selectedChatVideo && (
-                        <View style={styles.chatImagePreview}>
-                          <Video
-                            source={{ uri: selectedChatVideo }}
-                            style={styles.chatPreviewImage}
-                            useNativeControls
-                            resizeMode="contain"
-                          />
-                          <TouchableOpacity 
-                            style={styles.chatRemoveImage}
-                            onPress={() => setSelectedChatVideo(null)}
-                          >
-                            <Ionicons name="close-circle" size={24} color="#ff4444" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-
-                      {/* Voice Recording Indicator */}
-                      {isRecording && (
-                        <View style={styles.recordingIndicator}>
-                          <View style={styles.recordingDot} />
-                          <Text style={styles.recordingText}>Recording... Tap stop to finish</Text>
-                          <TouchableOpacity onPress={cancelRecording} style={styles.cancelRecordingButton}>
-                            <Text style={styles.cancelRecordingText}>Cancel</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-
-                      {/* Voice Recording Ready Indicator */}
-                      {recordingUri && !isRecording && (
-                        <View style={styles.recordingReadyIndicator}>
-                          <Ionicons name="mic" size={20} color="#8B2EF0" />
-                          <Text style={styles.recordingReadyText}>Voice message ready</Text>
-                          <TouchableOpacity 
-                            onPress={() => {
-                              setRecordingUri(null);
-                            }} 
-                            style={styles.removeRecordingButton}
-                          >
-                            <Ionicons name="close-circle" size={20} color="#ff4444" />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-
-                      {/* Action Icons Row */}
-                      <View style={styles.chatActionIconsRow}>
-                        {/* Image/Gallery Icon */}
-                        <TouchableOpacity 
-                          onPress={handlePickChatImage}
-                          style={styles.chatActionIcon}
-                        >
-                          <Ionicons name="image-outline" size={24} color="#ccc" />
-                        </TouchableOpacity>
-
-                        {/* Voice/Audio Icon */}
-                        {!isRecording ? (
-                          <TouchableOpacity 
-                            onPress={startRecording}
-                            style={styles.chatActionIcon}
-                          >
-                            <Ionicons name="mic-outline" size={24} color="#ccc" />
-                          </TouchableOpacity>
-                        ) : (
-                          <TouchableOpacity 
-                            onPress={stopRecording}
-                            style={styles.chatActionIcon}
-                          >
-                            <Ionicons name="stop" size={24} color="#ff4444" />
-                          </TouchableOpacity>
-                        )}
-
-                        {/* Party Icon - Opens Feature Modal (Voice, Screening, Roleplay) */}
-                        <TouchableOpacity 
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            setShowFeatureModal(true);
-                            setShowGiftOptions(false);
-                            setShowColorPicker(false);
-                          }}
-                          style={styles.chatActionIcon}
-                        >
-                          <Text style={styles.partyEmoji}>🎉</Text>
-                        </TouchableOpacity>
-
-                        {/* Text Color Picker */}
-                        <TouchableOpacity 
-                          onPress={() => {
-                            Keyboard.dismiss();
-                            setShowColorPicker(!showColorPicker);
-                            setShowGiftOptions(false);
-                          }}
-                          style={styles.chatActionIcon}
-                        >
-                          <View style={[styles.colorIndicator, { backgroundColor: selectedTextColor }]} />
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Message Input Field */}
-                      <View style={styles.messageInputContainer}>
-                        <TextInput
-                          ref={inputRef}
-                          placeholder="Message"
-                          placeholderTextColor="#999"
-                          style={[styles.messageInputField, { color: selectedTextColor }]}
-                          value={chatInput}
-                          onChangeText={setChatInput}
-                          onFocus={() => {
-                            setShowGiftOptions(false);
-                            setShowColorPicker(false);
-                            // Reset scrolling state and scroll to bottom
-                            setIsUserScrolling(false);
-                            
-                            // Additional scroll on focus
-                            setTimeout(() => {
-                              if (chatScrollRef.current) {
-                                chatScrollRef.current.scrollToEnd({ animated: true });
-                              }
-                            }, 200);
-                          }}
-                          multiline
-                          maxLength={500}
-                          returnKeyType="send"
-                          onSubmitEditing={handleSendMessage}
-                          blurOnSubmit={false}
-                          textAlignVertical="top"
-                          editable={!chatLoading}
-                        />
-                        <TouchableOpacity 
-                          onPress={handleSendMessage}
-                          activeOpacity={0.7}
-                          style={[
-                            styles.sendButton,
-                            (chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri && !isRecording) && styles.sendButtonDisabled
-                          ]} 
-                          disabled={chatLoading || isRecording || (chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri)}
-                        >
-                          {chatLoading ? (
-                            <ActivityIndicator size="small" color="#8B2EF0" />
-                          ) : (
-                            <Ionicons 
-                              name="send" 
-                              size={20} 
-                              color={(chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri && !isRecording) ? '#444' : '#fff'} 
-                            />
-                          )}
-                        </TouchableOpacity>
-                      </View>
-
-                      {/* Color Picker - Shows instead of keyboard */}
-                      {showColorPicker && (
-                        <View style={styles.colorPickerContainer}>
-                          <Text style={styles.colorPickerTitle}>Choose Text Color</Text>
-                          <ScrollView 
-                            horizontal 
-                            showsHorizontalScrollIndicator={false}
-                            style={styles.colorPickerScroll}
-                            contentContainerStyle={styles.colorPickerContent}
-                          >
-                            {textColors.map((color, index) => (
-                              <TouchableOpacity
-                                key={index}
-                                style={[
-                                  styles.colorItem,
-                                  { backgroundColor: color },
-                                  selectedTextColor === color && styles.colorItemSelected
-                                ]}
-                                onPress={() => {
-                                  setSelectedTextColor(color);
-                                  setShowColorPicker(false);
-                                  if (inputRef.current) {
-                                    inputRef.current.focus();
-                                  }
-                                }}
-                              >
-                                {selectedTextColor === color && (
-                                  <Ionicons name="checkmark" size={20} color={color === '#fff' ? '#000' : '#fff'} />
-                                )}
-                              </TouchableOpacity>
-                            ))}
-                          </ScrollView>
-                        </View>
-                      )}
-
-                      {/* Gift Options Modal - Shows instead of keyboard */}
-                      {showGiftOptions && (
-                        <View style={styles.giftOptionsContainer}>
-                          <TouchableOpacity
-                            style={styles.giftOption}
-                            onPress={() => {
-                              setSelectedGiftOption('voiceChat');
-                              handleVoiceChatClick();
-                            }}
-                          >
-                            <View style={[
-                              styles.giftOptionIconContainer, 
-                              { backgroundColor: 'rgba(0, 255, 255, 0.2)' },
-                              selectedGiftOption === 'voiceChat' && styles.giftOptionSelected
-                            ]}>
-                              <MaterialCommunityIcons name="waveform" size={32} color="#00FFFF" />
-                            </View>
-                            <Text style={[
-                              styles.giftOptionText,
-                              selectedGiftOption === 'voiceChat' && styles.giftOptionTextSelected
-                            ]}>Voice Chat</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={styles.giftOption}
-                            onPress={() => {
-                              setSelectedGiftOption('roleplay');
-                              setShowGiftOptions(false);
-                              setShowRoleplaySetup(true);
-                            }}
-                          >
-                            <View style={[
-                              styles.giftOptionIconContainer, 
-                              { backgroundColor: 'rgba(255, 215, 0, 0.2)' },
-                              selectedGiftOption === 'roleplay' && styles.giftOptionSelected
-                            ]}>
-                              <MaterialCommunityIcons name="drama-masks" size={32} color="#FFD700" />
-                            </View>
-                            <Text style={[
-                              styles.giftOptionText,
-                              selectedGiftOption === 'roleplay' && styles.giftOptionTextSelected
-                            ]}>Roleplay</Text>
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={styles.giftOption}
-                            onPress={() => {
-                              setSelectedGiftOption('screeningRoom');
-                              setShowGiftOptions(false);
-                              createScreeningRoomMessage();
-                            }}
-                          >
-                            <View style={[
-                              styles.giftOptionIconContainer, 
-                              { backgroundColor: 'rgba(255, 0, 255, 0.2)' },
-                              selectedGiftOption === 'screeningRoom' && styles.giftOptionSelected
-                            ]}>
-                              <MaterialCommunityIcons name="television-play" size={32} color="#FF00FF" />
-                            </View>
-                            <Text style={[
-                              styles.giftOptionText,
-                              selectedGiftOption === 'screeningRoom' && styles.giftOptionTextSelected
-                            ]}>Screening Room</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
                   </View>
-              </KeyboardAvoidingView>
+                </KeyboardAvoidingView>
+
+                {/* Chat Input - Always visible at bottom */}
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                  keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
+                  style={{ backgroundColor: '#1a1a1a' }}
+                  enabled={true}
+                >
+                  <View style={styles.chatInputContainer}>
+                    {/* Selected Image Preview */}
+                    {selectedChatImage && (
+                      <View style={styles.chatImagePreview}>
+                        <Image source={{ uri: selectedChatImage }} style={styles.chatPreviewImage} />
+                        <TouchableOpacity
+                          style={styles.chatRemoveImage}
+                          onPress={() => setSelectedChatImage(null)}
+                        >
+                          <Ionicons name="close-circle" size={24} color="#ff4444" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Selected Video Preview */}
+                    {selectedChatVideo && (
+                      <View style={styles.chatImagePreview}>
+                        <Video
+                          source={{ uri: selectedChatVideo }}
+                          style={styles.chatPreviewImage}
+                          useNativeControls
+                          resizeMode="contain"
+                        />
+                        <TouchableOpacity
+                          style={styles.chatRemoveImage}
+                          onPress={() => setSelectedChatVideo(null)}
+                        >
+                          <Ionicons name="close-circle" size={24} color="#ff4444" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Voice Recording Indicator */}
+                    {isRecording && (
+                      <View style={styles.recordingIndicator}>
+                        <View style={styles.recordingDot} />
+                        <Text style={styles.recordingText}>Recording... Tap stop to finish</Text>
+                        <TouchableOpacity onPress={cancelRecording} style={styles.cancelRecordingButton}>
+                          <Text style={styles.cancelRecordingText}>Cancel</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Voice Recording Ready Indicator */}
+                    {recordingUri && !isRecording && (
+                      <View style={styles.recordingReadyIndicator}>
+                        <Ionicons name="mic" size={20} color="#8B2EF0" />
+                        <Text style={styles.recordingReadyText}>Voice message ready</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setRecordingUri(null);
+                          }}
+                          style={styles.removeRecordingButton}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#ff4444" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
+
+                    {/* Action Icons Row */}
+                    <View style={styles.chatActionIconsRow}>
+                      {/* Image/Gallery Icon */}
+                      <TouchableOpacity
+                        onPress={handlePickChatImage}
+                        style={styles.chatActionIcon}
+                      >
+                        <Ionicons name="image-outline" size={24} color="#ccc" />
+                      </TouchableOpacity>
+
+                      {/* Voice/Audio Icon */}
+                      {!isRecording ? (
+                        <TouchableOpacity
+                          onPress={startRecording}
+                          style={styles.chatActionIcon}
+                        >
+                          <Ionicons name="mic-outline" size={24} color="#ccc" />
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          onPress={stopRecording}
+                          style={styles.chatActionIcon}
+                        >
+                          <Ionicons name="stop" size={24} color="#ff4444" />
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Party Icon - Opens Feature Modal (Voice, Screening, Roleplay) */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setShowFeatureModal(true);
+                          setShowGiftOptions(false);
+                          setShowColorPicker(false);
+                        }}
+                        style={styles.chatActionIcon}
+                      >
+                        <Text style={styles.partyEmoji}>🎉</Text>
+                      </TouchableOpacity>
+
+                      {/* Text Color Picker */}
+                      <TouchableOpacity
+                        onPress={() => {
+                          Keyboard.dismiss();
+                          setShowColorPicker(!showColorPicker);
+                          setShowGiftOptions(false);
+                        }}
+                        style={styles.chatActionIcon}
+                      >
+                        <View style={[styles.colorIndicator, { backgroundColor: selectedTextColor }]} />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Message Input Field */}
+                    <View style={styles.messageInputContainer}>
+                      <TextInput
+                        ref={inputRef}
+                        placeholder="Message"
+                        placeholderTextColor="#999"
+                        style={[styles.messageInputField, { color: selectedTextColor }]}
+                        value={chatInput}
+                        onChangeText={setChatInput}
+                        onFocus={() => {
+                          setShowGiftOptions(false);
+                          setShowColorPicker(false);
+                          // Reset scrolling state and scroll to bottom
+                          setIsUserScrolling(false);
+
+                          // Additional scroll on focus
+                          setTimeout(() => {
+                            if (chatScrollRef.current) {
+                              chatScrollRef.current.scrollToEnd({ animated: true });
+                            }
+                          }, 200);
+                        }}
+                        multiline
+                        maxLength={500}
+                        returnKeyType="send"
+                        onSubmitEditing={handleSendMessage}
+                        blurOnSubmit={false}
+                        textAlignVertical="top"
+                        editable={!chatLoading}
+                      />
+                      <TouchableOpacity
+                        onPress={handleSendMessage}
+                        activeOpacity={0.7}
+                        style={[
+                          styles.sendButton,
+                          (chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri && !isRecording) && styles.sendButtonDisabled
+                        ]}
+                        disabled={chatLoading || isRecording || (chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri)}
+                      >
+                        {chatLoading ? (
+                          <ActivityIndicator size="small" color="#8B2EF0" />
+                        ) : (
+                          <Ionicons
+                            name="send"
+                            size={20}
+                            color={(chatInput.trim() === '' && !selectedChatImage && !selectedChatVideo && !recordingUri && !isRecording) ? '#444' : '#fff'}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Color Picker - Shows instead of keyboard */}
+                    {showColorPicker && (
+                      <View style={styles.colorPickerContainer}>
+                        <Text style={styles.colorPickerTitle}>Choose Text Color</Text>
+                        <ScrollView
+                          horizontal
+                          showsHorizontalScrollIndicator={false}
+                          style={styles.colorPickerScroll}
+                          contentContainerStyle={styles.colorPickerContent}
+                        >
+                          {textColors.map((color, index) => (
+                            <TouchableOpacity
+                              key={index}
+                              style={[
+                                styles.colorItem,
+                                { backgroundColor: color },
+                                selectedTextColor === color && styles.colorItemSelected
+                              ]}
+                              onPress={() => {
+                                setSelectedTextColor(color);
+                                setShowColorPicker(false);
+                                if (inputRef.current) {
+                                  inputRef.current.focus();
+                                }
+                              }}
+                            >
+                              {selectedTextColor === color && (
+                                <Ionicons name="checkmark" size={20} color={color === '#fff' ? '#000' : '#fff'} />
+                              )}
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      </View>
+                    )}
+
+                    {/* Gift Options Modal - Shows instead of keyboard */}
+                    {showGiftOptions && (
+                      <View style={styles.giftOptionsContainer}>
+                        <TouchableOpacity
+                          style={styles.giftOption}
+                          onPress={() => {
+                            setSelectedGiftOption('voiceChat');
+                            handleVoiceChatClick();
+                          }}
+                        >
+                          <View style={[
+                            styles.giftOptionIconContainer,
+                            { backgroundColor: 'rgba(0, 255, 255, 0.2)' },
+                            selectedGiftOption === 'voiceChat' && styles.giftOptionSelected
+                          ]}>
+                            <MaterialCommunityIcons name="waveform" size={32} color="#00FFFF" />
+                          </View>
+                          <Text style={[
+                            styles.giftOptionText,
+                            selectedGiftOption === 'voiceChat' && styles.giftOptionTextSelected
+                          ]}>Voice Chat</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.giftOption}
+                          onPress={() => {
+                            setSelectedGiftOption('roleplay');
+                            setShowGiftOptions(false);
+                            setShowRoleplaySetup(true);
+                          }}
+                        >
+                          <View style={[
+                            styles.giftOptionIconContainer,
+                            { backgroundColor: 'rgba(255, 215, 0, 0.2)' },
+                            selectedGiftOption === 'roleplay' && styles.giftOptionSelected
+                          ]}>
+                            <MaterialCommunityIcons name="drama-masks" size={32} color="#FFD700" />
+                          </View>
+                          <Text style={[
+                            styles.giftOptionText,
+                            selectedGiftOption === 'roleplay' && styles.giftOptionTextSelected
+                          ]}>Roleplay</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.giftOption}
+                          onPress={() => {
+                            setSelectedGiftOption('screeningRoom');
+                            setShowGiftOptions(false);
+                            createScreeningRoomMessage();
+                          }}
+                        >
+                          <View style={[
+                            styles.giftOptionIconContainer,
+                            { backgroundColor: 'rgba(255, 0, 255, 0.2)' },
+                            selectedGiftOption === 'screeningRoom' && styles.giftOptionSelected
+                          ]}>
+                            <MaterialCommunityIcons name="television-play" size={32} color="#FF00FF" />
+                          </View>
+                          <Text style={[
+                            styles.giftOptionText,
+                            selectedGiftOption === 'screeningRoom' && styles.giftOptionTextSelected
+                          ]}>Screening Room</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                </KeyboardAvoidingView>
               </View>
             )}
 
@@ -6088,9 +6880,9 @@ export default function GroupInfoScreen() {
                 <View style={styles.accountCard}>
                   <View style={styles.accountAvatarContainer}>
                     {currentUser?.profileImage ? (
-                      <Image 
-                        source={{ uri: currentUser.profileImage }} 
-                        style={styles.accountAvatar} 
+                      <Image
+                        source={{ uri: currentUser.profileImage }}
+                        style={styles.accountAvatar}
                       />
                     ) : (
                       <View style={[styles.accountAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
@@ -6101,9 +6893,9 @@ export default function GroupInfoScreen() {
                       <Ionicons name="checkmark-circle" size={24} color="#00FF47" />
                     </View>
                   </View>
-                  
+
                   <Text style={styles.accountName}>{currentUser?.name || 'User'}</Text>
-                  
+
                   <View style={styles.accountEmailContainer}>
                     <Ionicons name="mail-outline" size={16} color="#8B2EF0" />
                     <Text style={styles.accountEmail}>{currentUser?.email || 'user@example.com'}</Text>
@@ -6226,12 +7018,12 @@ export default function GroupInfoScreen() {
               <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
             <Text style={styles.imageModalTitle}>Upload Image</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleUploadImage}
               disabled={imageLoading}
-              style={{opacity: imageLoading ? 0.6 : 1}}
+              style={{ opacity: imageLoading ? 0.6 : 1 }}
             >
-              <Text style={[styles.imageModalPublish, {color: imageLoading ? '#aaa' : '#8B2EF0'}]}>
+              <Text style={[styles.imageModalPublish, { color: imageLoading ? '#aaa' : '#8B2EF0' }]}>
                 {imageLoading ? 'Posting...' : 'Post'}
               </Text>
             </TouchableOpacity>
@@ -6242,7 +7034,7 @@ export default function GroupInfoScreen() {
             {/* Image Selection */}
             <View style={styles.imageFormGroup}>
               <Text style={styles.imageFormLabel}>Select Image</Text>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.imagePickerBox}
                 onPress={handleSelectImage}
               >
@@ -6289,7 +7081,7 @@ export default function GroupInfoScreen() {
                   <Ionicons name="person" size={30} color="#657786" />
                 </View>
               )}
-              <View style={{flex: 1}}>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.imageAuthorName}>{currentUser?.name || 'User'}</Text>
                 <Text style={styles.imageAuthorEmail}>{currentUser?.email || 'user@example.com'}</Text>
               </View>
@@ -6319,12 +7111,12 @@ export default function GroupInfoScreen() {
               <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
             <Text style={styles.blogModalTitle}>Create Blog</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={handleCreateBlog}
               disabled={blogLoading}
-              style={{opacity: blogLoading ? 0.6 : 1}}
+              style={{ opacity: blogLoading ? 0.6 : 1 }}
             >
-              <Text style={[styles.blogModalPublish, {color: blogLoading ? '#aaa' : '#8B2EF0'}]}>
+              <Text style={[styles.blogModalPublish, { color: blogLoading ? '#aaa' : '#8B2EF0' }]}>
                 {blogLoading ? 'Publishing...' : 'Publish'}
               </Text>
             </TouchableOpacity>
@@ -6374,7 +7166,7 @@ export default function GroupInfoScreen() {
                   <Ionicons name="person" size={30} color="#657786" />
                 </View>
               )}
-              <View style={{flex: 1}}>
+              <View style={{ flex: 1 }}>
                 <Text style={styles.blogAuthorName}>{currentUser?.name || 'User'}</Text>
                 <Text style={styles.blogAuthorEmail}>{currentUser?.email || 'user@example.com'}</Text>
               </View>
@@ -6442,7 +7234,7 @@ export default function GroupInfoScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
-            
+
             {/* Comments List */}
             <ScrollView style={styles.commentsListContainer}>
               {commentsLoading ? (
@@ -6491,7 +7283,7 @@ export default function GroupInfoScreen() {
                 ))
               )}
             </ScrollView>
-            
+
             {/* Comment Input Section */}
             <View style={styles.commentModalBody}>
               <Text style={styles.commentModalPostTitle}>
@@ -6529,7 +7321,7 @@ export default function GroupInfoScreen() {
               <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
             <Text style={styles.draftsModalTitle}>Drafts</Text>
-            <View style={{width: 28}} />
+            <View style={{ width: 28 }} />
           </View>
 
           {/* Drafts List */}
@@ -6543,34 +7335,34 @@ export default function GroupInfoScreen() {
             ) : (
               drafts.map((draft) => (
                 <View key={draft.id} style={styles.draftItem}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.draftContent}
                     onPress={() => handleLoadDraft(draft)}
                   >
                     {draft.type === 'image' && draft.imageUri && (
-                      <Image 
-                        source={{ uri: draft.imageUri }} 
+                      <Image
+                        source={{ uri: draft.imageUri }}
                         style={styles.draftImage}
                         resizeMode="cover"
                       />
                     )}
                     <View style={styles.draftInfo}>
                       <View style={styles.draftHeader}>
-                        <Ionicons 
-                          name={draft.type === 'blog' ? 'document-text' : 'image'} 
-                          size={20} 
-                          color={draft.type === 'blog' ? '#40DFFC' : '#FF4A4A'} 
+                        <Ionicons
+                          name={draft.type === 'blog' ? 'document-text' : 'image'}
+                          size={20}
+                          color={draft.type === 'blog' ? '#40DFFC' : '#FF4A4A'}
                         />
                         <Text style={styles.draftType}>
                           {draft.type === 'blog' ? 'Blog' : 'Image Post'}
                         </Text>
                         <Text style={styles.draftDate}>
-                          {draft.updatedAt 
+                          {draft.updatedAt
                             ? new Date(draft.updatedAt.toDate?.() || draft.updatedAt).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric'
-                              })
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric'
+                            })
                             : 'Recently'
                           }
                         </Text>
@@ -6591,7 +7383,7 @@ export default function GroupInfoScreen() {
                       )}
                     </View>
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.draftDeleteButton}
                     onPress={() => {
                       Alert.alert(
@@ -6599,8 +7391,8 @@ export default function GroupInfoScreen() {
                         'Are you sure you want to delete this draft?',
                         [
                           { text: 'Cancel', style: 'cancel' },
-                          { 
-                            text: 'Delete', 
+                          {
+                            text: 'Delete',
                             style: 'destructive',
                             onPress: () => handleDeleteDraft(draft.id)
                           }
@@ -6638,7 +7430,7 @@ export default function GroupInfoScreen() {
               <TouchableOpacity style={styles.voiceChatHeaderIcon}>
                 <Ionicons name="settings-outline" size={24} color="#fff" />
               </TouchableOpacity>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.voiceChatHeaderIcon}
                 onPress={() => {
                   setShowVoiceChatInterface(false);
@@ -6735,10 +7527,10 @@ export default function GroupInfoScreen() {
               ]}
               onPress={toggleRealTimeMic}
             >
-              <Ionicons 
-                name={isMicOn ? "mic" : "mic-off"} 
-                size={32} 
-                color={isMicOn ? "#fff" : "#ff4444"} 
+              <Ionicons
+                name={isMicOn ? "mic" : "mic-off"}
+                size={32}
+                color={isMicOn ? "#fff" : "#ff4444"}
               />
             </TouchableOpacity>
             <Text style={styles.voiceChatMicToggleText}>
@@ -6753,9 +7545,9 @@ export default function GroupInfoScreen() {
           </View>
 
           {/* Chat Messages Area */}
-          <ScrollView 
+          <ScrollView
             ref={voiceChatScrollRef}
-            style={styles.voiceChatMessagesArea} 
+            style={styles.voiceChatMessagesArea}
             contentContainerStyle={styles.voiceChatMessagesContent}
           >
             {voiceChatMessages.length === 0 ? (
@@ -6765,10 +7557,10 @@ export default function GroupInfoScreen() {
             ) : (
               voiceChatMessages.map((msg) => {
                 const isCurrentUser = currentUser && (msg.senderId === currentUser.id || msg.senderId === currentUser?.id);
-                
+
                 return (
-                  <View 
-                    key={msg.id} 
+                  <View
+                    key={msg.id}
                     style={[
                       styles.voiceChatMessageContainer,
                       isCurrentUser ? styles.voiceChatMessageContainerOwn : styles.voiceChatMessageContainerOther
@@ -6793,10 +7585,10 @@ export default function GroupInfoScreen() {
                       {!isCurrentUser && (
                         <Text style={styles.voiceChatMessageSender}>{msg.sender || 'User'}</Text>
                       )}
-                      
+
                       {/* Voice Message */}
                       {msg.voiceUrl && (
-                        <TouchableOpacity 
+                        <TouchableOpacity
                           style={[
                             styles.voiceChatVoiceButton,
                             playingVoiceChatId === msg.id && styles.voiceChatVoiceButtonPlaying
@@ -6810,22 +7602,22 @@ export default function GroupInfoScreen() {
                                 setVoiceChatSound(null);
                                 return;
                               }
-                              
+
                               // Stop any currently playing voice
                               if (voiceChatSound) {
                                 await voiceChatSound.stopAsync();
                                 await voiceChatSound.unloadAsync();
                               }
-                              
+
                               // Create and play new sound
                               const { sound } = await Audio.Sound.createAsync(
                                 { uri: msg.voiceUrl },
                                 { shouldPlay: true }
                               );
-                              
+
                               setVoiceChatSound(sound);
                               setPlayingVoiceChatId(msg.id);
-                              
+
                               // Listen for playback status
                               sound.setOnPlaybackStatusUpdate((status) => {
                                 if (status.didJustFinish) {
@@ -6834,7 +7626,7 @@ export default function GroupInfoScreen() {
                                   sound.unloadAsync();
                                 }
                               });
-                              
+
                               await sound.playAsync();
                             } catch (error) {
                               console.error('Error playing voice:', error);
@@ -6844,24 +7636,24 @@ export default function GroupInfoScreen() {
                             }
                           }}
                         >
-                          <Ionicons 
-                            name={playingVoiceChatId === msg.id ? "pause" : "play"} 
-                            size={20} 
-                            color="#fff" 
+                          <Ionicons
+                            name={playingVoiceChatId === msg.id ? "pause" : "play"}
+                            size={20}
+                            color="#fff"
                           />
                           <Text style={styles.voiceChatVoiceText}>
                             {msg.duration ? `${Math.floor(msg.duration)}s` : 'Voice message'}
                           </Text>
                         </TouchableOpacity>
                       )}
-                      
+
                       {/* Text Message */}
                       {msg.text && (
                         <Text style={styles.voiceChatMessageText}>
                           {msg.text}
                         </Text>
                       )}
-                      
+
                       {msg.createdAt && (
                         <Text style={styles.voiceChatMessageTime}>
                           {new Date(msg.createdAt).toLocaleTimeString('en-US', {
@@ -6907,10 +7699,10 @@ export default function GroupInfoScreen() {
               <View style={styles.voiceChatRecordingReadyIndicator}>
                 <Ionicons name="mic" size={20} color="#8B2EF0" />
                 <Text style={styles.voiceChatRecordingReadyText}>Voice message ready</Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => {
                     setVoiceChatRecordingUri(null);
-                  }} 
+                  }}
                   style={styles.voiceChatRemoveRecordingButton}
                 >
                   <Ionicons name="close-circle" size={20} color="#ff4444" />
@@ -6929,29 +7721,29 @@ export default function GroupInfoScreen() {
             />
             <View style={styles.voiceChatInputIcons}>
               {!isVoiceChatRecording ? (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.voiceChatInputIcon}
                   onPress={startVoiceChatRecording}
                 >
                   <Ionicons name="mic-outline" size={24} color="#ccc" />
                 </TouchableOpacity>
               ) : (
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.voiceChatInputIcon}
                   onPress={stopVoiceChatRecording}
                 >
                   <Ionicons name="stop" size={24} color="#ff4444" />
                 </TouchableOpacity>
               )}
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.voiceChatInputIcon}
                 onPress={sendVoiceChatMessage}
                 disabled={!voiceChatInput.trim() && !voiceChatRecordingUri}
               >
-                <Ionicons 
-                  name="send" 
-                  size={24} 
-                  color={(!voiceChatInput.trim() && !voiceChatRecordingUri) ? '#444' : '#8B2EF0'} 
+                <Ionicons
+                  name="send"
+                  size={24}
+                  color={(!voiceChatInput.trim() && !voiceChatRecordingUri) ? '#444' : '#8B2EF0'}
                 />
               </TouchableOpacity>
               <TouchableOpacity style={styles.voiceChatInputIcon}>
@@ -7002,12 +7794,12 @@ export default function GroupInfoScreen() {
                   <TouchableOpacity
                     style={styles.addRoleButton}
                     onPress={() => {
-                      setRoleplayRoles([...roleplayRoles, { 
-                        id: nextRoleId, 
-                        name: '', 
+                      setRoleplayRoles([...roleplayRoles, {
+                        id: nextRoleId,
+                        name: '',
                         description: '',
                         taken: false,
-                        takenBy: null 
+                        takenBy: null
                       }]);
                       setNextRoleId(nextRoleId + 1);
                     }}
@@ -7138,7 +7930,7 @@ export default function GroupInfoScreen() {
                 <>
                   <Text style={styles.characterSectionTitle}>Your Characters</Text>
                   <Text style={styles.characterSectionSubtitle}>Select an existing character</Text>
-                  
+
                   {characterCollection.map((character, index) => (
                     <TouchableOpacity
                       key={index}
@@ -7158,7 +7950,7 @@ export default function GroupInfoScreen() {
                           <MaterialCommunityIcons name="account" size={40} color="#fff" />
                         </View>
                       )}
-                      
+
                       <View style={styles.characterCardInfo}>
                         <Text style={styles.characterCardName}>{character.name}</Text>
                         {character.subtitle && (
@@ -7172,7 +7964,7 @@ export default function GroupInfoScreen() {
                           ))}
                         </View>
                       </View>
-                      
+
                       <Ionicons name="chevron-forward" size={24} color="#999" />
                     </TouchableOpacity>
                   ))}
@@ -7190,7 +7982,7 @@ export default function GroupInfoScreen() {
                 {characterCollection && characterCollection.length > 0 ? 'Create New Character' : 'Get Started'}
               </Text>
               <Text style={styles.characterSectionSubtitle}>
-                {characterCollection && characterCollection.length > 0 
+                {characterCollection && characterCollection.length > 0
                   ? 'Design a brand new character for this roleplay'
                   : 'Create your first character to join the roleplay'}
               </Text>
@@ -7298,7 +8090,7 @@ export default function GroupInfoScreen() {
               ) : (
                 <View style={styles.customRoleInputContainer}>
                   <Text style={styles.customRoleTitle}>Create Your Custom Role</Text>
-                  
+
                   <TextInput
                     style={styles.customRoleInput}
                     placeholder="Role Name (e.g., Wandering Merchant)"
@@ -7307,7 +8099,7 @@ export default function GroupInfoScreen() {
                     onChangeText={setCustomRoleName}
                     maxLength={50}
                   />
-                  
+
                   <TextInput
                     style={[styles.customRoleInput, styles.customRoleDescInput]}
                     placeholder="Role Description (optional)"
@@ -7353,15 +8145,15 @@ export default function GroupInfoScreen() {
         onRequestClose={() => setSelectedImageModal(null)}
       >
         <View style={styles.imageModalContainer}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.imageModalCloseButton}
             onPress={() => setSelectedImageModal(null)}
           >
             <Ionicons name="close" size={30} color="#fff" />
           </TouchableOpacity>
           {selectedImageModal && (
-            <Image 
-              source={{ uri: selectedImageModal }} 
+            <Image
+              source={{ uri: selectedImageModal }}
               style={styles.imageModalImage}
               resizeMode="contain"
             />
@@ -7629,11 +8421,11 @@ export default function GroupInfoScreen() {
                       {pendingRoleplayJoin ? 'Join Roleplay' : 'Start Roleplay'}
                     </Text>
                     <Text style={styles.roleplayPageDesc}>
-                      {pendingRoleplayJoin 
-                        ? 'Choose a character to join this roleplay session' 
+                      {pendingRoleplayJoin
+                        ? 'Choose a character to join this roleplay session'
                         : 'Choose how you want to begin your roleplay session'}
                     </Text>
-                    
+
                     <TouchableOpacity
                       style={styles.roleplayChoiceButton}
                       onPress={() => setRoleplayPage(2)}
@@ -7676,7 +8468,7 @@ export default function GroupInfoScreen() {
                     </View>
                     <Text style={styles.roleplayPageTitle}>Basic Info</Text>
                     <Text style={styles.roleplayPageDesc}>Let's start with the basics</Text>
-                    
+
                     {/* Avatar */}
                     <Text style={styles.attributeLabel}>Avatar</Text>
                     <TouchableOpacity
@@ -7755,7 +8547,7 @@ export default function GroupInfoScreen() {
                     </View>
                     <Text style={styles.roleplayPageTitle}>Personal Details</Text>
                     <Text style={styles.roleplayPageDesc}>Add character's personal information</Text>
-                    
+
                     {/* Gender */}
                     <Text style={styles.attributeLabel}>Gender</Text>
                     <View style={styles.genderSelector}>
@@ -7831,7 +8623,7 @@ export default function GroupInfoScreen() {
                     </View>
                     <Text style={styles.roleplayPageTitle}>Character Details</Text>
                     <Text style={styles.roleplayPageDesc}>Add personality tags and description</Text>
-                    
+
                     {/* Tags */}
                     <Text style={styles.attributeLabel}>Tags</Text>
                     <View style={styles.tagsContainer}>
@@ -7860,7 +8652,7 @@ export default function GroupInfoScreen() {
                           ))}
                         </View>
                       </ScrollView>
-                      
+
                       {/* Selected Tags */}
                       {characterTags.length > 0 && (
                         <View style={styles.selectedTagsContainer}>
@@ -7988,12 +8780,12 @@ export default function GroupInfoScreen() {
                               >
                                 {/* Character Avatar */}
                                 {character.avatar && (
-                                  <Image 
-                                    source={{ uri: character.avatar }} 
+                                  <Image
+                                    source={{ uri: character.avatar }}
                                     style={styles.characterCardAvatar}
                                   />
                                 )}
-                                
+
                                 <View style={styles.characterCardContent}>
                                   {/* Character Header with Name and Selection */}
                                   <View style={styles.characterCardHeader}>
@@ -8214,11 +9006,44 @@ export default function GroupInfoScreen() {
                 <Ionicons name="chevron-forward" size={24} color="#888" />
               </TouchableOpacity>
 
+              {/* Manage Announcements */}
+              <TouchableOpacity
+                style={styles.adminOption}
+                onPress={() => {
+                  setShowAdminPanel(false);
+                  setShowAnnouncementsModal(true);
+                }}
+              >
+                <MaterialCommunityIcons name="bullhorn" size={24} color="#8B2EF0" />
+                <View style={styles.adminOptionText}>
+                  <Text style={styles.adminOptionTitle}>Manage Announcements</Text>
+                  <Text style={styles.adminOptionSubtitle}>{announcements.length}/3 pinned</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="#888" />
+              </TouchableOpacity>
+
+              {/* Manage Featured Posts */}
+              <TouchableOpacity
+                style={styles.adminOption}
+                onPress={() => {
+                  setShowAdminPanel(false);
+                  setShowFeaturedModal(true);
+                }}
+              >
+                <MaterialIcons name="star" size={24} color="#FFD700" />
+                <View style={styles.adminOptionText}>
+                  <Text style={styles.adminOptionTitle}>Manage Featured Posts</Text>
+                  <Text style={styles.adminOptionSubtitle}>{featuredPosts.length} featured</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="#888" />
+              </TouchableOpacity>
+
               {/* View Members */}
               <TouchableOpacity
                 style={styles.adminOption}
                 onPress={() => {
                   setShowAdminPanel(false);
+                  setMembersModalContext('all');
                   setShowMembersModal(true);
                 }}
               >
@@ -8351,7 +9176,7 @@ export default function GroupInfoScreen() {
             {/* Header */}
             <View style={styles.adminModalHeader}>
               <Text style={styles.adminModalTitle}>
-                Manage Members ({allMembers.length})
+                {membersModalContext === 'online' ? 'Online Members' : 'Manage Members'} ({membersModalContext === 'online' ? allMembers.filter(m => m.currentStatus && m.currentStatus === 'online').length : allMembers.length})
               </Text>
               <TouchableOpacity onPress={() => setShowMembersModal(false)}>
                 <Ionicons name="close" size={28} color="#fff" />
@@ -8360,39 +9185,252 @@ export default function GroupInfoScreen() {
 
             {/* Members List */}
             <ScrollView style={styles.membersListContainer}>
-              {allMembers.map((member) => (
-                <View key={member.id} style={styles.memberItem}>
-                  <Image
-                    source={
-                      member.profileImage
-                        ? { uri: member.profileImage }
-                        : require('./assets/posticon.jpg')
-                    }
-                    style={styles.memberAvatar}
-                  />
-                  <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.name}</Text>
-                    {member.isAdmin && (
-                      <Text style={styles.memberBadge}>👑 Admin</Text>
-                    )}
-                    {member.isModerator && !member.isAdmin && (
-                      <Text style={styles.memberBadge}>⭐ Moderator</Text>
+              {allMembers
+                .filter(member => membersModalContext === 'all' || (member.currentStatus && member.currentStatus === 'online'))
+                .map((member) => (
+                  <View key={member.id} style={styles.memberItem}>
+                    <Image
+                      source={
+                        member.profileImage
+                          ? { uri: member.profileImage }
+                          : require('./assets/posticon.jpg')
+                      }
+                      style={styles.memberAvatar}
+                    />
+                    <View style={styles.memberInfo}>
+                      <Text style={styles.memberName}>{member.name}</Text>
+                      {member.isAdmin && (
+                        <Text style={styles.memberBadge}>👑 Admin</Text>
+                      )}
+                      {member.isModerator && !member.isAdmin && (
+                        <Text style={styles.memberBadge}>⭐ Moderator</Text>
+                      )}
+                    </View>
+                    {!member.isAdmin && member.id !== auth.currentUser?.uid && (
+                      <TouchableOpacity
+                        style={styles.kickButton}
+                        onPress={() => handleKickMember(member.id, member.name)}
+                      >
+                        <MaterialIcons name="remove-circle" size={24} color="#ff4b6e" />
+                      </TouchableOpacity>
                     )}
                   </View>
-                  {!member.isAdmin && member.id !== auth.currentUser?.uid && (
-                    <TouchableOpacity
-                      style={styles.kickButton}
-                      onPress={() => handleKickMember(member.id, member.name)}
-                    >
-                      <MaterialIcons name="remove-circle" size={24} color="#ff4b6e" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))}
-              {allMembers.length === 0 && (
+                ))}
+              {allMembers.filter(member => membersModalContext === 'all' || (member.currentStatus && member.currentStatus === 'online')).length === 0 && (
                 <View style={styles.emptyMembersContainer}>
-                  <Text style={styles.emptyMembersText}>No members found</Text>
+                  <Text style={styles.emptyMembersText}>
+                    {membersModalContext === 'online' ? 'No members are online' : 'No members found'}
+                  </Text>
                 </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Announcements Management Modal */}
+      <Modal
+        visible={showAnnouncementsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAnnouncementsModal(false)}
+      >
+        <View style={styles.adminModalContainer}>
+          <View style={styles.adminModalContent}>
+            {/* Header */}
+            <View style={styles.adminModalHeader}>
+              <Text style={styles.adminModalTitle}>
+                Manage Announcements ({announcements.length}/3)
+              </Text>
+              <TouchableOpacity onPress={() => setShowAnnouncementsModal(false)}>
+                <Ionicons name="close" size={28} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Announcements List */}
+            <ScrollView style={styles.announcementsListContainer}>
+              <Text style={styles.announcementsSectionTitle}>Pinned Announcements</Text>
+              
+              {announcements.length === 0 ? (
+                <View style={styles.emptyAnnouncementsContainer}>
+                  <MaterialCommunityIcons name="bullhorn-outline" size={64} color="#444" />
+                  <Text style={styles.emptyAnnouncementsText}>
+                    No announcements pinned yet
+                  </Text>
+                  <Text style={styles.emptyAnnouncementsSubtext}>
+                    Long-press any post and select "Pin as Announcement"
+                  </Text>
+                </View>
+              ) : (
+                announcements.map((announcement) => (
+                  <View key={announcement.id} style={styles.announcementItem}>
+                    <View style={styles.announcementIconContainer}>
+                      <MaterialCommunityIcons name="bullhorn" size={20} color="#8B2EF0" />
+                    </View>
+                    <View style={styles.announcementContent}>
+                      <Text style={styles.announcementTitle} numberOfLines={2}>
+                        {announcement.title || announcement.caption || announcement.text || 'Announcement'}
+                      </Text>
+                      <Text style={styles.announcementDate}>
+                        {announcement.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.unpinButton}
+                      onPress={() => handleUnpinAnnouncement(announcement.id)}
+                    >
+                      <MaterialIcons name="push-pin" size={20} color="#ff4b6e" />
+                    </TouchableOpacity>
+                  </View>
+                ))
+              )}
+
+              <Text style={[styles.announcementsSectionTitle, { marginTop: 24 }]}>Available Posts</Text>
+              <Text style={styles.announcementsHelper}>
+                Tap a post to pin it as an announcement (max 3, oldest auto-removes)
+              </Text>
+
+              {allPosts.filter(post => !announcements.find(a => a.id === post.id)).length === 0 ? (
+                <View style={styles.emptyAnnouncementsContainer}>
+                  <Text style={styles.emptyAnnouncementsText}>
+                    No posts available
+                  </Text>
+                  <Text style={styles.emptyAnnouncementsSubtext}>
+                    Create a post first to pin it as an announcement
+                  </Text>
+                </View>
+              ) : (
+                allPosts
+                  .filter(post => !announcements.find(a => a.id === post.id))
+                  .slice(0, 10)
+                  .map((post) => (
+                    <TouchableOpacity
+                      key={post.id}
+                      style={styles.availablePostItem}
+                      onPress={() => handlePinAnnouncement(post.id)}
+                      disabled={false}
+                    >
+                      <View style={styles.availablePostContent}>
+                        <Text style={styles.availablePostTitle} numberOfLines={2}>
+                          {post.title || post.caption || post.text || 'Post'}
+                        </Text>
+                        <Text style={styles.availablePostDate}>
+                          {post.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
+                        </Text>
+                      </View>
+                      <View style={styles.pinButton}>
+                        <MaterialCommunityIcons name="pin" size={20} color="#8B2EF0" />
+                        {announcements.length >= 3 && (
+                          <Text style={{ color: '#888', fontSize: 9, marginTop: 2 }}>Auto-remove oldest</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                  ))
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Featured Posts Management Modal */}
+      <Modal
+        visible={showFeaturedModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowFeaturedModal(false)}
+      >
+        <View style={styles.adminModalContainer}>
+          <View style={styles.adminModalContent}>
+            {/* Header */}
+            <View style={styles.adminModalHeader}>
+              <Text style={styles.adminModalTitle}>
+                Manage Featured Posts ({featuredPosts.length})
+              </Text>
+              <TouchableOpacity onPress={() => setShowFeaturedModal(false)}>
+                <Ionicons name="close" size={28} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Featured Posts List */}
+            <ScrollView style={styles.announcementsListContainer}>
+              <Text style={styles.announcementsSectionTitle}>Featured Posts</Text>
+              
+              {featuredPosts.length === 0 ? (
+                <View style={styles.emptyAnnouncementsContainer}>
+                  <MaterialIcons name="star-border" size={64} color="#444" />
+                  <Text style={styles.emptyAnnouncementsText}>
+                    No featured posts yet
+                  </Text>
+                  <Text style={styles.emptyAnnouncementsSubtext}>
+                    Long-press any post and select "Add to Featured"
+                  </Text>
+                </View>
+              ) : (
+                featuredPosts.map((postId) => {
+                  const post = allPosts.find(p => p.id === postId);
+                  if (!post) return null;
+                  
+                  return (
+                    <View key={post.id} style={styles.announcementItem}>
+                      <View style={[styles.announcementIconContainer, { backgroundColor: '#2a2a2a' }]}>
+                        <MaterialIcons name="star" size={20} color="#FFD700" />
+                      </View>
+                      <View style={styles.announcementContent}>
+                        <Text style={styles.announcementTitle} numberOfLines={2}>
+                          {post.title || post.caption || post.text || 'Featured Post'}
+                        </Text>
+                        <Text style={styles.announcementDate}>
+                          {post.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.unpinButton, { backgroundColor: '#2a2a2a' }]}
+                        onPress={() => handleUnfeaturePost(post.id)}
+                      >
+                        <MaterialIcons name="star" size={20} color="#FFD700" />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
+
+              <Text style={[styles.announcementsSectionTitle, { marginTop: 24 }]}>Available Posts</Text>
+              <Text style={styles.announcementsHelper}>
+                Tap a post to add it to featured (no limit)
+              </Text>
+
+              {allPosts.filter(post => !featuredPosts.includes(post.id)).length === 0 ? (
+                <View style={styles.emptyAnnouncementsContainer}>
+                  <Text style={styles.emptyAnnouncementsText}>
+                    No posts available
+                  </Text>
+                  <Text style={styles.emptyAnnouncementsSubtext}>
+                    Create a post first to feature it
+                  </Text>
+                </View>
+              ) : (
+                allPosts
+                  .filter(post => !featuredPosts.includes(post.id))
+                  .slice(0, 10)
+                  .map((post) => (
+                    <TouchableOpacity
+                      key={post.id}
+                      style={styles.availablePostItem}
+                      onPress={() => handleFeaturePost(post.id)}
+                    >
+                      <View style={styles.availablePostContent}>
+                        <Text style={styles.availablePostTitle} numberOfLines={2}>
+                          {post.title || post.caption || post.text || 'Post'}
+                        </Text>
+                        <Text style={styles.availablePostDate}>
+                          {post.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
+                        </Text>
+                      </View>
+                      <View style={[styles.pinButton, { backgroundColor: '#2a2a2a' }]}>
+                        <MaterialIcons name="star" size={20} color="#FFD700" />
+                      </View>
+                    </TouchableOpacity>
+                  ))
               )}
             </ScrollView>
           </View>
@@ -10986,12 +12024,12 @@ const styles = StyleSheet.create({
     marginRight: 4,
     letterSpacing: 0.5,
   },
-  
+
   // Play Button Icon
   playButtonIcon: {
     marginRight: 4,
   },
-  
+
   // Feature Selection Modal
   featureModalOverlay: {
     flex: 1,
@@ -11048,7 +12086,7 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     marginTop: 4,
   },
-  
+
   // Mini Screen Modal
   miniScreenOverlay: {
     flex: 1,
@@ -11115,7 +12153,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
-  
+
   // Roleplay Pages
   roleplayPageContent: {
     alignItems: 'center',
@@ -11135,7 +12173,7 @@ const styles = StyleSheet.create({
     marginBottom: 30,
     paddingHorizontal: 20,
   },
-  
+
   // Choice Buttons (Page 1)
   roleplayChoiceButton: {
     flexDirection: 'row',
@@ -11171,7 +12209,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
   },
-  
+
   roleplayInput: {
     width: '100%',
     backgroundColor: '#2a2a2a',
@@ -11186,7 +12224,7 @@ const styles = StyleSheet.create({
     minHeight: 120,
     textAlignVertical: 'top',
   },
-  
+
   // Character Attributes
   attributeLabel: {
     color: '#fff',
@@ -11752,6 +12790,104 @@ const styles = StyleSheet.create({
   emptyMembersText: {
     color: '#999',
     fontSize: 14,
+  },
+
+  // Announcements Styles
+  announcementsListContainer: {
+    flex: 1,
+    padding: 16,
+  },
+  announcementsSectionTitle: {
+    color: '#8B2EF0',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 12,
+  },
+  announcementsHelper: {
+    color: '#999',
+    fontSize: 12,
+    marginBottom: 12,
+    fontStyle: 'italic',
+  },
+  emptyAnnouncementsContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  emptyAnnouncementsText: {
+    color: '#999',
+    fontSize: 14,
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  emptyAnnouncementsSubtext: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 8,
+    textAlign: 'center',
+  },
+  announcementItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#8B2EF0',
+  },
+  announcementIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(139, 46, 240, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  announcementContent: {
+    flex: 1,
+  },
+  announcementTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  announcementDate: {
+    color: '#999',
+    fontSize: 12,
+  },
+  unpinButton: {
+    padding: 8,
+  },
+  availablePostItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  availablePostContent: {
+    flex: 1,
+  },
+  availablePostTitle: {
+    color: '#fff',
+    fontSize: 14,
+    marginBottom: 4,
+  },
+  availablePostDate: {
+    color: '#999',
+    fontSize: 11,
+  },
+  pinButton: {
+    padding: 8,
+  },
+  disabledPinButton: {
+    padding: 8,
+    opacity: 0.3,
   },
 
   // Member Search Styles

@@ -15,11 +15,11 @@ import {
   Keyboard
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
   addDoc,
   doc,
   getDoc,
@@ -33,6 +33,7 @@ import { MessageBox } from '../components/MessageBox';
 import { MessageItem } from '../components/MessageItemEnhanced';
 import { MessageActionsSheet } from '../components/MessageActionsSheet';
 import { ScrollToBottomButton } from '../components/ScrollToBottomButton';
+import { SimpleInlineStatus } from '../components/StatusBadge';
 import EmojiSelector from 'react-native-emoji-selector';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadVideoToHostinger } from '../hostingerConfig';
@@ -70,7 +71,7 @@ const PAGE_SIZE = 50;
 export default function EnhancedChatScreenV2({ route, navigation }) {
   const { conversationId, isGroup, groupName, otherUserId } = route.params;
   const currentUserId = auth.currentUser?.uid;
-  
+
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,31 +88,31 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(null);
-  
+
   const flatListRef = useRef(null);
   const typingTimeoutRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const messageInputRef = useRef(null);
-  
+
   useEffect(() => {
     if (!conversationId || !currentUserId) return;
-    
+
     // Update presence
     updateUserPresence(currentUserId, 'online');
     setActiveConversation(currentUserId, conversationId);
-    
+
     // Keyboard listeners to hide emoji picker when keyboard shows
     const keyboardShowListener = Keyboard.addListener('keyboardDidShow', () => {
       setShowEmojiPicker(false);
     });
-    
+
     // Load conversation data
     const conversationRef = doc(db, 'conversations', conversationId);
     const unsubConversation = onSnapshot(conversationRef, (snapshot) => {
       if (snapshot.exists()) {
         const data = snapshot.data();
         setConversationData(data);
-        
+
         // Update typing indicators
         if (data.typing) {
           const typing = Object.entries(data.typing)
@@ -121,55 +122,55 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
         }
       }
     });
-    
+
     // Load messages
     const messagesRef = collection(db, 'conversations', conversationId, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'desc'), limit(PAGE_SIZE));
-    
+
     const unsubMessages = onSnapshot(q, (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data()
       }));
-      
+
       setMessages(msgs.reverse());
       setLoading(false);
-      
+
       // Mark as read
       const unreadIds = msgs
         .filter(m => m.senderId !== currentUserId && !m.status?.read?.[currentUserId])
         .map(m => m.id);
-      
+
       if (unreadIds.length > 0) {
         markMessagesAsRead(conversationId, unreadIds, currentUserId);
       }
     });
-    
+
     return () => {
       keyboardShowListener.remove();
       unsubConversation();
       unsubMessages();
       clearActiveConversation(currentUserId, conversationId);
-      
+
       // Clear typing timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
-      
+
       // Clear recording timer
       if (recordingTimerRef.current) {
         clearInterval(recordingTimerRef.current);
       }
     };
   }, [conversationId, currentUserId]);
-  
+
   const handleSendMessage = async () => {
     if (!messageText.trim() || sending) return;
-    
+
     setSending(true);
     const textToSend = messageText;
     setMessageText('');
-    
+
     try {
       const messageData = {
         senderId: currentUserId,
@@ -182,7 +183,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
           read: {}
         }
       };
-      
+
       // Add reply context if replying
       if (replyTo) {
         messageData.replyTo = {
@@ -193,12 +194,12 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
         };
         setReplyTo(null);
       }
-      
+
       await addDoc(
         collection(db, 'conversations', conversationId, 'messages'),
         messageData
       );
-      
+
       // Update conversation last message
       await updateDoc(doc(db, 'conversations', conversationId), {
         lastMessage: {
@@ -209,10 +210,10 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
         },
         lastMessageTime: serverTimestamp()
       });
-      
+
       // Stop typing indicator
       setTypingStatus(conversationId, currentUserId, false);
-      
+
       // Scroll to bottom
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
@@ -224,19 +225,19 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       setSending(false);
     }
   };
-  
+
   const handleTextChange = (text) => {
     setMessageText(text);
-    
+
     // Typing indicator
     if (text.trim()) {
       setTypingStatus(conversationId, currentUserId, true);
-      
+
       // Clear previous timeout
       if (typingTimeoutRef.current) {
         clearTimeout(typingTimeoutRef.current);
       }
-      
+
       // Auto-stop typing after 3 seconds
       typingTimeoutRef.current = setTimeout(() => {
         setTypingStatus(conversationId, currentUserId, false);
@@ -245,19 +246,19 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       setTypingStatus(conversationId, currentUserId, false);
     }
   };
-  
+
   const handleMessageLongPress = (message) => {
     setSelectedMessage(message);
     setActionsVisible(true);
   };
-  
+
   const handleEdit = (message) => {
     setMessageText(message.text);
     setMessageToEdit(message);
     setEditMode(true);
     setActionsVisible(false);
   };
-  
+
   const handleDelete = async (message, deleteType) => {
     try {
       if (deleteType === 'everyone') {
@@ -283,11 +284,11 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       Alert.alert('Error', 'Failed to delete message');
     }
   };
-  
+
   const handleReply = (message) => {
     setReplyTo(message);
   };
-  
+
   const handleForward = (message) => {
     // Navigate to conversation selector
     navigation.navigate('ForwardMessage', {
@@ -295,7 +296,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       conversationId
     });
   };
-  
+
   const handleReact = async (messageId, emoji) => {
     try {
       // Check if already reacted
@@ -309,12 +310,12 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       console.error('Error reacting:', error);
     }
   };
-  
+
   const handleCopy = (message) => {
     Clipboard.setString(message.text);
     Alert.alert('Copied', 'Message copied to clipboard');
   };
-  
+
   const handlePin = async (message) => {
     try {
       await pinMessage(conversationId, currentUserId, message.id);
@@ -323,7 +324,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       console.error('Error pinning:', error);
     }
   };
-  
+
   const handleAttachment = async () => {
     try {
       Alert.alert(
@@ -538,7 +539,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
   const handleVoiceRecordStart = () => {
     setIsRecording(true);
     setRecordingDuration(0);
-    
+
     // Start timer
     recordingTimerRef.current = setInterval(() => {
       setRecordingDuration(prev => prev + 1);
@@ -551,7 +552,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
       }
-      
+
       const duration = recordingDuration;
       setIsRecording(false);
       setRecordingDuration(0);
@@ -615,14 +616,14 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
     const offsetY = event.nativeEvent.contentOffset.y;
     const contentHeight = event.nativeEvent.contentSize.height;
     const scrollViewHeight = event.nativeEvent.layoutMeasurement.height;
-    
+
     setShowScrollButton(contentHeight - offsetY - scrollViewHeight > 100);
   };
-  
+
   const scrollToBottom = () => {
     flatListRef.current?.scrollToEnd({ animated: true });
   };
-  
+
   if (loading) {
     return (
       <View style={[styles.container, styles.centered]}>
@@ -630,7 +631,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
       </View>
     );
   }
-  
+
   return (
     <View style={styles.container}>
       {/* Header */}
@@ -638,16 +639,16 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        
+
         {isGroup ? (
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.headerInfo}
             onPress={() => navigation.navigate('NewGroupInfo', { conversationId })}
             activeOpacity={0.7}
           >
             {conversationData?.groupIcon ? (
-              <Image 
-                source={{ uri: conversationData.groupIcon }} 
+              <Image
+                source={{ uri: conversationData.groupIcon }}
                 style={styles.groupAvatar}
               />
             ) : (
@@ -674,22 +675,29 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
             <Text style={styles.headerTitle}>
               {conversationData?.groupName || groupName || 'Chat'}
             </Text>
+            {otherUserId && (
+              <View style={{ marginTop: 4 }}>
+                <SimpleInlineStatus
+                  userId={otherUserId}
+                />
+              </View>
+            )}
             {typingUsers.length > 0 && (
               <Text style={styles.typingIndicator}>typing...</Text>
             )}
           </View>
         )}
-        
+
         <View style={styles.headerActions}>
           {isGroup && (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.headerButton}
               onPress={() => navigation.navigate('NewGroupInfo', { conversationId })}
             >
               <Ionicons name="information-circle-outline" size={24} color="#fff" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.headerButton}
             onPress={() => navigation.navigate('ChatSettings', { conversationId })}
           >
@@ -697,7 +705,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
           </TouchableOpacity>
         </View>
       </View>
-      
+
       {/* Reply preview */}
       {replyTo && (
         <View style={styles.replyPreview}>
@@ -712,9 +720,9 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
           </TouchableOpacity>
         </View>
       )}
-      
+
       {/* Messages and Input Area */}
-      <KeyboardAvoidingView 
+      <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
@@ -736,12 +744,12 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
           scrollEventThrottle={16}
           contentContainerStyle={styles.messagesList}
         />
-        
+
         {/* Scroll to bottom button */}
         {showScrollButton && (
           <ScrollToBottomButton onPress={scrollToBottom} />
         )}
-        
+
         {/* Edit mode indicator */}
         {editMode && messageToEdit && (
           <View style={styles.editModeBar}>
@@ -749,7 +757,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
               <Ionicons name="create-outline" size={16} color={ACCENT} />
               <Text style={styles.editModeText}>Edit message</Text>
             </View>
-            <TouchableOpacity 
+            <TouchableOpacity
               onPress={() => {
                 setEditMode(false);
                 setMessageToEdit(null);
@@ -763,43 +771,43 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
 
         {/* Message input */}
         <MessageBox
-        ref={messageInputRef}
-        value={messageText}
-        onChangeText={handleTextChange}
-        onFocus={handleInputFocus}
-        onSend={editMode ? async () => {
-          if (messageToEdit) {
-            await editMessage(conversationId, messageToEdit.id, messageText);
-            setEditMode(false);
-            setMessageToEdit(null);
-            setMessageText('');
-          }
-        } : handleSendMessage}
-        onAttachPress={handleAttachment}
-        onEmojiPress={handleEmojiPress}
-        onVoiceRecordStart={handleVoiceRecordStart}
-        onVoiceRecordEnd={handleVoiceRecordEnd}
-        sending={sending}
-        inputMode={messageText.trim() ? 'send' : 'mic'}
-        isRecording={isRecording}
-        recordingDuration={recordingDuration}
-        placeholder={editMode ? 'Edit message...' : 'Message'}
-      />
+          ref={messageInputRef}
+          value={messageText}
+          onChangeText={handleTextChange}
+          onFocus={handleInputFocus}
+          onSend={editMode ? async () => {
+            if (messageToEdit) {
+              await editMessage(conversationId, messageToEdit.id, messageText);
+              setEditMode(false);
+              setMessageToEdit(null);
+              setMessageText('');
+            }
+          } : handleSendMessage}
+          onAttachPress={handleAttachment}
+          onEmojiPress={handleEmojiPress}
+          onVoiceRecordStart={handleVoiceRecordStart}
+          onVoiceRecordEnd={handleVoiceRecordEnd}
+          sending={sending}
+          inputMode={messageText.trim() ? 'send' : 'mic'}
+          isRecording={isRecording}
+          recordingDuration={recordingDuration}
+          placeholder={editMode ? 'Edit message...' : 'Message'}
+        />
 
-      {/* Emoji Picker */}
-      {showEmojiPicker && (
-        <View style={styles.emojiPickerContainer}>
-          <EmojiSelector
-            onEmojiSelected={handleEmojiSelect}
-            showSearchBar={false}
-            showTabs={true}
-            showHistory={true}
-            showSectionTitles={true}
-            category={undefined}
-            columns={8}
-          />
-        </View>
-      )}
+        {/* Emoji Picker */}
+        {showEmojiPicker && (
+          <View style={styles.emojiPickerContainer}>
+            <EmojiSelector
+              onEmojiSelected={handleEmojiSelect}
+              showSearchBar={false}
+              showTabs={true}
+              showHistory={true}
+              showSectionTitles={true}
+              category={undefined}
+              columns={8}
+            />
+          </View>
+        )}
       </KeyboardAvoidingView>
 
       {/* Upload Progress Indicator */}
@@ -809,7 +817,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
           <Text style={styles.uploadProgressText}>{uploadProgress}</Text>
         </View>
       )}
-      
+
       {/* Actions sheet */}
       <MessageActionsSheet
         visible={actionsVisible}

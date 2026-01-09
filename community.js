@@ -16,11 +16,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect } from '@react-navigation/native';
-import { 
-  collection, 
-  query, 
-  where, 
-  getDocs, 
+import {
+  collection,
+  query,
+  where,
+  getDocs,
   getDoc,
   limit,
   orderBy,
@@ -34,6 +34,8 @@ import {
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { app as firebaseApp, db } from './firebaseConfig';
 import CacheManager from './cacheManager';
+import StatusBadge from './components/StatusBadge';
+import StatusSelector from './components/StatusSelector';
 
 // Memoized community card component for better rendering performance
 const CommunityCard = React.memo(({ item, idx, onPress, showFollowedBadge, isJoined }) => (
@@ -196,6 +198,7 @@ export default function TopBar({ navigation, route }) {
   const [allCommunities, setAllCommunities] = useState([]);
   const [exploredCommunities, setExploredCommunities] = useState([]);
   const [joinedCommunities, setJoinedCommunities] = useState([]);
+  const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
   const [managedCommunities, setManagedCommunities] = useState([]);
   const [userProfile, setUserProfile] = useState(null);
   const [isConnected, setIsConnected] = useState(true);
@@ -281,7 +284,7 @@ export default function TopBar({ navigation, route }) {
   // Sync joinedCommunities when allCommunities changes - debounced for performance
   useEffect(() => {
     if (!auth.currentUser || allCommunities.length === 0) return;
-    
+
     const timeoutId = setTimeout(() => {
       const syncJoinedCommunities = async () => {
         try {
@@ -294,7 +297,7 @@ export default function TopBar({ navigation, route }) {
             const data = doc.data();
             return data.community_id || doc.id.split('_')[1];
           }).filter(Boolean);
-          
+
           const joinedIdsSet = new Set(joinedIds);
           const joinedComm = allCommunities.filter(
             comm => {
@@ -324,7 +327,7 @@ export default function TopBar({ navigation, route }) {
     try {
       const eventRef = doc(db, 'community_events', eventId);
       const userEventRef = doc(db, 'user_events', `${auth.currentUser.uid}_${eventId}`);
-      
+
       const eventDoc = await getDocs(collection(db, 'community_events'));
       const eventExists = eventDoc.docs.some(doc => doc.id === eventId);
       if (!eventExists) {
@@ -340,7 +343,7 @@ export default function TopBar({ navigation, route }) {
       });
 
       // Update local state
-      setCommunityEvents(prev => prev.map(event => 
+      setCommunityEvents(prev => prev.map(event =>
         event.id === eventId ? { ...event, joined: true } : event
       ));
 
@@ -370,7 +373,7 @@ export default function TopBar({ navigation, route }) {
   // Setup real-time listeners
   useEffect(() => {
     const newUnsubscribers = [];
-    
+
     // Load cached data immediately for instant UI
     const loadCachedData = async () => {
       if (auth.currentUser) {
@@ -433,7 +436,7 @@ export default function TopBar({ navigation, route }) {
           const communities = snapshot.docs.map(d => {
             const data = d.data();
             let img = null;
-            
+
             // Find first available image field
             for (const field of possibleFields) {
               if (data[field]) {
@@ -442,11 +445,14 @@ export default function TopBar({ navigation, route }) {
               }
             }
 
-            // Calculate member count efficiently
-            const memberCount = data.members_count 
-              ?? (typeof data.community_members === 'number' ? data.community_members : 0)
-              ?? (Array.isArray(data.members) ? data.members.length : 0)
-              ?? 0;
+            // Calculate member count: prefer actual arrays (most accurate), then fallback to numeric counters
+            const memberCount = Array.isArray(data.members)
+              ? data.members.length
+              : Array.isArray(data.community_members)
+                ? data.community_members.length
+                : Array.isArray(data.memberIds)
+                  ? data.memberIds.length
+                  : (typeof data.members_count === 'number' ? data.members_count : (typeof data.community_members === 'number' ? data.community_members : 0));
 
             return {
               id: d.id,
@@ -462,14 +468,16 @@ export default function TopBar({ navigation, route }) {
           CacheManager.saveCommunities(communities);
 
           if (auth.currentUser) {
-            // Update managed communities - show communities created by current user
-            const managedComm = communities.filter(
-              comm => 
-                comm.community_admin === auth.currentUser.uid ||
-                comm.uid === auth.currentUser.uid ||
-                comm.createdBy === auth.currentUser.uid ||
-                (Array.isArray(comm.adminIds) && comm.adminIds.includes(auth.currentUser.uid))
-            );
+            // Update managed communities - ONLY check adminIds array
+            // This allows super admin to fully control who can manage communities
+            const managedComm = communities.filter(comm => {
+              const adminIds = Array.isArray(comm.adminIds)
+                ? comm.adminIds
+                : Array.isArray(comm.admins)
+                  ? comm.admins
+                  : [];
+              return adminIds.includes(auth.currentUser.uid);
+            });
             setManagedCommunities(managedComm);
           }
         } catch (err) {
@@ -492,7 +500,7 @@ export default function TopBar({ navigation, route }) {
             const data = doc.data();
             return data.community_id || doc.id.split('_')[1]; // Support both field-based and composite ID
           }).filter(Boolean);
-          
+
           // Update joinedCommunities based on current allCommunities
           const joinedComm = allCommunities.filter(
             comm => {
@@ -554,11 +562,11 @@ export default function TopBar({ navigation, route }) {
           const communityData = route.params.openCommunityData;
           console.log('Opening validation for community:', communityData.name || communityData.community_title);
           openValidationFor(communityData);
-          
+
           // Clear the params after handling to prevent reopening
           navigation.setParams({ openCommunityId: undefined, openCommunityData: undefined });
         }, 150);
-        
+
         return () => clearTimeout(timer);
       }
     }, [route?.params?.openCommunityId, route?.params?.openCommunityData])
@@ -597,15 +605,15 @@ export default function TopBar({ navigation, route }) {
               <Text style={styles.modalTitle}>{validationStep === 0 ? `Welcome to\n${selectedCommunityForValidation?.name || selectedCommunityForValidation?.community_title || 'Community'}` : validationStep === 1 ? 'Start connecting with other members' : 'All Set!'}</Text>
 
               {selectedCommunityForValidation?.profileImage || (selectedCommunityForValidation?.img?.uri) ? (
-                <Image 
+                <Image
                   source={
-                    selectedCommunityForValidation?.profileImage 
-                      ? { uri: selectedCommunityForValidation.profileImage } 
-                      : selectedCommunityForValidation?.img?.uri 
+                    selectedCommunityForValidation?.profileImage
+                      ? { uri: selectedCommunityForValidation.profileImage }
+                      : selectedCommunityForValidation?.img?.uri
                         ? { uri: selectedCommunityForValidation.img.uri }
                         : selectedCommunityForValidation.img
-                  } 
-                  style={styles.modalAvatar} 
+                  }
+                  style={styles.modalAvatar}
                 />
               ) : (
                 <View style={[styles.modalAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
@@ -647,9 +655,16 @@ export default function TopBar({ navigation, route }) {
                 />
               )}
             </View>
-            <Text style={[styles.profileStatus, { color: isConnected ? '#08FFE2' : '#666' }]}> 
-              ● {isConnected ? 'Online' : 'Offline'}
-            </Text>
+            {/* User Status Badge */}
+            <View style={{ marginTop: 4 }}>
+              <TouchableOpacity onPress={() => setStatusSelectorVisible(true)}>
+                <StatusBadge
+                  isOwnStatus={true}
+                  size="small"
+                  showEditIcon={false}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
@@ -742,29 +757,29 @@ export default function TopBar({ navigation, route }) {
             </>
           )}
 
-        {/* === JOINED TAB === */}
-        {activeButton === 'Joined' && (
-          <View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
-              {categories.map((cat) => {
-                const isActive = activeCategoryJoined === cat;
-                return (
-                  <TouchableOpacity 
-                    key={cat + '_joined'} 
-                    onPress={() => setActiveCategoryJoined(cat)} 
-                    style={styles.categoryButton}
-                  >
-                    <Text style={[styles.categoryText, { color: isActive ? '#fff' : '#aaa' }]}>{cat}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+          {/* === JOINED TAB === */}
+          {activeButton === 'Joined' && (
+            <View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
+                {categories.map((cat) => {
+                  const isActive = activeCategoryJoined === cat;
+                  return (
+                    <TouchableOpacity
+                      key={cat + '_joined'}
+                      onPress={() => setActiveCategoryJoined(cat)}
+                      style={styles.categoryButton}
+                    >
+                      <Text style={[styles.categoryText, { color: isActive ? '#fff' : '#aaa' }]}>{cat}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
 
-            {/* Joined Communities Grid */}
-            <View style={styles.eventsContainer}>
-              {joinedCommunities.length > 0 ? (
-                <View style={styles.gridContainer}>
-                  {filteredJoinedCommunities.map((item, idx) => (
+              {/* Joined Communities Grid */}
+              <View style={styles.eventsContainer}>
+                {joinedCommunities.length > 0 ? (
+                  <View style={styles.gridContainer}>
+                    {filteredJoinedCommunities.map((item, idx) => (
                       <CommunityCard
                         key={item.community_id || item.id || idx.toString()}
                         item={item}
@@ -774,106 +789,112 @@ export default function TopBar({ navigation, route }) {
                         isJoined={false}
                       />
                     ))}
-                </View>
-              ) : (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <Text style={{ color: '#666', fontSize: 14 }}>No joined communities yet</Text>
-                  <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
-                    Explore communities to join them
-                  </Text>
-                </View>
-              )}
+                  </View>
+                ) : (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: '#666', fontSize: 14 }}>No joined communities yet</Text>
+                    <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
+                      Explore communities to join them
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* 🌈 Gradient Button: Explore More → */}
+
             </View>
+          )}
 
-            {/* 🌈 Gradient Button: Explore More → */}
-          
-          </View>
-        )}
-
-        {/* === MANAGED TAB === */}
-        {activeButton === 'Managed by you' && (
-          <View>
-            <Text style={styles.cardTitle}>Communities Managed by You</Text>
-{/* thoes communities that the user is the admin of that community will be shown here */}
-            {/* Managed Communities Grid */}
-            <View style={styles.eventsContainer}>
-              {managedCommunities.length > 0 ? (
-                <View style={styles.gridContainer}>
-                  {managedCommunities.map((item, idx) => (
-                    <TouchableOpacity
-                      key={item.community_id || item.id || idx.toString()}
-                      style={styles.eventCardGrid}
-                      onPress={() => navigation.navigate('GroupInfo', { communityId: item.community_id || item.id })}
-                      activeOpacity={0.8}
-                    >
-                      <View style={{ position: 'relative' }}>
-                        <Image
-                          source={item.img || require('./assets/profile.png')}
-                          style={styles.eventImageGrid}
-                        />
-                      </View>
-                      <Text style={styles.eventTitle} numberOfLines={1}>
-                        {item.name || item.community_title || item.title || 'Community'}
-                      </Text>
-                      <Text style={styles.eventDate} numberOfLines={1}>
-                        {item.category || item.community_category || ''}
-                      </Text>
-                      {!!item.description && (
-                        <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={2}>
-                          {item.description}
+          {/* === MANAGED TAB === */}
+          {activeButton === 'Managed by you' && (
+            <View>
+              <Text style={styles.cardTitle}>Communities Managed by You</Text>
+              {/* thoes communities that the user is the admin of that community will be shown here */}
+              {/* Managed Communities Grid */}
+              <View style={styles.eventsContainer}>
+                {managedCommunities.length > 0 ? (
+                  <View style={styles.gridContainer}>
+                    {managedCommunities.map((item, idx) => (
+                      <TouchableOpacity
+                        key={item.community_id || item.id || idx.toString()}
+                        style={styles.eventCardGrid}
+                        onPress={() => navigation.navigate('GroupInfo', { communityId: item.community_id || item.id })}
+                        activeOpacity={0.8}
+                      >
+                        <View style={{ position: 'relative' }}>
+                          <Image
+                            source={item.img || require('./assets/profile.png')}
+                            style={styles.eventImageGrid}
+                          />
+                        </View>
+                        <Text style={styles.eventTitle} numberOfLines={1}>
+                          {item.name || item.community_title || item.title || 'Community'}
                         </Text>
-                      )}
-                      <View style={{ marginTop: 6 }}>
-                        <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              ) : (
-                <View style={{ padding: 20, alignItems: 'center' }}>
-                  <Text style={{ color: '#666', fontSize: 14 }}>No managed communities yet</Text>
-                  <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
-                    Create a community to manage it
-                  </Text>
-                </View>
-              )}
-            </View>
+                        <Text style={styles.eventDate} numberOfLines={1}>
+                          {item.category || item.community_category || ''}
+                        </Text>
+                        {!!item.description && (
+                          <Text style={[styles.eventDate, { color: '#aaa', marginTop: 4 }]} numberOfLines={2}>
+                            {item.description}
+                          </Text>
+                        )}
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={{ padding: 20, alignItems: 'center' }}>
+                    <Text style={{ color: '#666', fontSize: 14 }}>No managed communities yet</Text>
+                    <Text style={{ color: '#888', fontSize: 12, marginTop: 5 }}>
+                      Create a community to manage it
+                    </Text>
+                  </View>
+                )}
+              </View>
 
-            {/* ✏️ Gradient Button: Create New Community */}
-            <TouchableOpacity 
-              activeOpacity={0.8} 
-              style={{ alignSelf: 'center', marginTop: 15 }}
-              onPress={() => navigation.navigate('CreateCommunityScreen')}
-            >
-              <LinearGradient
-                colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[styles.gradientButton, { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }]}
+              {/* ✏️ Gradient Button: Create New Community */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{ alignSelf: 'center', marginTop: 15 }}
+                onPress={() => navigation.navigate('CreateCommunityScreen')}
               >
-                <Ionicons name="create-outline" size={18} color="#fff" />
-                <Text style={styles.gradientButtonText}>Create New Community</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        )}
+                <LinearGradient
+                  colors={['rgba(255, 6, 200, 0.4)', 'rgba(255, 6, 200, 0.1)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.gradientButton, { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 8 }]}
+                >
+                  <Ionicons name="create-outline" size={18} color="#fff" />
+                  <Text style={styles.gradientButtonText}>Create New Community</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       )}
 
+      {/* Status Selector Modal */}
+      <StatusSelector
+        visible={statusSelectorVisible}
+        onClose={() => setStatusSelectorVisible(false)}
+        title="Update Your Status"
+      />
     </View>
   );
-}const styles = StyleSheet.create({
+} const styles = StyleSheet.create({
   container: { backgroundColor: '#000', flex: 1 },
-  loadingContainer: { 
-    flex: 1, 
-    justifyContent: 'center', 
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000' 
+    backgroundColor: '#000'
   },
-  loadingText: { 
-    color: '#fff', 
+  loadingText: {
+    color: '#fff',
     marginTop: 10,
-    fontSize: 16 
+    fontSize: 16
   },
   topBar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 40, paddingBottom: 15 },
   profileContainer: { flexDirection: 'row', alignItems: 'center' },

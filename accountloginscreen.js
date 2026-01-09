@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -83,28 +84,28 @@ export default function LoginScreen({ navigation }) {
       console.log('🔐 Attempting login...');
       console.log('📧 Email:', email);
       console.log('🌐 Network connected:', isConnected);
-      
+
       const auth = getAuth(app);
       console.log('✅ Got auth instance');
-      
+
       // Try login with shorter timeout (20 seconds)
       console.log('📡 Calling signInWithEmailAndPassword...');
       const loginPromise = signInWithEmailAndPassword(auth, email, password);
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Login timeout - server not responding')), 20000)
       );
-      
+
       const userCredential = await Promise.race([loginPromise, timeoutPromise]);
       const user = userCredential.user;
-      
+
       console.log('✅ Login successful for user:', user.uid);
-      
+
       // Verify user document exists in Firestore, create/update if missing or incomplete
       // IMPORTANT: Preserve all existing website user data
       try {
         const userRef = doc(db, 'users', user.uid);
         const userSnap = await getDoc(userRef);
-        
+
         if (!userSnap.exists()) {
           console.log('📝 User document not found, creating complete user profile for migrated user...');
           // Create complete user document with all required fields for old/migrated users
@@ -136,7 +137,7 @@ export default function LoginScreen({ navigation }) {
           console.log('✅ User document exists, preserving existing data and adding only missing fields...');
           const userData = userSnap.data();
           const updates = {};
-          
+
           // PRESERVE EXISTING DATA - Only add missing required fields
           // Never overwrite existing user data from website
           if (userData.firstName === undefined || userData.firstName === null || userData.firstName === '') {
@@ -178,10 +179,10 @@ export default function LoginScreen({ navigation }) {
           if (userData.email === undefined || userData.email === null) {
             updates.email = user.email;
           }
-          
+
           // Always update last login to track mobile app usage
           updates.lastLogin = new Date().toISOString();
-          
+
           if (Object.keys(updates).length > 1) { // More than just lastLogin
             console.log('📝 Adding missing fields while preserving existing data:', Object.keys(updates));
             await updateDoc(userRef, updates);
@@ -196,21 +197,31 @@ export default function LoginScreen({ navigation }) {
         console.warn('⚠️  Firestore check failed, but auth succeeded:', firestoreError);
         // Don't block login if Firestore is having issues
       }
-      
+
+      // Save authentication state to AsyncStorage for persistent login
+      try {
+        await AsyncStorage.setItem('userLoggedIn', 'true');
+        await AsyncStorage.setItem('userEmail', user.email);
+        console.log('💾 Login state saved to AsyncStorage');
+      } catch (storageError) {
+        console.warn('⚠️  Failed to save login state:', storageError);
+        // Don't block navigation if storage fails
+      }
+
       // Clear inputs
       setEmail('');
       setPassword('');
-      
+
       // Navigate to TabBar (bottom tabs) on successful login
       console.log('🚀 Navigating to TabBar...');
       navigation.replace('TabBar');
     } catch (error) {
       console.error('❌ Login Error:', error);
-      
+
       // Show user-friendly error messages
       let errorMessage = 'An error occurred during login';
       let errorTitle = 'Login Failed';
-      
+
       if (error.message && error.message.includes('Login timeout')) {
         errorTitle = 'Connection Timeout';
         errorMessage = 'Firebase Authentication is not responding. This usually means:\n\n• Network/Firewall blocking Firebase\n• DNS resolution issues\n• Try using mobile data instead of WiFi\n• Contact your network administrator';
@@ -243,7 +254,7 @@ export default function LoginScreen({ navigation }) {
             errorMessage = error.message || 'An error occurred during login';
         }
       }
-      
+
       Alert.alert(errorTitle, errorMessage, [
         { text: 'OK' },
         error.code === 'auth/network-request-failed' && {
@@ -332,8 +343,8 @@ export default function LoginScreen({ navigation }) {
         </TouchableOpacity>
 
         {/* 🚀 Login Button */}
-        <TouchableOpacity 
-          onPress={handleLogin} 
+        <TouchableOpacity
+          onPress={handleLogin}
           activeOpacity={0.8}
           disabled={isLoading}
         >

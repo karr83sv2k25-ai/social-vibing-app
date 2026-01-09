@@ -12,20 +12,172 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
     
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return isSignedIn() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Helper function to check if user is verified (17+)
+    function isVerified() {
+      return isSignedIn() && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isVerified == true;
+    }
+    
+    // ========== MARKETPLACE COLLECTIONS ==========
+    
+    // Products - anyone can read, special write rules
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if request.resource.data.isOfficial == true && 
+                      request.resource.data.creatorId == 'official';
+      allow create: if isSignedIn() && 
+                      request.resource.data.creatorId == request.auth.uid;
+      allow update, delete: if isSignedIn() && 
+                               resource.data.creatorId == request.auth.uid;
+      allow update: if isSignedIn() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['stats']);
+    }
+    
+    // Users collection - allow wallet and ownedProducts updates for purchases
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+
+      // Full update for own doc
+      allow update: if isOwner(userId);
+      
+      // Admin can update verification status and moderation fields
+      allow update: if isAdmin() && 
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isVerified', 'verificationStatus', 'verifiedAt', 'verifiedBy', 
+                    'isBanned', 'banReason', 'bannedAt', 'bannedBy', 
+                    'unbannedAt', 'unbannedBy', 'warnings', 'lastWarning', 
+                    'warnedAt', 'warnedBy', 'revokedAt', 'revokedBy']);
+
+      // Only followers/following counters
+      allow update: if isSignedIn() && 
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['followersCount', 'followingCount']);
+
+      // Only wallet-related fields: wallet, coins, diamonds, ownedProducts
+      allow update: if isSignedIn() && 
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['wallet', 'coins', 'diamonds', 'ownedProducts']);
+      
+      // User's hidden posts (Web App)
+      match /hidden/{postId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+      
+      // User's saved posts (Web App)
+      match /saved/{postId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+      
+      // User's bookmarks (Web App)
+      match /bookmarks/{postId} {
+        allow read: if isOwner(userId);
+        allow write: if isOwner(userId);
+      }
+      
+      // User following/followers subcollections
+      match /following/{followId} {
+        allow read: if isSignedIn();
+        allow write: if isOwner(userId);
+      }
+      
+      match /followers/{followerId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn();
+      }
+      
+      // User notifications subcollection
+      match /notifications/{notificationId} {
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn();
+        allow update: if isSignedIn() && isOwner(userId);
+        allow delete: if isSignedIn() && isOwner(userId);
+      }
+      
+      // Friends collection
+      match /friends/{friendId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() && 
+                       (request.auth.uid == userId || 
+                        request.auth.uid == friendId);
+      }
+      
+      // Blocked users collection
+      match /blocked/{blockedUserId} {
+        allow read: if isSignedIn() && request.auth.uid == userId;
+        allow write: if isSignedIn() && request.auth.uid == userId;
+      }
+    }
+    
+    // Libraries - users can read and write their own
+    match /libraries/{userId} {
+      allow read: if isSignedIn() && isOwner(userId);
+      allow write: if isSignedIn() && isOwner(userId);
+    }
+    
+    // Orders - buyers can read their orders, Cloud Functions create
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+    
+    // Wallets - users can read their own, Cloud Functions manage
+    match /wallets/{userId} {
+      allow read: if isSignedIn() && isOwner(userId);
+      allow write: if false;
+    }
+    
+    // Transactions - users can read their own
+    match /transactions/{transactionId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+    
+    // Daily Rewards - users can only access their own
+    match /dailyRewards/{rewardId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Ad Rewards - users can only access their own
+    match /adRewards/{rewardId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+    
+    // Withdrawals - users can only access their own
+    match /withdrawals/{withdrawalId} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+    
+    // Reviews - anyone can read, authenticated users can create their own
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+    
+    // ========== END MARKETPLACE COLLECTIONS ==========
+    
     // Audio calls collection
     match /audio_calls/{communityId}/rooms/{roomId} {
-      // Allow authenticated users to create and read audio rooms
       allow create: if isSignedIn() &&
                       request.resource.data.createdBy == request.auth.uid;
       allow read: if isSignedIn();
-      
-      // Allow update if user is authenticated (for joining, leaving, updating status)
       allow update: if isSignedIn();
-      
-      // Allow delete if user is authenticated
       allow delete: if isSignedIn();
       
-      // Chat messages in audio call rooms
       match /chat/{chatId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -34,25 +186,14 @@ service cloud.firestore {
       }
     }
     
-    // Voice/Video Calls (both 1-on-1 and group calls)
+    // Voice/Video Calls
     match /calls/{callId} {
-      // Allow read if user is authenticated
-      // For 1-on-1: caller or receiver
-      // For group: anyone authenticated (they'll check groupId exists)
       allow read: if isSignedIn();
-      
-      // Allow create if user is the caller (callerId must match auth user)
       allow create: if isSignedIn() && 
                       request.resource.data.callerId == request.auth.uid;
-      
-      // Allow update if user is authenticated
-      // This allows joining group calls and updating call status
       allow update: if isSignedIn();
-      
-      // Allow delete if user is authenticated and involved in the call
       allow delete: if isSignedIn();
       
-      // Chat messages in calls
       match /chat/{chatId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -66,7 +207,6 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
       
-      // Posts subcollection
       match /posts/{postId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -75,7 +215,6 @@ service cloud.firestore {
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid);
         
-        // Comments subcollection
         match /comments/{commentId} {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
@@ -84,7 +223,6 @@ service cloud.firestore {
         }
       }
       
-      // Blogs subcollection
       match /blogs/{blogId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -93,7 +231,6 @@ service cloud.firestore {
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid);
         
-        // Comments subcollection for blogs
         match /comments/{commentId} {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
@@ -102,7 +239,6 @@ service cloud.firestore {
         }
       }
       
-      // Drafts subcollection
       match /drafts/{draftId} {
         allow read: if isSignedIn() && resource.data.authorId == request.auth.uid;
         allow create: if isSignedIn();
@@ -110,14 +246,12 @@ service cloud.firestore {
         allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
       }
       
-      // Groups subcollection
       match /groups/{groupId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
         allow delete: if isSignedIn() && resource.data.createdBy == request.auth.uid;
         
-        // Messages within a group
         match /messages/{messageId} {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
@@ -125,7 +259,6 @@ service cloud.firestore {
           allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
         }
         
-        // Members within a group
         match /members/{memberId} {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
@@ -134,26 +267,12 @@ service cloud.firestore {
         }
       }
       
-      // Messages subcollection
       match /messages/{messageId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
         allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
       }
-    }
-    
-    // Users collection
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId);
-      // Allow user to update their own profile
-      allow update: if isOwner(userId);
-      // Also allow updating followersCount and followingCount fields by authenticated users
-      // This is needed when someone follows/unfollows another user
-      allow update: if isSignedIn() && 
-                      request.resource.data.diff(resource.data).affectedKeys()
-                        .hasOnly(['followersCount', 'followingCount']);
     }
     
     // Community chats
@@ -172,33 +291,29 @@ service cloud.firestore {
       allow delete: if isSignedIn();
     }
     
-    // Helper function to check conversation participant (safer version)
+    // Helper function to check conversation participant
     function isConversationParticipant(conversationId) {
       return isSignedIn() && 
         exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.participants;
     }
     
-    // Helper function to check conversation admin (safer version)
+    // Helper function to check conversation admin
     function isConversationAdmin(conversationId) {
       return isSignedIn() && 
         exists(/databases/$(database)/documents/conversations/$(conversationId)) &&
         request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.admins;
     }
     
-    // Private conversations (list of user's conversations)
+    // Private conversations
     match /conversations/{conversationId} {
       allow read: if isSignedIn() && 
                     (request.auth.uid in resource.data.participants);
-      // FIXED: Allow create if user is in the new conversation's participants
-      // Allow group creation with userSettings and unreadCount initialization
       allow create: if isSignedIn() && 
                       (request.auth.uid in request.resource.data.participants) &&
                       request.resource.data.participants is list &&
                       (
-                        // 1-on-1 chat (simple validation)
                         request.resource.data.type == 'private' ||
-                        // Group chat (creator must be in admins)
                         (request.resource.data.type == 'group' && 
                          request.auth.uid in request.resource.data.admins &&
                          request.auth.uid == request.resource.data.createdBy)
@@ -207,21 +322,14 @@ service cloud.firestore {
                       (request.auth.uid in resource.data.participants);
       allow delete: if isConversationAdmin(conversationId);
       
-      // Messages within a conversation
       match /messages/{messageId} {
-        // Allow read if user is signed in and conversation exists with user as participant
         allow read: if isConversationParticipant(conversationId);
-        
-        // Allow create if user is sender and either:
-        // 1. Conversation exists and user is participant
-        // 2. Conversation doesn't exist yet (first message/conversation creation)
         allow create: if isSignedIn() && 
                         request.resource.data.senderId == request.auth.uid &&
                         (
                           isConversationParticipant(conversationId) ||
                           !exists(/databases/$(database)/documents/conversations/$(conversationId))
                         );
-        
         allow update: if isSignedIn() && 
                         (resource.data.senderId == request.auth.uid || 
                          isConversationParticipant(conversationId) ||
@@ -247,7 +355,7 @@ service cloud.firestore {
       allow write: if isSignedIn();
     }
     
-    // Top-level messages collection (for backward compatibility)
+    // Top-level messages collection
     match /messages/{messageId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
@@ -270,7 +378,6 @@ service cloud.firestore {
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
       
-      // Chat messages in screening room
       match /chat/{chatId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -279,7 +386,7 @@ service cloud.firestore {
       }
     }
     
-    // Roleplay characters (both naming conventions for compatibility)
+    // Roleplay characters
     match /roleplay_characters/{characterId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
@@ -301,7 +408,6 @@ service cloud.firestore {
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
       
-      // Chat messages in roleplay session
       match /chat/{chatId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -310,35 +416,12 @@ service cloud.firestore {
       }
     }
     
-    // Test collection (for testing Firebase+Hostinger setup)
+    // Test collection
     match /test/{testId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
-    }
-    
-    // User following/followers subcollections
-    match /users/{userId}/following/{followId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-    
-    match /users/{userId}/followers/{followerId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn();
-    }
-    
-    // User notifications subcollection
-    match /users/{userId}/notifications/{notificationId} {
-      allow read: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn();
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
     }
     
     // Reserved usernames collection
@@ -360,7 +443,7 @@ service cloud.firestore {
       allow delete: if isSignedIn();
     }
     
-    // User events (user-specific event participations)
+    // User events
     match /user_events/{userEventId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
@@ -383,52 +466,52 @@ service cloud.firestore {
                        resource.data.toUserId == request.auth.uid);
     }
     
-    // Friends collection (user's friends list)
-    match /users/{userId}/friends/{friendId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn() && 
-                     (request.auth.uid == userId || 
-                      request.auth.uid == friendId);
-    }
-    
-    // Blocked users collection
-    match /users/{userId}/blocked/{blockedUserId} {
-      allow read: if isSignedIn() && request.auth.uid == userId;
-      allow write: if isSignedIn() && request.auth.uid == userId;
-    }
-    
-    // Global Posts collection
+    // Global Posts collection (Web App: public read)
     match /posts/{postId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow read: if true;
+      allow create: if isSignedIn() && 
+                      (request.resource.data.authorId == request.auth.uid || 
+                       request.resource.data.userId == request.auth.uid);
       allow update: if isSignedIn();
-      allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+      allow delete: if isSignedIn() && 
+                      (resource.data.authorId == request.auth.uid || 
+                       resource.data.userId == request.auth.uid);
       
-      // Comments on posts
       match /comments/{commentId} {
-        allow read: if isSignedIn();
+        allow read: if true;
         allow create: if isSignedIn();
-        allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
-        allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+        allow update: if isSignedIn() && 
+                        (resource.data.userId == request.auth.uid || 
+                         resource.data.authorId == request.auth.uid);
+        allow delete: if isSignedIn() && 
+                        (resource.data.userId == request.auth.uid || 
+                         resource.data.authorId == request.auth.uid);
       }
     }
     
-    // Stories collection
+    // Top-level Comments collection (Web App)
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+      allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+    }
+    
+    // Stories collection (Web App: public read)
     match /stories/{storyId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
     
-    // Polls collection
+    // Polls collection (Web App: public read)
     match /polls/{pollId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       
-      // Poll votes subcollection
       match /votes/{voteId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -437,14 +520,13 @@ service cloud.firestore {
       }
     }
     
-    // Quizzes collection
+    // Quizzes collection (Web App: public read)
     match /quizzes/{quizId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       
-      // Quiz attempts subcollection
       match /attempts/{attemptId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -453,14 +535,13 @@ service cloud.firestore {
       }
     }
     
-    // Questions collection
+    // Questions collection (Web App: public read)
     match /questions/{questionId} {
-      allow read: if isSignedIn();
+      allow read: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
       
-      // Answers to questions
       match /answers/{answerId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
@@ -469,9 +550,55 @@ service cloud.firestore {
       }
     }
     
-    // Default rule - deny all access to other collections
-    match /{document=**} {
-      allow read, write: if false;
+    // Reports collection (Web App)
+    match /reports/{reportId} {
+      allow read: if false; // Only admins should read
+      allow create: if isSignedIn();
+      allow update: if false;
+      allow delete: if false;
     }
+    
+    // ========== ADMIN PANEL COLLECTIONS ==========
+    
+    // Advertisements collection (Admin Panel)
+    match /advertisements/{adId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // Blocked Content collection (Admin Panel)
+    match /blocked_content/{contentId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // Join Requests collection (Admin Panel)
+    match /join_requests/{requestId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // Blocked Members collection (Admin Panel)
+    match /blocked_members/{memberId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // Management Records collection (Admin Panel)
+    match /management_records/{recordId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
   }
 }

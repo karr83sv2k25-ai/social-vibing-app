@@ -9,12 +9,12 @@ import {
   Alert,
   ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { setDoc, doc } from 'firebase/firestore';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import PhoneInput from 'react-native-phone-number-input';
 import {
   useFonts,
@@ -31,13 +31,13 @@ export default function WithEmailScreen({ navigation }) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  
+
   // Validation states
   const [isValidEmail, setIsValidEmail] = useState(true);
   const [isValidPhone, setIsValidPhone] = useState(true);
   const [isStrongPassword, setIsStrongPassword] = useState(true);
   const [passwordsMatch, setPasswordsMatch] = useState(true);
-  
+
   const phoneInput = useRef(null);
 
   let [fontsLoaded] = useFonts({
@@ -100,10 +100,10 @@ export default function WithEmailScreen({ navigation }) {
     try {
       const auth = getAuth(app);
       // db is now imported globally
-      
+
       // Create user with email and password
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      
+
       // Save additional user info to Firestore
       const userData = {
         firstName,
@@ -114,6 +114,15 @@ export default function WithEmailScreen({ navigation }) {
       };
 
       await setDoc(doc(db, 'users', userCredential.user.uid), userData);
+
+      // Save authentication state to AsyncStorage for persistent login
+      try {
+        await AsyncStorage.setItem('userLoggedIn', 'true');
+        await AsyncStorage.setItem('userEmail', userCredential.user.email);
+        console.log('💾 Login state saved after account creation');
+      } catch (storageError) {
+        console.warn('⚠️  Failed to save login state:', storageError);
+      }
 
       Alert.alert('Success', 'Account created successfully!', [
         {
@@ -149,7 +158,7 @@ export default function WithEmailScreen({ navigation }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView 
+      <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}>

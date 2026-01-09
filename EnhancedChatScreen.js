@@ -33,6 +33,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useChatState } from './hooks/useChatState';
 import { MessageBox } from './components/MessageBox';
 import { ScrollToBottomButton } from './components/ScrollToBottomButton';
+import { InlineStatus } from './components/StatusBadge';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadVideoToHostinger } from './hostingerConfig';
 import { compressChatImage } from './utils/imageCompression';
@@ -233,7 +234,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
       // For now, we'll just start recording
       setIsRecording(true);
       setRecordingDuration(0);
-      
+
       // Start timer
       recordingTimerRef.current = setInterval(() => {
         setRecordingDuration(prev => prev + 1);
@@ -254,7 +255,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
         clearInterval(recordingTimerRef.current);
         recordingTimerRef.current = null;
       }
-      
+
       const duration = recordingDuration;
       setIsRecording(false);
       setRecordingDuration(0);
@@ -444,6 +445,15 @@ export default function EnhancedChatScreen({ route, navigation }) {
             <Text style={styles.headerStatus}>
               {uploadProgress || (isTyping ? 'typing...' : isOnline ? 'online' : 'offline')}
             </Text>
+            {user.userId && (
+              <View style={{ marginTop: 4 }}>
+                <InlineStatus
+                  userId={user.userId}
+                  isOwnStatus={false}
+                  textStyle={{ fontSize: 12, color: '#9CA3AF' }}
+                />
+              </View>
+            )}
           </View>
         </View>
         <TouchableOpacity style={styles.headerRight}>

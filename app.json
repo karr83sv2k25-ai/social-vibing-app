@@ -2,7 +2,7 @@
   "expo": {
     "name": "Social Vibing",
     "slug": "social-vibing",
-    "owner": "karr83_sv",
+    "owner": "zainulabideen777",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
@@ -52,7 +52,7 @@
       "FIREBASE_APP_ID": "1:907907966035:web:eca4797d3d76e6f00552a6",
       "FIREBASE_MEASUREMENT_ID": "G-496NQLYE01",
       "eas": {
-        "projectId": "06df50b7-56f1-4fb8-a7c3-2a3310dd68bb"
+        "projectId": "1ccada93-755e-4a09-aec2-f362f8d0bca6"
       }
     },
     "plugins": [

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,8 +7,13 @@ import {
   ScrollView,
   TouchableOpacity,
   SafeAreaView,
+  RefreshControl,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { useWallet } from "./context/WalletContext";
+import { db, auth } from "./firebaseConfig";
+import { collection, query, where, orderBy, limit, getDocs, doc, getDoc } from "firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
 
 const BG = "#0B0B0E";
@@ -52,11 +57,166 @@ const FILTERS = {
 };
 
 export default function MarketPlaceScreen({ navigation }) {
+  const { wallet, loading: walletLoading } = useWallet();
   const [activeTab, setActiveTab] = useState("Popular");
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [libraryCounts, setLibraryCounts] = useState({
+    comics: 0,
+    books: 0,
+    art: 0,
+    stickers: 0,
+    frames: 0,
+    bubbles: 0,
+  });
+
+  useEffect(() => {
+    console.log('🚀 Marketplace mounted, fetching products...');
+    fetchProducts();
+    fetchLibraryCounts();
+  }, [activeTab]);
+
+  const fetchProducts = async () => {
+    try {
+      setLoading(true);
+      console.log('🔄 Fetching products from Firestore...');
+      console.log('📊 Active tab:', activeTab);
+
+      // Fetch from Firestore
+      const productsRef = collection(db, 'products');
+      let q;
+
+      // Simplified queries - just get all products and filter client-side
+      console.log('📦 Building query...');
+      q = query(productsRef, limit(50));
+
+      console.log('⏳ Executing query...');
+      const snapshot = await getDocs(q);
+      console.log(`✅ Found ${snapshot.size} products in Firestore`);
+      
+      const fetchedProducts = snapshot.docs.map(doc => {
+        const data = doc.data();
+        console.log(`  📌 ${data.title} - ${data.type} - ${data.price} ${data.currency}`);
+        return {
+          id: doc.id,
+          productId: doc.id, // Ensure productId is set for navigation
+          ...data,
+          // Flatten stats for easier access
+          purchaseCount: data.stats?.purchaseCount || data.purchaseCount || 0,
+          rating: data.stats?.rating || data.rating || 0,
+        };
+      });
+
+      console.log(`📊 Fetched ${fetchedProducts.length} products from Firestore`);
+
+      // Filter on client side if needed
+      let filteredProducts = fetchedProducts.filter(p => p.status === 'active' || !p.status);
+      console.log(`🔍 After status filter: ${filteredProducts.length} products`);
+
+      if (activeTab === 'Popular') {
+        filteredProducts.sort((a, b) => (b.purchaseCount || 0) - (a.purchaseCount || 0));
+        console.log('📈 Sorted by popularity');
+      } else if (activeTab === 'Officials') {
+        const beforeCount = filteredProducts.length;
+        filteredProducts = filteredProducts.filter(p => p.isOfficial === true);
+        console.log(`🏢 Officials filter: ${beforeCount} → ${filteredProducts.length} products`);
+      } else if (activeTab === 'Freebies') {
+        const beforeCount = filteredProducts.length;
+        filteredProducts = filteredProducts.filter(p => p.price === 0);
+        console.log(`🆓 Freebies filter: ${beforeCount} → ${filteredProducts.length} products`);
+      }
+
+      console.log(`✅ Final products to display: ${filteredProducts.length}`);
+      
+      if (filteredProducts.length > 0) {
+        console.log('✨ Setting Firestore products');
+        setProducts(filteredProducts);
+      } else {
+        console.warn('⚠️ No products after filtering, using dummy data');
+        setProducts(PRODUCTS);
+      }
+    } catch (error) {
+      console.error('❌ Failed to fetch products:', error);
+      console.error('❌ Error details:', error.message);
+      console.error('❌ Error stack:', error.stack);
+
+      // Show helpful message if index is building
+      if (error.message?.includes('index is currently building')) {
+        console.log('⏳ Firestore indexes are building. This takes 1-2 minutes. Showing dummy data...');
+      }
+
+      // Fallback to dummy data if Firestore fails
+      console.log('📦 Using fallback dummy products');
+      setProducts(PRODUCTS);
+    } finally {
+      setLoading(false);
+      console.log('✅ Fetch complete');
+    }
+  };
+
+  const fetchLibraryCounts = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        console.log('⚠️ No user logged in, cannot fetch library counts');
+        return;
+      }
+
+      console.log('📚 Fetching library counts for user:', user.uid);
+
+      // Fetch user's library
+      const libraryRef = doc(db, 'libraries', user.uid);
+      const libraryDoc = await getDoc(libraryRef);
+
+      if (!libraryDoc.exists()) {
+        console.log('📚 No library found for user');
+        return;
+      }
+
+      const libraryData = libraryDoc.data();
+      console.log('📚 Library data:', libraryData);
+
+      // Count items by type - matching the field names in Firestore
+      const counts = {
+        comics: (libraryData.comics || []).length,
+        books: (libraryData.books || []).length,
+        art: (libraryData.art || []).length,
+        stickers: (libraryData.stickerPacks || libraryData.stickers || []).length,
+        frames: (libraryData.profileFrames || libraryData.frames || []).length,
+        bubbles: (libraryData.chatBubbles || libraryData.bubbles || []).length,
+      };
+
+      console.log('📊 Library counts:', counts);
+      setLibraryCounts(counts);
+    } catch (error) {
+      console.error('❌ Failed to fetch library counts:', error);
+    }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchProducts();
+    await fetchLibraryCounts();
+    setRefreshing(false);
+  };
+
+  const handleProductPress = (productId) => {
+    navigation.navigate('ProductDetail', { productId });
+  };
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#08FFE2"
+          />
+        }
+      >
         {/* 🔹 Header */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -74,13 +234,23 @@ export default function MarketPlaceScreen({ navigation }) {
 
         {/* 💰 Coins & Diamonds */}
         <View style={styles.balanceRow}>
-          <TouchableOpacity style={styles.balanceBtn}>
+          <TouchableOpacity
+            style={styles.balanceBtn}
+            onPress={() => navigation.navigate('CoinPurchase')}
+          >
             <Ionicons name="logo-usd" size={16} color={CYAN} />
-            <Text style={styles.balanceText}>5 Coins</Text>
+            <Text style={styles.balanceText}>
+              {walletLoading ? '...' : wallet.coins} Coins
+            </Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.balanceBtn}>
+          <TouchableOpacity
+            style={styles.balanceBtn}
+            onPress={() => navigation.navigate('DiamondPurchase')}
+          >
             <MaterialCommunityIcons name="diamond-stone" size={16} color="#ff00ff" />
-            <Text style={styles.balanceText}>2 Diamonds</Text>
+            <Text style={styles.balanceText}>
+              {walletLoading ? '...' : wallet.diamonds} Diamonds
+            </Text>
           </TouchableOpacity>
         </View>
 
@@ -98,35 +268,111 @@ export default function MarketPlaceScreen({ navigation }) {
           <Image source={require("./assets/gift.png")} style={styles.promoImage} />
         </LinearGradient>
 
-        {/* 🧩 Categories */}
+        {/* 🧩 Categories - 6 Main Features */}
         <View style={styles.categoryRow}>
-          <Category icon={require("./assets/character.png")} label="" />
-          <Category icon={require("./assets/profileframe.png")} label="" />
-          <Category icon={require("./assets/chatbubbles.png")} label="" />
-          <Category icon={require("./assets/photos.png")} label="" />
+          <Category
+            icon={require("./assets/character.png")}
+            label="Comics"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'comic' })}
+          />
+          <Category
+            icon={require("./assets/profileframe.png")}
+            label="Books"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'book' })}
+          />
+          <Category
+            icon={require("./assets/photos.png")}
+            label="Art"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'art' })}
+          />
         </View>
 
-        {/* 🔸 Colors Section */}
-        <Section title="Colors" data={USERS} />
-        {/* 🔸 Characters Section */}
-        <Section title="Characters" data={USERS} />
-        {/* 🔸 Message Bubbles Section */}
-        <Section title="Message Bubbles" data={USERS} />
+        <View style={styles.categoryRow}>
+          <Category
+            icon={require("./assets/chatbubbles.png")}
+            label="Stickers"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'sticker_pack' })}
+          />
+          <Category
+            icon={require("./assets/profileframe.png")}
+            label="Frames"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'profile_frame' })}
+          />
+          <Category
+            icon={require("./assets/chatbubbles.png")}
+            label="Bubbles"
+            onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'chat_bubble' })}
+          />
+        </View>
+
+        {/* 🛠️ Quick Setup (Show if no products) */}
+        {!loading && products.length === 0 && (
+          <View>
+            <TouchableOpacity
+              style={styles.setupButton}
+              onPress={() => {
+                console.log('🔄 Manual refresh triggered');
+                fetchProducts();
+              }}
+            >
+              <MaterialCommunityIcons name="refresh" size={20} color="#fff" />
+              <Text style={styles.setupText}>Refresh Products</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.setupButton, { marginTop: 10, backgroundColor: '#6366F1' }]}
+              onPress={() => navigation.navigate('TestMarketplaceSetup')}
+            >
+              <MaterialCommunityIcons name="cog-outline" size={20} color="#fff" />
+              <Text style={styles.setupText}>Setup Marketplace Data</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* � My Library Quick Access */}
+       
 
         {/* Tabs + Product Grid */}
         <FilterTabs active={activeTab} onChange={setActiveTab} />
-        <ProductGrid items={FILTERS[activeTab] || []} />
+
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={ACCENT} />
+            <Text style={styles.loadingText}>Loading products...</Text>
+          </View>
+        ) : products.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <MaterialCommunityIcons name="package-variant" size={60} color={TEXT_DIM} />
+            <Text style={styles.emptyTitle}>No Products Yet</Text>
+            <Text style={styles.emptyDesc}>
+              Click "Setup Marketplace Data" above to add sample products
+            </Text>
+          </View>
+        ) : (
+          <ProductGrid items={products} onProductPress={handleProductPress} />
+        )}
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 /* ---------- Small Components ---------- */
-function Category({ icon, label }) {
+function Category({ icon, label, onPress }) {
   return (
-    <TouchableOpacity style={styles.catItem}>
+    <TouchableOpacity style={styles.catItem} onPress={onPress}>
       <Image source={icon} style={styles.catIcon} />
       {!!label && <Text style={styles.catText}>{label}</Text>}
+    </TouchableOpacity>
+  );
+}
+
+function LibraryCard({ icon, title, count, color, onPress }) {
+  return (
+    <TouchableOpacity style={[styles.libraryCard, { borderColor: color }]} onPress={onPress}>
+      <View style={[styles.libraryIconBg, { backgroundColor: color + '20' }]}>
+        <Ionicons name={icon} size={28} color={color} />
+      </View>
+      <Text style={styles.libraryTitle}>{title}</Text>
+      <Text style={styles.libraryCount}>{count} items</Text>
     </TouchableOpacity>
   );
 }
@@ -188,33 +434,92 @@ function FilterTabs({ active, onChange }) {
   );
 }
 
-function ProductGrid({ items }) {
+// Product Card Component with proper image error handling
+function ProductCard({ item, index, onProductPress }) {
+  const [imageError, setImageError] = useState(false);
+
+  // Determine image source - handle both dummy data and Firestore products
+  let imageSource;
+  if (item.coverImage) {
+    imageSource = typeof item.coverImage === 'string' 
+      ? { uri: item.coverImage } 
+      : item.coverImage;
+  } else if (item.img) {
+    imageSource = typeof item.img === 'string' 
+      ? { uri: item.img } 
+      : item.img;
+  } else {
+    // Fallback to default placeholder
+    imageSource = require('./assets/pp1.png');
+  }
+
+  const fallbackImage = require('./assets/pp1.png');
+
+  return (
+    <TouchableOpacity
+      key={item.productId || item.id || `product-${index}`}
+      style={styles.productCard}
+      onPress={() => onProductPress(item.productId || item.id)}
+      activeOpacity={0.8}
+    >
+      <Image
+        source={imageError ? fallbackImage : imageSource}
+        style={styles.productImg}
+        defaultSource={fallbackImage}
+        onError={() => setImageError(true)}
+      />
+      <Text style={styles.productTitle} numberOfLines={1}>
+        {item.title || 'Untitled'}
+      </Text>
+
+      {/* ⭐ Rating */}
+      <View style={styles.ratingRow}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <Ionicons
+            key={i}
+            name={i < (item.stats?.rating || item.rating || 0) ? "star" : "star-outline"}
+            size={12}
+            color="#FFD54F"
+            style={{ marginRight: 2 }}
+          />
+        ))}
+      </View>
+
+      {/* 🪙 Currency icon + price */}
+      <View style={styles.priceRow}>
+        {item.currency === 'diamonds' ? (
+          <MaterialCommunityIcons name="diamond-stone" size={16} color="#EC4899" />
+        ) : (
+          <Image source={require("./assets/goldicon.png")} style={styles.goldIcon} />
+        )}
+        <Text style={styles.priceText}>
+          {item.price || 0} {item.currency === 'coins' ? 'Coins' : 'Diamonds'}
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+function ProductGrid({ items, onProductPress }) {
+  if (!items || items.length === 0) {
+    return (
+      <View style={styles.emptyContainer}>
+        <MaterialCommunityIcons name="package-variant" size={60} color={TEXT_DIM} />
+        <Text style={styles.emptyTitle}>No Products Available</Text>
+        <Text style={styles.emptyDesc}>Check back later for new items</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.gridWrap}>
-      {items.map((it) => (
-        <View style={styles.productCard} key={it.id}>
-          <Image source={it.img} style={styles.productImg} />
-          <Text style={styles.productTitle} numberOfLines={1}>{it.title}</Text>
-
-          {/* ⭐ Rating */}
-          <View style={styles.ratingRow}>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Ionicons
-                key={i}
-                name={i < it.rating ? "star" : "star-outline"}
-                size={12}
-                color="#FFD54F"
-                style={{ marginRight: 2 }}
-              />
-            ))}
-          </View>
-
-          {/* 🪙 Gold coin + price */}
-          <View style={styles.priceRow}>
-            <Image source={require("./assets/goldicon.png")} style={styles.goldIcon} />
-            <Text style={styles.priceText}>{it.price} Coins</Text>
-          </View>
-        </View>
+      {items.map((item, index) => (
+        <ProductCard
+          key={item.productId || item.id || `product-${index}`}
+          item={item}
+          index={index}
+          onProductPress={onProductPress}
+        />
       ))}
     </View>
   );
@@ -275,9 +580,63 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     paddingHorizontal: 8,
   },
-  catItem: { alignItems: "center", gap: 6 },
-  catIcon: { width: 72, height: 72, borderRadius: 8, resizeMode: "contain" },
-  catText: { color: TEXT_DIM, fontSize: 12 },
+  catItem: { alignItems: "center", gap: 6, flex: 1 },
+  catIcon: { width: 60, height: 60, borderRadius: 8, resizeMode: "contain" },
+  catText: { color: TEXT_DIM, fontSize: 11 },
+
+  libraryQuickAccess: {
+    marginTop: 20,
+    paddingHorizontal: 16,
+  },
+  libraryGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    gap: 10,
+  },
+  libraryCard: {
+    width: '31%',
+    backgroundColor: CARD,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  libraryIconBg: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  libraryTitle: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  libraryCount: {
+    color: TEXT_DIM,
+    fontSize: 10,
+  },
+
+  setupButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ACCENT,
+    marginHorizontal: 16,
+    marginVertical: 12,
+    padding: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  setupText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
 
   sectionHeader: {
     flexDirection: "row",
@@ -334,5 +693,33 @@ const styles = StyleSheet.create({
   priceRow: { flexDirection: "row", alignItems: "center" },
   goldIcon: { width: 16, height: 16, marginRight: 6, resizeMode: "contain" },
   priceText: { color: "#fff", fontWeight: "800" },
+
+  loadingContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: TEXT_DIM,
+    fontSize: 14,
+    marginTop: 12,
+  },
+  emptyContainer: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    paddingHorizontal: 40,
+  },
+  emptyTitle: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyDesc: {
+    color: TEXT_DIM,
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
 });
 

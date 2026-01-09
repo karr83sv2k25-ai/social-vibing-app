@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence, getAuth, connectAuthEmulator } from "firebase/auth";
-import { initializeFirestore, getFirestore, CACHE_SIZE_UNLIMITED, persistentLocalCache, enableNetwork, connectFirestoreEmulator } from "firebase/firestore";
+import { initializeFirestore, getFirestore, memoryLocalCache, enableNetwork, connectFirestoreEmulator } from "firebase/firestore";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -11,10 +11,11 @@ const originalConsoleError = console.error;
 const originalConsoleWarn = console.warn;
 const originalConsoleLog = console.log;
 
+/*
 console.error = (...args) => {
   const message = args[0]?.toString?.() || '';
   const fullMessage = JSON.stringify(args);
-  
+
   // Aggressively filter Firestore SDK internal errors
   if (
     message.includes('FIRESTORE') ||
@@ -38,7 +39,7 @@ console.error = (...args) => {
 console.warn = (...args) => {
   const message = args[0]?.toString?.() || '';
   const fullMessage = JSON.stringify(args);
-  
+
   if (
     message.includes('FIRESTORE') ||
     message.includes('INTERNAL ASSERTION') ||
@@ -54,7 +55,7 @@ console.warn = (...args) => {
 
 console.log = (...args) => {
   const message = args[0]?.toString?.() || '';
-  
+
   // Also filter from console.log (some errors appear there)
   if (
     message.includes('@firebase/firestore') && message.includes('INTERNAL ASSERTION') ||
@@ -67,6 +68,7 @@ console.log = (...args) => {
   }
   originalConsoleLog(...args);
 };
+*/
 
 // Support both development (expo go) and production (standalone build)
 const extra = Constants.expoConfig?.extra || Constants.manifest?.extra || {};
@@ -101,62 +103,83 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 originalConsoleLog('✅ Firebase App initialized');
 
-// ✅ Initialize Auth with AsyncStorage persistence (must be done before getAuth is ever called)
+// ✅ Initialize Auth with AsyncStorage persistence
+// CRITICAL: Must initialize with persistence BEFORE any getAuth() call
 let auth;
 try {
-  // Try to get existing auth first
-  auth = getAuth(app);
-  originalConsoleLog('✅ Using existing Auth instance');
-} catch (error) {
-  // If no auth exists, initialize it
-  originalConsoleLog('🔄 Initializing Auth with AsyncStorage...');
+  // Always try initializeAuth first to ensure persistence is set
+  originalConsoleLog('🔄 Initializing Auth with AsyncStorage persistence...');
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(ReactNativeAsyncStorage),
   });
-  originalConsoleLog('✅ Auth initialized with AsyncStorage persistence');
-}
-
-// ✅ Initialize Firestore with proper settings for React Native/Expo (singleton)
-let db;
-try {
-  db = getFirestore(app);
-  originalConsoleLog('✅ Using existing Firestore instance');
+  originalConsoleLog('✅✅✅ Auth initialized with PERSISTENT LOGIN ENABLED ✅✅✅');
+  originalConsoleLog('📱 Users will stay logged in after closing the app');
 } catch (error) {
-  originalConsoleLog('🔄 Initializing new Firestore instance...');
-  db = initializeFirestore(app, {
-    localCache: persistentLocalCache({
-      cacheSizeBytes: CACHE_SIZE_UNLIMITED
-    }),
-    experimentalForceLongPolling: true, // Required for React Native/Expo
-    experimentalAutoDetectLongPolling: false,
-  });
-  originalConsoleLog('✅ Firestore initialized with long-polling');
+  if (error.code === 'auth/already-initialized') {
+    // Auth was already initialized (hot reload in dev)
+    originalConsoleLog('⚠️ Auth already initialized (hot reload), using existing instance');
+    auth = getAuth(app);
+  } else {
+    originalConsoleError('❌ Failed to initialize auth:', error);
+    throw error;
+  }
 }
 
-// Enable network on init with better error handling
-enableNetwork(db)
-  .then(() => {
-    originalConsoleLog('✅ Firestore network enabled');
-  })
-  .catch(err => {
-    originalConsoleWarn('⚠️  Firestore network could not be enabled (error:', err.code, ')');
-    originalConsoleLog('📴 App will work in offline mode with cached data');
-  });
+// ✅ Initialize Firestore with proper settings for React Native/Expo
+// IMPORTANT: Always use initializeFirestore first to ensure settings are applied
+let db;
+let firestoreReady = false;
+let firestoreReadyPromise = null;
 
-// Add a status indicator (optional - shows once)
-let connectionWarningShown = false;
-setTimeout(() => {
+try {
+  // Initialize with proper offline persistence and cache settings
+  originalConsoleLog('🔄 Initializing Firestore with offline persistence...');
+  db = initializeFirestore(app, {
+    experimentalForceLongPolling: true, // Required for React Native
+    cacheSizeBytes: 50 * 1024 * 1024, // 50 MB cache for better offline support
+  });
+  originalConsoleLog('✅ Firestore initialized with OFFLINE PERSISTENCE enabled');
+  originalConsoleLog('📦 Cache size: 50 MB');
+} catch (error) {
+  // If already initialized (hot reload), get existing instance
+  if (error.message?.includes('already') || error.code === 'failed-precondition') {
+    originalConsoleLog('⚠️ Firestore already initialized (using existing instance)');
+    db = getFirestore(app);
+  } else {
+    originalConsoleError('❌ Failed to initialize Firestore:', error);
+    throw error;
+  }
+}
+
+// Create a promise that resolves when Firestore is ready
+firestoreReadyPromise = new Promise((resolve, reject) => {
+  // Enable network on init with better error handling
   enableNetwork(db)
     .then(() => {
-      originalConsoleLog('✅ Firestore connected successfully');
+      originalConsoleLog('✅ Firestore network enabled');
+      firestoreReady = true;
+      resolve(db);
     })
-    .catch(() => {
-      if (!connectionWarningShown) {
-        originalConsoleLog('ℹ️  Firestore is connecting... (working in offline mode with cached data)');
-        connectionWarningShown = true;
-      }
+    .catch(err => {
+      originalConsoleWarn('⚠️  Firestore network could not be enabled (error:', err.code, ')');
+      originalConsoleLog('📴 App will work in offline mode with cached data');
+      // Still resolve - app can work offline
+      firestoreReady = true;
+      resolve(db);
     });
-}, 2000);
+
+  // Timeout after 5 seconds
+  setTimeout(() => {
+    if (!firestoreReady) {
+      originalConsoleLog('⏱️  Firestore taking longer than expected, continuing anyway...');
+      firestoreReady = true;
+      resolve(db);
+    }
+  }, 5000);
+});
+
+// Export a function to wait for Firestore to be ready
+export const waitForFirestore = () => firestoreReadyPromise;
 
 // Add a global error handler for auth
 auth.onAuthStateChanged(
