@@ -94,6 +94,7 @@ const MembershipScreen = React.lazy(() => import('./membership'));
 const WhatsHappeningScreen = React.lazy(() => import('./whatshappening'));
 const CreateCommunityScreen = React.lazy(() => import('./CreateCommunityScreen'));
 const EditCommunityScreen = React.lazy(() => import('./EditCommunityScreen'));
+const ModeratorsManagementScreen = React.lazy(() => import('./ModeratorsManagementScreen'));
 const GroupAudioCallScreen = React.lazy(() => import('./GroupAudioCallScreen'));
 const ScreenSharingRoom = React.lazy(() => import('./ScreenSharingRoom'));
 const RoleplayScreen = React.lazy(() => import('./RoleplayScreen'));
@@ -340,6 +341,7 @@ export default function App() {
             <Stack.Screen name="WhatsHappening" component={WhatsHappeningScreen} />
             <Stack.Screen name="CreateCommunityScreen" component={CreateCommunityScreen} />
             <Stack.Screen name="EditCommunity" component={EditCommunityScreen} />
+            <Stack.Screen name="ModeratorsManagement" component={ModeratorsManagementScreen} options={{ headerShown: false }} />
             <Stack.Screen name="GroupAudioCall" component={GroupAudioCallScreen} />
             <Stack.Screen name="ScreenSharingRoom" component={ScreenSharingRoom} />
             <Stack.Screen name="RoleplayScreen" component={RoleplayScreen} />

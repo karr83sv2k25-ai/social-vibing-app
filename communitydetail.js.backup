@@ -12,7 +12,7 @@ import {
   Platform,
   ActionSheetIOS,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
@@ -40,12 +40,14 @@ export default function CommunityDetail({ route, navigation }) {
       }
 
       try {
+        // db is now imported globally
         const ref = doc(db, 'communities', communityId);
         const snap = await getDoc(ref);
         if (snap.exists() && mounted) {
           const communityData = { id: snap.id, ...snap.data() };
           setCommunity(communityData);
           
+          // Check if current user is moderator or creator
           const currentUserId = auth.currentUser?.uid;
           if (currentUserId) {
             const creator = communityData.creatorId === currentUserId;
@@ -94,19 +96,10 @@ export default function CommunityDetail({ route, navigation }) {
     category,
     description,
     themeColor,
-    discover,
-    privacy,
-    createdAt,
-    updatedAt,
-    community_members,
-  } = community;
-
-  const memberCount = Array.isArray(community_members) ? community_members.length : (typeof community_members === 'number' ? community_members : '—');
-
-  const handleReportOptions = () => {
     const options = ['Cancel', 'Report Community'];
     let destructiveIndex = 1;
     
+    // Add moderator/creator options
     if (isModerator || isCreator) {
       options.splice(1, 0, 'Edit Community');
       destructiveIndex = 2;
@@ -156,7 +149,30 @@ export default function CommunityDetail({ route, navigation }) {
         onPress: () => setShowReportModal(true),
       });
       
-      Alert.alert('Community Options', 'What would you like to do?', alertOptions);
+      Alert.alert('Community Options', 'What would you like to do?', alertOptionsAlert.alert(
+        'Community Options',
+        'What would you like to do?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Report Community',
+            style: 'destructive',
+            onPress: () => setShowReportModal(true),
+          },
+        ]
+      );View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Text style={styles.title}>{name || community.title || 'Community'}</Text>
+              {isCreator && (
+                <View style={styles.creatorBadge}>
+                  <MaterialIcons name="verified" size={16} color="#FFD700" />
+                </View>
+              )}
+              {isModerator && !isCreator && (
+                <View style={styles.moderatorBadge}>
+                  <MaterialIcons name="admin-panel-settings" size={16} color="#10B981" />
+                </View>
+              )}
+            </View
     }
   };
 
@@ -184,13 +200,10 @@ export default function CommunityDetail({ route, navigation }) {
             </View>
           )}
           <View style={{ marginLeft: 12, flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={styles.title}>{name || community.title || 'Community'}</Text>
-              {isCreator && <ModeratorBadge type="creator" size="medium" />}
-              {isModerator && !isCreator && <ModeratorBadge type="moderator" size="medium" />}
-            </View>
+            <Text style={styles.title}>{name || community.title || 'Community'}</Text>
             <Text style={styles.sub}>{category || ''} • {memberCount} members</Text>
           </View>
+          {/* More Options Button */}
           <TouchableOpacity
             style={styles.moreOptionsButton}
             onPress={handleReportOptions}
@@ -223,11 +236,12 @@ export default function CommunityDetail({ route, navigation }) {
           <Text style={styles.small}>Updated: {updatedAt ? new Date(updatedAt.seconds ? updatedAt.seconds * 1000 : updatedAt).toLocaleString() : '—'}</Text>
         </View>
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Members', \`Members: \${memberCount}\`)}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Members', `Members: ${memberCount}`)}>
           <Text style={styles.actionText}>View Members</Text>
         </TouchableOpacity>
       </View>
 
+      {/* Report Community Modal */}
       <ReportUserModal
         visible={showReportModal}
         onClose={() => setShowReportModal(false)}
@@ -259,6 +273,26 @@ const styles = StyleSheet.create({
   metaValue: { color: '#fff' },
   colorBox: { width: 20, height: 20, borderRadius: 4, marginLeft: 8 },
   small: { color: '#666', marginTop: 6 },
+  creatorBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#FFD700',
+  },
+  moderatorBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
   actionButton: { marginTop: 18, backgroundColor: '#08FFE2', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   actionText: { color: '#000', fontWeight: '700' },
   moreOptionsButton: {
@@ -272,3 +306,4 @@ const styles = StyleSheet.create({
     borderColor: '#333',
   },
 });
+

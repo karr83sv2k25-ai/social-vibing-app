@@ -9059,6 +9059,22 @@ export default function GroupInfoScreen() {
                 <Ionicons name="chevron-forward" size={24} color="#888" />
               </TouchableOpacity>
 
+              {/* Manage Moderators */}
+              <TouchableOpacity
+                style={styles.adminOption}
+                onPress={() => {
+                  setShowAdminPanel(false);
+                  navigation.navigate('ModeratorsManagement', { communityId });
+                }}
+              >
+                <MaterialIcons name="admin-panel-settings" size={24} color="#10B981" />
+                <View style={styles.adminOptionText}>
+                  <Text style={styles.adminOptionTitle}>Manage Moderators</Text>
+                  <Text style={styles.adminOptionSubtitle}>{currentModeratorIds.length} moderators</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="#888" />
+              </TouchableOpacity>
+
               {/* Delete Community */}
               <TouchableOpacity
                 style={[styles.adminOption, styles.adminOptionDanger]}

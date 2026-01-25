@@ -18,6 +18,14 @@ service cloud.firestore {
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
     
+    // Helper function to check if user is community moderator
+    function isCommunityModerator(communityId) {
+      let community = get(/databases/$(database)/documents/communities/$(communityId));
+      return isSignedIn() && 
+             (community.data.creatorId == request.auth.uid || 
+              request.auth.uid in community.data.moderators);
+    }
+    
     // Helper function to check if user is verified (17+)
     function isVerified() {
       return isSignedIn() && 
@@ -185,21 +193,31 @@ service cloud.firestore {
     // Communities collection
     match /communities/{communityId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow create: if isSignedIn();
+      // Allow creator/moderators to update community
+      allow update: if isSignedIn() && isCommunityModerator(communityId);
+      // Allow anyone to update member-related fields
+      allow update: if isSignedIn() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['members', 'memberCount']);
       // Allow admins to disable communities
       allow update: if isAdmin() && 
                       request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['isDisabled', 'disabledAt', 'disabledBy', 'disabledReason']);
+      allow delete: if isSignedIn() && resource.data.creatorId == request.auth.uid;
       
       match /posts/{postId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
-        allow update: if isSignedIn();
+        allow update: if isSignedIn() && 
+                        (resource.data.authorId == request.auth.uid || 
+                         isCommunityModerator(communityId));
         // Allow admins to delete posts
         allow delete: if isAdmin();
+        // Allow post author or community moderators to delete
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
-                         get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid);
+                         isCommunityModerator(communityId));
         
         match /comments/{commentId} {
           allow read: if isSignedIn();
