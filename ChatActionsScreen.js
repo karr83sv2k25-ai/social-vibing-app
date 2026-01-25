@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,8 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import ReportUserModal from './components/ReportUserModal';
+import { REPORT_TYPES } from './shared/services/reportService';
 
 // Theme Colors
 const ACCENT = '#7C3AED';
@@ -20,6 +22,8 @@ const CARD = '#17171C';
 const TEXT_DIM = '#9CA3AF';
 
 export default function ChatActionsScreen({ navigation, route }) {
+  const [showReportModal, setShowReportModal] = useState(false);
+  
   const { 
     chat,
     isPinned = false,
@@ -170,6 +174,14 @@ export default function ChatActionsScreen({ navigation, route }) {
     }, 100);
   };
 
+  const handleReport = () => {
+    setShowReportModal(true);
+  };
+
+  const handleReportClose = () => {
+    setShowReportModal(false);
+  };
+
   const handleViewProfile = () => {
     navigation.goBack();
     setTimeout(() => {
@@ -299,9 +311,18 @@ export default function ChatActionsScreen({ navigation, route }) {
           <Text style={styles.sectionTitle}>DANGER ZONE</Text>
           
           {!chat.isGroup && renderActionItem(
+            'flag-outline',
+            'Report User',
+            'Report this user for violations',
+            handleReport,
+            'destructive',
+            '#F59E0B22'
+          )}
+          
+          {!chat.isGroup && renderActionItem(
             'ban-outline',
             'Block User',
-            'Block and report this user',
+            'Block this user from messaging you',
             handleBlock,
             'destructive',
             '#EF444422'
@@ -319,6 +340,20 @@ export default function ChatActionsScreen({ navigation, route }) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Report Modal */}
+      {!chat.isGroup && (
+        <ReportUserModal
+          visible={showReportModal}
+          onClose={handleReportClose}
+          reportedUser={{
+            id: chat.oderId || chat.oderId || chat.userId,
+            username: chat.username || chat.name,
+            name: chat.name,
+          }}
+          reportType={REPORT_TYPES.USER}
+        />
+      )}
     </SafeAreaView>
   );
 }

@@ -9,15 +9,21 @@ import {
   ActivityIndicator,
   TouchableOpacity,
   Alert,
+  Platform,
+  ActionSheetIOS,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, getDoc } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
+import ReportUserModal from './components/ReportUserModal';
 
 export default function CommunityDetail({ route, navigation }) {
   const { communityId } = route.params || {};
   const [community, setCommunity] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const auth = getAuth(app);
 
   useEffect(() => {
     let mounted = true;
@@ -84,6 +90,37 @@ export default function CommunityDetail({ route, navigation }) {
 
   const memberCount = Array.isArray(community_members) ? community_members.length : (typeof community_members === 'number' ? community_members : '—');
 
+  // Handler for showing report options
+  const handleReportOptions = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancel', 'Report Community'],
+          destructiveButtonIndex: 1,
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 1) {
+            setShowReportModal(true);
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Community Options',
+        'What would you like to do?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Report Community',
+            style: 'destructive',
+            onPress: () => setShowReportModal(true),
+          },
+        ]
+      );
+    }
+  };
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {coverImage ? (
@@ -111,6 +148,13 @@ export default function CommunityDetail({ route, navigation }) {
             <Text style={styles.title}>{name || community.title || 'Community'}</Text>
             <Text style={styles.sub}>{category || ''} • {memberCount} members</Text>
           </View>
+          {/* More Options Button */}
+          <TouchableOpacity
+            style={styles.moreOptionsButton}
+            onPress={handleReportOptions}
+          >
+            <Ionicons name="ellipsis-horizontal" size={24} color="#888" />
+          </TouchableOpacity>
         </View>
 
         {!!description && (
@@ -141,6 +185,19 @@ export default function CommunityDetail({ route, navigation }) {
           <Text style={styles.actionText}>View Members</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Report Community Modal */}
+      <ReportUserModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        reportedUser={{
+          id: community?.createdBy || communityId,
+          username: name || community?.title || 'Community',
+        }}
+        reportType="community"
+        contentId={communityId}
+        contentPreview={description || name || 'Community content'}
+      />
     </ScrollView>
   );
 }
@@ -163,5 +220,15 @@ const styles = StyleSheet.create({
   small: { color: '#666', marginTop: 6 },
   actionButton: { marginTop: 18, backgroundColor: '#08FFE2', paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
   actionText: { color: '#000', fontWeight: '700' },
+  moreOptionsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
 });
 

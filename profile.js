@@ -10,19 +10,23 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  ActionSheetIOS,
+  Platform,
 } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons, Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
-import { doc, onSnapshot, updateDoc, increment, collection, getDocs, query, where, getDoc, setDoc, deleteDoc } from "firebase/firestore";
+import { doc, onSnapshot, updateDoc, increment, collection, getDocs, query, where, getDoc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
 import { app, db } from "./firebaseConfig";
 import CacheManager from "./cacheManager";
 import StatusBadge from "./components/StatusBadge";
 import StatusSelector from "./components/StatusSelector";
 import { useStatus } from "./contexts/StatusContext";
 import VerifiedBadge from './components/VerifiedBadge';
+import ReportUserModal from './components/ReportUserModal';
+import { REPORT_TYPES } from './shared/services/reportService';
 
 const { width } = Dimensions.get("window");
 const PADDING_H = 18;
@@ -81,6 +85,8 @@ export default function ProfileScreen() {
   const [storyModalVisible, setStoryModalVisible] = useState(false);
   const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const lastFocusTimeRef = React.useRef(Date.now());
 
   // Check if updated data was passed from edit profile
@@ -624,6 +630,46 @@ export default function ProfileScreen() {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
       )}
+      
+      {/* More Options Button - Show for other users */}
+      {!isOwnProfile && (
+        <TouchableOpacity
+          style={{
+            position: 'absolute',
+            top: 50,
+            right: 10,
+            zIndex: 10,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            borderRadius: 20,
+            width: 40,
+            height: 40,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+          onPress={() => {
+            if (Platform.OS === 'ios') {
+              ActionSheetIOS.showActionSheetWithOptions(
+                {
+                  options: ['Cancel', 'Report User', 'Block User'],
+                  destructiveButtonIndex: 2,
+                  cancelButtonIndex: 0,
+                },
+                (buttonIndex) => {
+                  if (buttonIndex === 1) {
+                    setShowReportModal(true);
+                  } else if (buttonIndex === 2) {
+                    handleBlockUser();
+                  }
+                }
+              );
+            } else {
+              setShowOptionsMenu(true);
+            }
+          }}
+        >
+          <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
       {/* ===== PROFILE CARD ===== */}
       <LinearGradient
         colors={["#0EE7B7", "#8A2BE2"]}
@@ -971,8 +1017,112 @@ export default function ProfileScreen() {
         onClose={() => setStatusSelectorVisible(false)}
         title="Update Your Status"
       />
+
+      {/* Report User Modal */}
+      {!isOwnProfile && (
+        <ReportUserModal
+          visible={showReportModal}
+          onClose={() => setShowReportModal(false)}
+          reportedUser={{
+            id: targetUserId,
+            username: userData?.username || userData?.handle,
+            name: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim(),
+          }}
+          reportType={REPORT_TYPES.USER}
+        />
+      )}
+
+      {/* Android Options Menu */}
+      {Platform.OS === 'android' && (
+        <Modal
+          visible={showOptionsMenu}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowOptionsMenu(false)}
+        >
+          <TouchableOpacity 
+            style={styles.optionsOverlay}
+            activeOpacity={1}
+            onPress={() => setShowOptionsMenu(false)}
+          >
+            <View style={styles.optionsMenu}>
+              <TouchableOpacity
+                style={styles.optionsItem}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  setShowReportModal(true);
+                }}
+              >
+                <Ionicons name="flag-outline" size={22} color="#F59E0B" />
+                <Text style={styles.optionsItemText}>Report User</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.optionsDivider} />
+              
+              <TouchableOpacity
+                style={styles.optionsItem}
+                onPress={() => {
+                  setShowOptionsMenu(false);
+                  handleBlockUser();
+                }}
+              >
+                <Ionicons name="ban-outline" size={22} color="#EF4444" />
+                <Text style={[styles.optionsItemText, { color: '#EF4444' }]}>Block User</Text>
+              </TouchableOpacity>
+              
+              <View style={styles.optionsDivider} />
+              
+              <TouchableOpacity
+                style={styles.optionsItem}
+                onPress={() => setShowOptionsMenu(false)}
+              >
+                <Ionicons name="close-outline" size={22} color={C.dim} />
+                <Text style={[styles.optionsItemText, { color: C.dim }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
     </ScrollView>
   );
+
+  // Block user function
+  async function handleBlockUser() {
+    const auth = getAuth(app);
+    const currentUser = auth.currentUser;
+    
+    if (!currentUser || !targetUserId) {
+      Alert.alert('Error', 'Unable to block user');
+      return;
+    }
+    
+    Alert.alert(
+      'Block User',
+      `Are you sure you want to block ${userData?.firstName || 'this user'}? They won't be able to message or follow you.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Block',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const blockRef = doc(db, 'users', currentUser.uid, 'blocked', targetUserId);
+              await setDoc(blockRef, {
+                blockedAt: serverTimestamp(),
+                reason: null,
+              });
+              
+              Alert.alert('Blocked', `${userData?.firstName || 'User'} has been blocked`);
+              navigation.goBack();
+            } catch (error) {
+              console.error('Error blocking user:', error);
+              Alert.alert('Error', 'Failed to block user. Please try again.');
+            }
+          }
+        }
+      ]
+    );
+  }
 }
 
 /* ---------- STYLES ---------- */
@@ -1214,6 +1364,38 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     lineHeight: 22,
+  },
+  // Options menu styles
+  optionsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  optionsMenu: {
+    backgroundColor: C.card,
+    borderRadius: 16,
+    width: '100%',
+    maxWidth: 300,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  optionsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    gap: 12,
+  },
+  optionsItemText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: C.text,
+  },
+  optionsDivider: {
+    height: 1,
+    backgroundColor: C.border,
   },
 });
 

@@ -16,8 +16,10 @@ import {
   Platform,
   Share,
   RefreshControl,
+  ActionSheetIOS,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
+import ReportUserModal from './components/ReportUserModal';
 import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getAuth } from 'firebase/auth';
@@ -150,6 +152,7 @@ const Post = ({
   onShare,
   onFollow,
   onDelete,
+  onReport,
   onPollVote,
   pollVoteBusy,
   onStartQuiz,
@@ -166,6 +169,8 @@ const Post = ({
   // Don't show follow button if post is by current logged-in user
   const showFollowButton = post.authorId && onFollow && currentUser?.id && post.authorId !== currentUser.id;
   const canDelete = post.authorId && currentUser?.id && post.authorId === currentUser.id;
+  // Show report button for posts that are not the current user's
+  const canReport = post.authorId && currentUser?.id && post.authorId !== currentUser.id && onReport;
 
   const handleDeletePress = () => {
     Alert.alert(
@@ -256,6 +261,42 @@ const Post = ({
               <Text style={[styles.followText, isFollowing && styles.followTextFollowing]}>
                 {isFollowing ? 'Following' : 'Follow'}
               </Text>
+            </TouchableOpacity>
+          )}
+          {canReport && (
+            <TouchableOpacity
+              style={styles.moreOptionsButton}
+              onPress={() => {
+                if (Platform.OS === 'ios') {
+                  ActionSheetIOS.showActionSheetWithOptions(
+                    {
+                      options: ['Cancel', 'Report Post'],
+                      destructiveButtonIndex: 1,
+                      cancelButtonIndex: 0,
+                    },
+                    (buttonIndex) => {
+                      if (buttonIndex === 1) {
+                        onReport(post);
+                      }
+                    }
+                  );
+                } else {
+                  Alert.alert(
+                    'Post Options',
+                    'What would you like to do?',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Report Post',
+                        style: 'destructive',
+                        onPress: () => onReport(post),
+                      },
+                    ]
+                  );
+                }
+              }}
+            >
+              <Ionicons name="ellipsis-horizontal" size={20} color="#888" />
             </TouchableOpacity>
           )}
         </View>
@@ -634,6 +675,10 @@ const HomeScreen = React.memo(({ navigation }) => {
   const [joinedCommunities, setJoinedCommunities] = useState([]);
   const [joiningCommunityId, setJoiningCommunityId] = useState(null);
   const [statusSelectorVisible, setStatusSelectorVisible] = useState(false);
+  // Report modal state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTargetPost, setReportTargetPost] = useState(null);
+  const [reportTargetComment, setReportTargetComment] = useState(null);
 
   // Refs for tracking data loading
   const hasFetchedPosts = useRef(false);
@@ -2128,6 +2173,12 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   };
 
+  // Handler for reporting a post
+  const handleReportPost = (post) => {
+    setReportTargetPost(post);
+    setShowReportModal(true);
+  };
+
   const handleJoinCommunity = async (community) => {
     const auth = getAuth(app);
     if (!auth.currentUser) {
@@ -2390,6 +2441,7 @@ const HomeScreen = React.memo(({ navigation }) => {
                   onShare={handleSharePost}
                   onFollow={handleToggleFollow}
                   onDelete={handleDeletePost}
+                  onReport={handleReportPost}
                   onPollVote={post.type === 'poll' ? handlePollVote : undefined}
                   pollVoteBusy={post.type === 'poll' ? pollBusy : false}
                   onStartQuiz={post.type === 'quiz' ? handleStartQuiz : undefined}
@@ -2673,6 +2725,21 @@ const HomeScreen = React.memo(({ navigation }) => {
                               })}
                             </Text>
                           )}
+                          {/* Report comment button - only for other users' comments */}
+                          {comment.userId !== currentUser?.id && (
+                            <TouchableOpacity
+                              style={styles.commentReportButton}
+                              onPress={() => {
+                                setReportTargetComment({
+                                  ...comment,
+                                  postId: selectedPostForComment?.id,
+                                });
+                                setShowReportModal(true);
+                              }}
+                            >
+                              <Ionicons name="flag-outline" size={14} color="#888" />
+                            </TouchableOpacity>
+                          )}
                         </View>
                         <Text style={styles.commentText}>{comment.text}</Text>
                       </View>
@@ -2795,6 +2862,25 @@ const HomeScreen = React.memo(({ navigation }) => {
           )}
         </View>
       </Modal>
+
+      {/* Report User Modal for Posts */}
+      <ReportUserModal
+        visible={showReportModal}
+        onClose={() => {
+          setShowReportModal(false);
+          setReportTargetPost(null);
+          setReportTargetComment(null);
+        }}
+        reportedUser={{
+          id: reportTargetComment?.userId || reportTargetPost?.authorId,
+          username: reportTargetComment?.userName || reportTargetPost?.authorName || 'User',
+        }}
+        reportType={reportTargetComment ? 'comment' : 'post'}
+        contentId={reportTargetComment?.id || reportTargetPost?.id}
+        contentType={reportTargetComment ? 'comment' : 'post'}
+        contentPreview={reportTargetComment?.text || reportTargetPost?.title || reportTargetPost?.caption || reportTargetPost?.text || reportTargetPost?.question || 'Content'}
+        communityId={reportTargetPost?.communityId || reportTargetComment?.communityId || null}
+      />
 
       {/* Status Selector Modal */}
       <StatusSelector
@@ -2953,6 +3039,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ff4b6e33',
+  },
+  moreOptionsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#1a1a1a',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#333',
   },
   postText: { color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 },
   postImage: { height: 100, borderRadius: 10, resizeMode: 'cover' },
@@ -3459,6 +3555,10 @@ const styles = StyleSheet.create({
   commentTime: {
     color: '#666',
     fontSize: 12,
+  },
+  commentReportButton: {
+    marginLeft: 'auto',
+    padding: 4,
   },
   commentText: {
     color: '#ccc',

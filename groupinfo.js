@@ -59,6 +59,7 @@ import CacheManager from './cacheManager';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadAudioToHostinger, uploadVideoToHostinger } from './hostingerConfig';
 import { Audio, Video } from 'expo-av';
+import ReportUserModal from './components/ReportUserModal';
 
 // Helper function to check if message type is a voice room
 const isVoiceRoomType = (type) => {
@@ -764,6 +765,9 @@ export default function GroupInfoScreen() {
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
   const [featuredPosts, setFeaturedPosts] = useState([]);
   const [showFeaturedModal, setShowFeaturedModal] = useState(false);
+  // Report user state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTargetMember, setReportTargetMember] = useState(null);
   const memberStatusUnsubscribersRef = useRef([]);
 
   // Active audio call state
@@ -9189,31 +9193,55 @@ export default function GroupInfoScreen() {
                 .filter(member => membersModalContext === 'all' || (member.currentStatus && member.currentStatus === 'online'))
                 .map((member) => (
                   <View key={member.id} style={styles.memberItem}>
-                    <Image
-                      source={
-                        member.profileImage
-                          ? { uri: member.profileImage }
-                          : require('./assets/posticon.jpg')
-                      }
-                      style={styles.memberAvatar}
-                    />
-                    <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{member.name}</Text>
-                      {member.isAdmin && (
-                        <Text style={styles.memberBadge}>👑 Admin</Text>
+                    <TouchableOpacity
+                      style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}
+                      onPress={() => {
+                        setShowMembersModal(false);
+                        handleProfilePress(member.id);
+                      }}
+                    >
+                      <Image
+                        source={
+                          member.profileImage
+                            ? { uri: member.profileImage }
+                            : require('./assets/posticon.jpg')
+                        }
+                        style={styles.memberAvatar}
+                      />
+                      <View style={styles.memberInfo}>
+                        <Text style={styles.memberName}>{member.name}</Text>
+                        {member.isAdmin && (
+                          <Text style={styles.memberBadge}>👑 Admin</Text>
+                        )}
+                        {member.isModerator && !member.isAdmin && (
+                          <Text style={styles.memberBadge}>⭐ Moderator</Text>
+                        )}
+                      </View>
+                    </TouchableOpacity>
+                    {/* Member Action Buttons */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {/* Report button - only for other members */}
+                      {member.id !== auth.currentUser?.uid && (
+                        <TouchableOpacity
+                          style={styles.memberActionButton}
+                          onPress={() => {
+                            setReportTargetMember(member);
+                            setShowReportModal(true);
+                          }}
+                        >
+                          <Ionicons name="flag-outline" size={20} color="#F59E0B" />
+                        </TouchableOpacity>
                       )}
-                      {member.isModerator && !member.isAdmin && (
-                        <Text style={styles.memberBadge}>⭐ Moderator</Text>
+                      {/* Kick button - only for admins kicking non-admins */}
+                      {isAdmin && !member.isAdmin && member.id !== auth.currentUser?.uid && (
+                        <TouchableOpacity
+                          style={styles.kickButton}
+                          onPress={() => handleKickMember(member.id, member.name)}
+                        >
+                          <MaterialIcons name="remove-circle" size={24} color="#ff4b6e" />
+                        </TouchableOpacity>
                       )}
                     </View>
-                    {!member.isAdmin && member.id !== auth.currentUser?.uid && (
-                      <TouchableOpacity
-                        style={styles.kickButton}
-                        onPress={() => handleKickMember(member.id, member.name)}
-                      >
-                        <MaterialIcons name="remove-circle" size={24} color="#ff4b6e" />
-                      </TouchableOpacity>
-                    )}
                   </View>
                 ))}
               {allMembers.filter(member => membersModalContext === 'all' || (member.currentStatus && member.currentStatus === 'online')).length === 0 && (
@@ -9436,6 +9464,20 @@ export default function GroupInfoScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Report User Modal */}
+      <ReportUserModal
+        visible={showReportModal}
+        onClose={() => {
+          setShowReportModal(false);
+          setReportTargetMember(null);
+        }}
+        reportedUser={{
+          id: reportTargetMember?.id,
+          username: reportTargetMember?.name || 'User',
+        }}
+        reportType="user"
+      />
     </View>
   );
 }
@@ -12782,6 +12824,16 @@ const styles = StyleSheet.create({
   },
   kickButton: {
     padding: 8,
+  },
+  memberActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   emptyMembersContainer: {
     padding: 40,

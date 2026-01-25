@@ -28,6 +28,15 @@ import {
   limit
 } from 'firebase/firestore';
 import { db } from './firebaseConfig';
+import {
+  getReportsForAdmin,
+  getPendingReportsCount,
+  updateReportStatus,
+  takeActionOnReport,
+  REPORT_STATUS,
+  ADMIN_ACTIONS,
+  REPORT_REASONS,
+} from './shared/services/reportService';
 
 const { width } = Dimensions.get('window');
 
@@ -49,11 +58,16 @@ export default function AdminModerationScreen({ navigation }) {
   const [activeTab, setActiveTab] = useState('verification'); // verification, users, reports
   const [users, setUsers] = useState([]);
   const [pendingVerifications, setPendingVerifications] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [pendingReportsCount, setPendingReportsCount] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
   const [showUserModal, setShowUserModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [reportFilter, setReportFilter] = useState('all'); // all, pending, resolved
 
   useEffect(() => {
     checkAdminStatus();
@@ -65,9 +79,42 @@ export default function AdminModerationScreen({ navigation }) {
         fetchPendingVerifications();
       } else if (activeTab === 'users') {
         fetchAllUsers();
+      } else if (activeTab === 'reports') {
+        fetchReports();
       }
+      // Always fetch pending reports count
+      fetchPendingReportsCount();
     }
-  }, [activeTab, isAdmin]);
+  }, [activeTab, isAdmin, reportFilter]);
+
+  const fetchPendingReportsCount = async () => {
+    const result = await getPendingReportsCount();
+    if (result.success) {
+      setPendingReportsCount(result.count);
+    }
+  };
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true);
+      const status = reportFilter === 'all' ? null : 
+                     reportFilter === 'pending' ? REPORT_STATUS.PENDING : 
+                     REPORT_STATUS.RESOLVED;
+      
+      const result = await getReportsForAdmin({ status, limitCount: 50 });
+      
+      if (result.success) {
+        setReports(result.reports);
+      } else {
+        Alert.alert('Error', 'Failed to load reports');
+      }
+    } catch (error) {
+      console.error('Error fetching reports:', error);
+      Alert.alert('Error', 'Failed to load reports');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const checkAdminStatus = async () => {
     try {
@@ -272,6 +319,120 @@ export default function AdminModerationScreen({ navigation }) {
     }
   };
 
+  // ==================== REPORT HANDLING FUNCTIONS ====================
+  
+  const handleReportAction = async (action) => {
+    if (!selectedReport) return;
+    
+    Alert.alert(
+      'Confirm Action',
+      `Are you sure you want to ${getActionLabel(action)}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Confirm',
+          style: action === ADMIN_ACTIONS.NO_VIOLATION ? 'default' : 'destructive',
+          onPress: async () => {
+            try {
+              setActionLoading(true);
+              const adminId = getAuth().currentUser.uid;
+              
+              const result = await takeActionOnReport(selectedReport.id, {
+                adminId,
+                action,
+                actionDetails: {
+                  reason: selectedReport.reasonLabel,
+                  message: `Action taken for: ${selectedReport.reasonLabel}`,
+                },
+                notifyUser: true,
+              });
+
+              if (result.success) {
+                Alert.alert('Success', 'Action taken successfully');
+                setShowReportModal(false);
+                fetchReports();
+                fetchPendingReportsCount();
+              } else {
+                Alert.alert('Error', result.error || 'Failed to take action');
+              }
+            } catch (error) {
+              console.error('Error taking action:', error);
+              Alert.alert('Error', 'Failed to take action');
+            } finally {
+              setActionLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleDismissReport = async () => {
+    if (!selectedReport) return;
+    
+    try {
+      setActionLoading(true);
+      const adminId = getAuth().currentUser.uid;
+      
+      const result = await updateReportStatus(selectedReport.id, {
+        status: REPORT_STATUS.DISMISSED,
+        adminId,
+        adminNotes: 'Report dismissed by admin - no violation found',
+        actionTaken: ADMIN_ACTIONS.DISMISSED,
+      });
+
+      if (result.success) {
+        Alert.alert('Success', 'Report dismissed');
+        setShowReportModal(false);
+        fetchReports();
+        fetchPendingReportsCount();
+      } else {
+        Alert.alert('Error', result.error || 'Failed to dismiss report');
+      }
+    } catch (error) {
+      console.error('Error dismissing report:', error);
+      Alert.alert('Error', 'Failed to dismiss report');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const getActionLabel = (action) => {
+    switch (action) {
+      case ADMIN_ACTIONS.WARNING: return 'send a warning';
+      case ADMIN_ACTIONS.TEMPORARY_BAN: return 'temporarily ban user';
+      case ADMIN_ACTIONS.PERMANENT_BAN: return 'permanently ban user';
+      case ADMIN_ACTIONS.CONTENT_REMOVED: return 'remove content';
+      case ADMIN_ACTIONS.NO_VIOLATION: return 'mark as no violation';
+      default: return 'take this action';
+    }
+  };
+
+  const getPriorityColor = (priority) => {
+    switch (priority) {
+      case 'high': return C.red;
+      case 'medium': return C.yellow;
+      default: return C.dim;
+    }
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case REPORT_STATUS.PENDING: return C.yellow;
+      case REPORT_STATUS.UNDER_REVIEW: return C.brand;
+      case REPORT_STATUS.RESOLVED:
+      case REPORT_STATUS.ACTION_TAKEN: return C.green;
+      case REPORT_STATUS.DISMISSED: return C.dim;
+      default: return C.dim;
+    }
+  };
+
+  const formatReportDate = (date) => {
+    if (!date) return 'N/A';
+    const d = date instanceof Date ? date : date.toDate?.() || new Date(date);
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   const handleWarnUser = async (userId, warning) => {
     try {
       setActionLoading(true);
@@ -357,6 +518,227 @@ export default function AdminModerationScreen({ navigation }) {
       )}
     </TouchableOpacity>
   );
+
+  // ==================== REPORT ITEM RENDERER ====================
+  const renderReportItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.reportCard}
+      onPress={() => {
+        setSelectedReport(item);
+        setShowReportModal(true);
+      }}>
+      <View style={styles.reportHeader}>
+        <View style={[styles.priorityIndicator, { backgroundColor: getPriorityColor(item.priority) }]} />
+        <View style={styles.reportInfo}>
+          <Text style={styles.reportReason}>{item.reasonLabel || item.reason}</Text>
+          <Text style={styles.reportMeta}>
+            Reported: @{item.reportedUsername} • by @{item.reporterUsername}
+          </Text>
+          <Text style={styles.reportDate}>
+            {formatReportDate(item.createdAt)}
+          </Text>
+        </View>
+        <View style={[styles.reportStatusBadge, { backgroundColor: `${getStatusColor(item.status)}22` }]}>
+          <Text style={[styles.reportStatusText, { color: getStatusColor(item.status) }]}>
+            {item.status?.replace('_', ' ').toUpperCase() || 'PENDING'}
+          </Text>
+        </View>
+      </View>
+      {item.description && (
+        <Text style={styles.reportDescription} numberOfLines={2}>
+          "{item.description}"
+        </Text>
+      )}
+    </TouchableOpacity>
+  );
+
+  // ==================== REPORT DETAIL MODAL ====================
+  const ReportDetailModal = () => {
+    if (!selectedReport) return null;
+
+    const isPending = selectedReport.status === REPORT_STATUS.PENDING;
+
+    return (
+      <Modal
+        visible={showReportModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowReportModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Header */}
+              <View style={styles.modalHeader}>
+                <TouchableOpacity onPress={() => setShowReportModal(false)}>
+                  <Ionicons name="close" size={24} color={C.text} />
+                </TouchableOpacity>
+                <Text style={styles.modalTitle}>Report Details</Text>
+                <View style={{ width: 24 }} />
+              </View>
+
+              {/* Report Info */}
+              <View style={styles.section}>
+                <View style={styles.reportDetailRow}>
+                  <Text style={styles.reportDetailLabel}>Status</Text>
+                  <View style={[styles.reportStatusBadge, { backgroundColor: `${getStatusColor(selectedReport.status)}22` }]}>
+                    <Text style={[styles.reportStatusText, { color: getStatusColor(selectedReport.status) }]}>
+                      {selectedReport.status?.replace('_', ' ').toUpperCase() || 'PENDING'}
+                    </Text>
+                  </View>
+                </View>
+                
+                <View style={styles.reportDetailRow}>
+                  <Text style={styles.reportDetailLabel}>Priority</Text>
+                  <View style={[styles.priorityBadge, { backgroundColor: `${getPriorityColor(selectedReport.priority)}22` }]}>
+                    <View style={[styles.priorityDot, { backgroundColor: getPriorityColor(selectedReport.priority) }]} />
+                    <Text style={[styles.priorityText, { color: getPriorityColor(selectedReport.priority) }]}>
+                      {selectedReport.priority?.toUpperCase() || 'LOW'}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.reportDetailRow}>
+                  <Text style={styles.reportDetailLabel}>Reason</Text>
+                  <Text style={styles.reportDetailValue}>{selectedReport.reasonLabel || selectedReport.reason}</Text>
+                </View>
+
+                <View style={styles.reportDetailRow}>
+                  <Text style={styles.reportDetailLabel}>Submitted</Text>
+                  <Text style={styles.reportDetailValue}>{formatReportDate(selectedReport.createdAt)}</Text>
+                </View>
+              </View>
+
+              {/* Users Involved */}
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Users Involved</Text>
+                
+                <View style={styles.userInvolvedCard}>
+                  <Ionicons name="flag" size={20} color={C.red} />
+                  <View style={styles.userInvolvedInfo}>
+                    <Text style={styles.userInvolvedLabel}>Reported User</Text>
+                    <Text style={styles.userInvolvedName}>@{selectedReport.reportedUsername}</Text>
+                    <Text style={styles.userInvolvedId}>ID: {selectedReport.reportedId}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.userInvolvedCard}>
+                  <Ionicons name="person" size={20} color={C.cyan} />
+                  <View style={styles.userInvolvedInfo}>
+                    <Text style={styles.userInvolvedLabel}>Reporter</Text>
+                    <Text style={styles.userInvolvedName}>@{selectedReport.reporterUsername}</Text>
+                    <Text style={styles.userInvolvedId}>ID: {selectedReport.reporterId}</Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Description */}
+              {selectedReport.description && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Description</Text>
+                  <View style={styles.descriptionBox}>
+                    <Text style={styles.descriptionText}>"{selectedReport.description}"</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Content Preview if available */}
+              {selectedReport.contentPreview && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Reported Content</Text>
+                  <View style={styles.contentPreviewBox}>
+                    <Text style={styles.contentPreviewText}>{selectedReport.contentPreview}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* Admin Actions - Only show for pending reports */}
+              {isPending && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Take Action</Text>
+                  
+                  <TouchableOpacity
+                    style={[styles.fullActionButton, { backgroundColor: C.yellow }]}
+                    onPress={() => handleReportAction(ADMIN_ACTIONS.WARNING)}
+                    disabled={actionLoading}>
+                    <Ionicons name="warning" size={20} color="#000" />
+                    <Text style={[styles.actionButtonText, { color: '#000' }]}>Send Warning</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.fullActionButton, { backgroundColor: '#FF6B00' }]}
+                    onPress={() => handleReportAction(ADMIN_ACTIONS.TEMPORARY_BAN)}
+                    disabled={actionLoading}>
+                    <Ionicons name="time" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Temporary Ban (7 days)</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.fullActionButton, { backgroundColor: C.red }]}
+                    onPress={() => handleReportAction(ADMIN_ACTIONS.PERMANENT_BAN)}
+                    disabled={actionLoading}>
+                    <Ionicons name="ban" size={20} color="#fff" />
+                    <Text style={styles.actionButtonText}>Permanent Ban</Text>
+                  </TouchableOpacity>
+
+                  {selectedReport.contentId && (
+                    <TouchableOpacity
+                      style={[styles.fullActionButton, { backgroundColor: '#9333EA' }]}
+                      onPress={() => handleReportAction(ADMIN_ACTIONS.CONTENT_REMOVED)}
+                      disabled={actionLoading}>
+                      <Ionicons name="trash" size={20} color="#fff" />
+                      <Text style={styles.actionButtonText}>Remove Content</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <View style={styles.actionDivider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>OR</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.fullActionButton, { backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
+                    onPress={() => handleReportAction(ADMIN_ACTIONS.NO_VIOLATION)}
+                    disabled={actionLoading}>
+                    <Ionicons name="checkmark-circle" size={20} color={C.green} />
+                    <Text style={[styles.actionButtonText, { color: C.green }]}>No Violation Found</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.fullActionButton, { backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
+                    onPress={handleDismissReport}
+                    disabled={actionLoading}>
+                    <Ionicons name="close-circle" size={20} color={C.dim} />
+                    <Text style={[styles.actionButtonText, { color: C.dim }]}>Dismiss Report</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {/* Action Already Taken */}
+              {!isPending && selectedReport.actionTaken && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Action Taken</Text>
+                  <View style={styles.actionTakenBox}>
+                    <Ionicons name="checkmark-done" size={24} color={C.green} />
+                    <View style={styles.actionTakenInfo}>
+                      <Text style={styles.actionTakenText}>
+                        {selectedReport.actionTaken?.replace('_', ' ').toUpperCase()}
+                      </Text>
+                      {selectedReport.reviewedAt && (
+                        <Text style={styles.actionTakenDate}>
+                          {formatReportDate(selectedReport.reviewedAt)}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
 
   const UserDetailModal = () => {
     if (!selectedUser) return null;
@@ -558,62 +940,131 @@ export default function AdminModerationScreen({ navigation }) {
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'verification' && styles.activeTab]}
-          onPress={() => setActiveTab('verification')}>
-          <Ionicons
-            name="shield-checkmark-outline"
-            size={20}
-            color={activeTab === 'verification' ? C.cyan : C.dim}
-          />
-          <Text style={[styles.tabText, activeTab === 'verification' && styles.activeTabText]}>
-            Verifications
-          </Text>
-          {pendingVerifications.length > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{pendingVerifications.length}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'verification' && styles.activeTab]}
+            onPress={() => setActiveTab('verification')}>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={20}
+              color={activeTab === 'verification' ? C.cyan : C.dim}
+            />
+            <Text style={[styles.tabText, activeTab === 'verification' && styles.activeTabText]}>
+              Verifications
+            </Text>
+            {pendingVerifications.length > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{pendingVerifications.length}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'users' && styles.activeTab]}
-          onPress={() => setActiveTab('users')}>
-          <Ionicons
-            name="people-outline"
-            size={20}
-            color={activeTab === 'users' ? C.cyan : C.dim}
-          />
-          <Text style={[styles.tabText, activeTab === 'users' && styles.activeTabText]}>
-            All Users
-          </Text>
-        </TouchableOpacity>
-      </View>
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'users' && styles.activeTab]}
+            onPress={() => setActiveTab('users')}>
+            <Ionicons
+              name="people-outline"
+              size={20}
+              color={activeTab === 'users' ? C.cyan : C.dim}
+            />
+            <Text style={[styles.tabText, activeTab === 'users' && styles.activeTabText]}>
+              All Users
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tab, activeTab === 'reports' && styles.activeTab]}
+            onPress={() => setActiveTab('reports')}>
+            <Ionicons
+              name="flag-outline"
+              size={20}
+              color={activeTab === 'reports' ? C.cyan : C.dim}
+            />
+            <Text style={[styles.tabText, activeTab === 'reports' && styles.activeTabText]}>
+              Reports
+            </Text>
+            {pendingReportsCount > 0 && (
+              <View style={[styles.badge, { backgroundColor: C.red }]}>
+                <Text style={styles.badgeText}>{pendingReportsCount}</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+
+      {/* Report Filters - Only show when on reports tab */}
+      {activeTab === 'reports' && (
+        <View style={styles.filterContainer}>
+          <TouchableOpacity
+            style={[styles.filterButton, reportFilter === 'all' && styles.filterButtonActive]}
+            onPress={() => setReportFilter('all')}>
+            <Text style={[styles.filterButtonText, reportFilter === 'all' && styles.filterButtonTextActive]}>
+              All
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterButton, reportFilter === 'pending' && styles.filterButtonActive]}
+            onPress={() => setReportFilter('pending')}>
+            <Text style={[styles.filterButtonText, reportFilter === 'pending' && styles.filterButtonTextActive]}>
+              Pending
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.filterButton, reportFilter === 'resolved' && styles.filterButtonActive]}
+            onPress={() => setReportFilter('resolved')}>
+            <Text style={[styles.filterButtonText, reportFilter === 'resolved' && styles.filterButtonTextActive]}>
+              Resolved
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={C.dim} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search users..."
-          placeholderTextColor={C.dim}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
+      {activeTab !== 'reports' && (
+        <View style={styles.searchContainer}>
+          <Ionicons name="search" size={20} color={C.dim} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search users..."
+            placeholderTextColor={C.dim}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+      )}
 
       {/* Content */}
       <FlatList
-        data={activeTab === 'verification' ? pendingVerifications : users}
-        renderItem={activeTab === 'verification' ? renderVerificationItem : renderUserItem}
+        data={
+          activeTab === 'verification' 
+            ? pendingVerifications 
+            : activeTab === 'users' 
+              ? users 
+              : reports
+        }
+        renderItem={
+          activeTab === 'verification' 
+            ? renderVerificationItem 
+            : activeTab === 'users' 
+              ? renderUserItem 
+              : renderReportItem
+        }
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.listContainer}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Ionicons name="folder-open-outline" size={64} color={C.dim} />
+            <Ionicons 
+              name={activeTab === 'reports' ? "flag-outline" : "folder-open-outline"} 
+              size={64} 
+              color={C.dim} 
+            />
             <Text style={styles.emptyText}>
-              {activeTab === 'verification' ? 'No pending verifications' : 'No users found'}
+              {activeTab === 'verification' 
+                ? 'No pending verifications' 
+                : activeTab === 'users' 
+                  ? 'No users found'
+                  : 'No reports found'}
             </Text>
           </View>
         }
@@ -621,6 +1072,9 @@ export default function AdminModerationScreen({ navigation }) {
 
       {/* User Detail Modal */}
       <UserDetailModal />
+      
+      {/* Report Detail Modal */}
+      <ReportDetailModal />
     </View>
   );
 }
@@ -879,5 +1333,217 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  // ==================== TABS SCROLL ====================
+  tabsScroll: {
+    flexGrow: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  // ==================== FILTER STYLES ====================
+  filterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 8,
+  },
+  filterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: C.card,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  filterButtonActive: {
+    backgroundColor: 'rgba(8, 255, 226, 0.15)',
+    borderColor: C.cyan,
+  },
+  filterButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.dim,
+  },
+  filterButtonTextActive: {
+    color: C.cyan,
+  },
+  // ==================== REPORT CARD STYLES ====================
+  reportCard: {
+    backgroundColor: C.card,
+    padding: 14,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  reportHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  priorityIndicator: {
+    width: 4,
+    height: '100%',
+    minHeight: 50,
+    borderRadius: 2,
+    marginRight: 12,
+  },
+  reportInfo: {
+    flex: 1,
+  },
+  reportReason: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  reportMeta: {
+    color: C.dim,
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  reportDate: {
+    color: C.dim,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  reportStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  reportStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  reportDescription: {
+    color: C.dim,
+    fontSize: 13,
+    fontStyle: 'italic',
+    marginTop: 10,
+    paddingLeft: 16,
+    borderLeftWidth: 2,
+    borderLeftColor: C.border,
+  },
+  // ==================== REPORT DETAIL MODAL STYLES ====================
+  reportDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  reportDetailLabel: {
+    color: C.dim,
+    fontSize: 13,
+  },
+  reportDetailValue: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  priorityBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 6,
+  },
+  priorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  priorityText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  userInvolvedCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.card,
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 10,
+    gap: 12,
+  },
+  userInvolvedInfo: {
+    flex: 1,
+  },
+  userInvolvedLabel: {
+    color: C.dim,
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  userInvolvedName: {
+    color: C.text,
+    fontSize: 15,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  userInvolvedId: {
+    color: C.dim,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  descriptionBox: {
+    backgroundColor: C.card,
+    padding: 14,
+    borderRadius: 10,
+    borderLeftWidth: 3,
+    borderLeftColor: C.brand,
+  },
+  descriptionText: {
+    color: C.text,
+    fontSize: 14,
+    fontStyle: 'italic',
+    lineHeight: 20,
+  },
+  contentPreviewBox: {
+    backgroundColor: C.card,
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  contentPreviewText: {
+    color: C.dim,
+    fontSize: 13,
+  },
+  actionDivider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 8,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: C.border,
+  },
+  dividerText: {
+    color: C.dim,
+    fontSize: 12,
+    marginHorizontal: 12,
+  },
+  actionTakenBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(54, 227, 192, 0.1)',
+    padding: 16,
+    borderRadius: 12,
+    gap: 12,
+  },
+  actionTakenInfo: {
+    flex: 1,
+  },
+  actionTakenText: {
+    color: C.green,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  actionTakenDate: {
+    color: C.dim,
+    fontSize: 12,
+    marginTop: 4,
   },
 });

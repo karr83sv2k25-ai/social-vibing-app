@@ -38,6 +38,12 @@ service cloud.firestore {
       allow update: if isSignedIn() && 
                       request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['stats']);
+      // Allow admins to mark products as deleted
+      allow update: if isAdmin() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['isDeleted', 'deletedAt', 'deletedBy']);
+      // Allow admins to delete products
+      allow delete: if isAdmin();
     }
     
     // Users collection - allow wallet and ownedProducts updates for purchases
@@ -52,9 +58,11 @@ service cloud.firestore {
       allow update: if isAdmin() && 
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['isVerified', 'verificationStatus', 'verifiedAt', 'verifiedBy', 
-                    'isBanned', 'banReason', 'bannedAt', 'bannedBy', 
-                    'unbannedAt', 'unbannedBy', 'warnings', 'lastWarning', 
-                    'warnedAt', 'warnedBy', 'revokedAt', 'revokedBy']);
+                    'isBanned', 'banType', 'banReason', 'bannedAt', 'banExpiresAt', 'bannedBy',
+                    'unbannedAt', 'unbannedBy', 'warnings', 'lastWarning', 'lastWarningDate',
+                    'warnedAt', 'warnedBy', 'revokedAt', 'revokedBy',
+                    'warningsCount', 'isSuspended', 'suspendedReason', 'suspendedAt', 'suspendedBy',
+                    'accountStatus']);
 
       // Only followers/following counters
       allow update: if isSignedIn() && 
@@ -65,6 +73,11 @@ service cloud.firestore {
       allow update: if isSignedIn() && 
         request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['wallet', 'coins', 'diamonds', 'ownedProducts']);
+
+      // Allow any authenticated user to update reporting stats
+      allow update: if isSignedIn() && 
+        request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['reportsReceived', 'lastReportedAt']);
       
       // User's hidden posts (Web App)
       match /hidden/{postId} {
@@ -82,39 +95,6 @@ service cloud.firestore {
       match /bookmarks/{postId} {
         allow read: if isOwner(userId);
         allow write: if isOwner(userId);
-      }
-      
-      // User following/followers subcollections
-      match /following/{followId} {
-        allow read: if isSignedIn();
-        allow write: if isOwner(userId);
-      }
-      
-      match /followers/{followerId} {
-        allow read: if isSignedIn();
-        allow write: if isSignedIn();
-      }
-      
-      // User notifications subcollection
-      match /notifications/{notificationId} {
-        allow read: if isSignedIn() && isOwner(userId);
-        allow create: if isSignedIn();
-        allow update: if isSignedIn() && isOwner(userId);
-        allow delete: if isSignedIn() && isOwner(userId);
-      }
-      
-      // Friends collection
-      match /friends/{friendId} {
-        allow read: if isSignedIn();
-        allow write: if isSignedIn() && 
-                       (request.auth.uid == userId || 
-                        request.auth.uid == friendId);
-      }
-      
-      // Blocked users collection
-      match /blocked/{blockedUserId} {
-        allow read: if isSignedIn() && request.auth.uid == userId;
-        allow write: if isSignedIn() && request.auth.uid == userId;
       }
     }
     
@@ -206,11 +186,17 @@ service cloud.firestore {
     match /communities/{communityId} {
       allow read: if isSignedIn();
       allow write: if isSignedIn();
+      // Allow admins to disable communities
+      allow update: if isAdmin() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['isDisabled', 'disabledAt', 'disabledBy', 'disabledReason']);
       
       match /posts/{postId} {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
+        // Allow admins to delete posts
+        allow delete: if isAdmin();
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid);
@@ -219,6 +205,8 @@ service cloud.firestore {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
           allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+          // Allow admins to delete comments
+          allow delete: if isAdmin();
           allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
         }
       }
@@ -227,6 +215,8 @@ service cloud.firestore {
         allow read: if isSignedIn();
         allow create: if isSignedIn();
         allow update: if isSignedIn();
+        // Allow admins to delete blogs
+        allow delete: if isAdmin();
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid);
@@ -235,6 +225,8 @@ service cloud.firestore {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
           allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+          // Allow admins to delete comments
+          allow delete: if isAdmin();
           allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
         }
       }
@@ -360,6 +352,8 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update: if isSignedIn() && resource.data.senderId == request.auth.uid;
+      // Allow admins to delete messages
+      allow delete: if isAdmin();
       allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
     }
     
@@ -424,6 +418,29 @@ service cloud.firestore {
       allow delete: if isSignedIn();
     }
     
+    // User following/followers subcollections
+    match /users/{userId}/following/{followId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    match /users/{userId}/followers/{followerId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn();
+    }
+    
+    // User notifications subcollection
+    match /users/{userId}/notifications/{notificationId} {
+      allow read: if isSignedIn() && isOwner(userId);
+      allow create: if isSignedIn();
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
+    }
+    
     // Reserved usernames collection
     match /usernames/{username} {
       allow get: if true;
@@ -466,13 +483,36 @@ service cloud.firestore {
                        resource.data.toUserId == request.auth.uid);
     }
     
+    // Friends collection
+    match /users/{userId}/friends/{friendId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && 
+                     (request.auth.uid == userId || 
+                      request.auth.uid == friendId);
+    }
+    
+    // Blocked users collection
+    match /users/{userId}/blocked/{blockedUserId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+    
     // Global Posts collection (Web App: public read)
     match /posts/{postId} {
       allow read: if true;
       allow create: if isSignedIn() && 
                       (request.resource.data.authorId == request.auth.uid || 
                        request.resource.data.userId == request.auth.uid);
-      allow update: if isSignedIn();
+      // Allow admins to mark posts as deleted (must come before general update rule)
+      allow update: if isAdmin() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['isDeleted', 'deletedAt', 'deletedBy', 'deletionReason']);
+      // Allow users to update their own posts
+      allow update: if isSignedIn() && 
+                      (resource.data.authorId == request.auth.uid || 
+                       resource.data.userId == request.auth.uid);
+      // Allow admins to delete posts
+      allow delete: if isAdmin();
       allow delete: if isSignedIn() && 
                       (resource.data.authorId == request.auth.uid || 
                        resource.data.userId == request.auth.uid);
@@ -480,9 +520,16 @@ service cloud.firestore {
       match /comments/{commentId} {
         allow read: if true;
         allow create: if isSignedIn();
+        // Allow admins to mark comments as deleted (must come before general update rule)
+        allow update: if isAdmin() && 
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['isDeleted', 'deletedAt', 'deletedBy']);
+        // Allow users to update their own comments
         allow update: if isSignedIn() && 
                         (resource.data.userId == request.auth.uid || 
                          resource.data.authorId == request.auth.uid);
+        // Allow admins to delete comments
+        allow delete: if isAdmin();
         allow delete: if isSignedIn() && 
                         (resource.data.userId == request.auth.uid || 
                          resource.data.authorId == request.auth.uid);
@@ -494,6 +541,8 @@ service cloud.firestore {
       allow read: if true;
       allow create: if isSignedIn();
       allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+      // Allow admins to delete comments
+      allow delete: if isAdmin();
       allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
     }
     
@@ -501,7 +550,9 @@ service cloud.firestore {
     match /stories/{storyId} {
       allow read: if true;
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update: if isSignedIn();
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      // Allow admins to delete stories
+      allow delete: if isAdmin();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
     
@@ -550,14 +601,6 @@ service cloud.firestore {
       }
     }
     
-    // Reports collection (Web App)
-    match /reports/{reportId} {
-      allow read: if false; // Only admins should read
-      allow create: if isSignedIn();
-      allow update: if false;
-      allow delete: if false;
-    }
-    
     // ========== ADMIN PANEL COLLECTIONS ==========
     
     // Advertisements collection (Admin Panel)
@@ -598,6 +641,42 @@ service cloud.firestore {
       allow create: if isSignedIn();
       allow update: if isSignedIn();
       allow delete: if isSignedIn();
+    }
+    
+    // ========== REPORTS SYSTEM COLLECTIONS ==========
+    
+    // Reports collection - User reporting system
+    match /reports/{reportId} {
+      // Admins can read all reports, users can read their own reports (for duplicate checking)
+      allow read: if isAdmin() || 
+                    (isSignedIn() && resource.data.reporterId == request.auth.uid);
+      
+      // Any authenticated user can create a report with validation
+      allow create: if isSignedIn() && 
+                      request.resource.data.reporterId == request.auth.uid &&
+                      request.resource.data.reportedId != request.auth.uid && // Can't report yourself
+                      request.resource.data.status == 'pending' && // Must start as pending
+                      request.resource.data.isResolved == false && // Must not be pre-resolved
+                      request.resource.data.reviewedBy == null && // No pre-assigned reviewer
+                      request.resource.data.description.size() <= 500; // Description limit
+      
+      // Only admins can update reports (status, action, notes)
+      allow update: if isAdmin() && 
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status', 'reviewedBy', 'reviewedAt', 'updatedAt', 
+                                  'actionTaken', 'actionDetails', 'adminNotes', 'isResolved', 'priority']);
+      
+      // Only admins can delete reports
+      allow delete: if isAdmin();
+    }
+    
+    // Admin Actions Log - tracks all admin moderation actions
+    match /admin_actions/{actionId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      // Actions log is immutable - no updates or deletes allowed
+      allow update: if false;
+      allow delete: if false;
     }
     
   }
