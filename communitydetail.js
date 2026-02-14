@@ -223,7 +223,7 @@ export default function CommunityDetail({ route, navigation }) {
           <Text style={styles.small}>Updated: {updatedAt ? new Date(updatedAt.seconds ? updatedAt.seconds * 1000 : updatedAt).toLocaleString() : '—'}</Text>
         </View>
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Members', \`Members: \${memberCount}\`)}>
+        <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Members', `Members: ${memberCount}`)}>
           <Text style={styles.actionText}>View Members</Text>
         </TouchableOpacity>
       </View>

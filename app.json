@@ -3,7 +3,7 @@
     "name": "Social Vibing",
     "slug": "social-vibing",
     "owner": "zainulabideen777",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/app-icon.png",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.socialvibing.app",
+      "bundleIdentifier": "com.app.socialvibing",
       "infoPlist": {
         "NSCameraUsageDescription": "This app needs access to your camera to take photos for posts.",
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to select images for posts.",
