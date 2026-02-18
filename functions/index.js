@@ -172,3 +172,14 @@ exports.renewAgoraToken = functions.https.onRequest((req, res) => {
     });
   }
 });
+
+// ==================== MARKETPLACE FUNCTIONS ====================
+// Import and export all marketplace-related Cloud Functions
+
+const marketplace = require("./marketplace");
+
+exports.buyProduct = marketplace.buyProduct;
+exports.creditCoinsAfterIAP = marketplace.creditCoinsAfterIAP;
+exports.setActiveCustomization = marketplace.setActiveCustomization;
+exports.getUserLibrary = marketplace.getUserLibrary;
+exports.createProduct = marketplace.createProduct;

@@ -325,6 +325,7 @@ export default function LoginScreen({ navigation }) {
             onChangeText={setPassword}
             returnKeyType="go"
             onSubmitEditing={handleLogin}
+            contextMenuHidden={false}
           />
           <TouchableOpacity
             onPress={() => setHidePassword(!hidePassword)}

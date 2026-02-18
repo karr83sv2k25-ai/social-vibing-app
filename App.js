@@ -133,6 +133,13 @@ import KingMediaVideoGenScreen from './screens/KingMediaVideoGenScreen';
 import AdminPanelScreen from './screens/AdminPanelScreen';
 import AdminModerationScreen from './AdminModerationScreen';
 
+// Product Viewer Screens
+import ComicReaderScreen from './screens/viewers/ComicReaderScreen';
+import BookReaderScreen from './screens/viewers/BookReaderScreen';
+import ArtViewerScreen from './screens/viewers/ArtViewerScreen';
+import StickerPackViewerScreen from './screens/viewers/StickerPackViewerScreen';
+import CustomizationScreen from './screens/viewers/CustomizationScreen';
+
 const Stack = createStackNavigator();
 
 // Lazy loading wrapper component
@@ -328,6 +335,13 @@ export default function App() {
             <Stack.Screen name="BubblesLibrary" options={{ headerShown: false }}>
               {(props) => <GenericLibraryScreen {...props} type="chat_bubble" />}
             </Stack.Screen>
+            
+            {/* Product Viewer Screens */}
+            <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="BookReader" component={BookReaderScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ArtViewer" component={ArtViewerScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="StickerPackViewer" component={StickerPackViewerScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Customization" component={CustomizationScreen} options={{ headerShown: false }} />
             <Stack.Screen name="StickerPreview" component={StickerPreviewScreen} />
             <Stack.Screen name="PaymentDetail" component={PaymentDetailScreen} />
             <Stack.Screen name="PaymentSelection" component={PaymentSelectionScreen} />

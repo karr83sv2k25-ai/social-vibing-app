@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   StyleSheet,
   ImageBackground,
@@ -18,7 +18,7 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { getAuth, createUserWithEmailAndPassword, fetchSignInMethodsForEmail, deleteUser } from 'firebase/auth';
-import { setDoc, doc, getDoc } from 'firebase/firestore';
+import { setDoc, doc, getDoc, runTransaction, deleteDoc } from 'firebase/firestore';
 import PhoneInput from 'react-native-phone-number-input';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -30,6 +30,25 @@ import {
 import { app, db } from './firebaseConfig';
 
 const USERNAME_REGEX = /^[a-z0-9._-]{3,20}$/;
+const PASSWORD_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$/;
+
+// Input sanitization functions
+const sanitizeInput = (text) => {
+  if (!text) return '';
+  return text
+    .trim()
+    .replace(/[<>"'`]/g, '') // Remove potential XSS characters
+    .replace(/\s+/g, ' '); // Normalize whitespace
+};
+
+const sanitizeUsername = (text) => {
+  if (!text) return '';
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/[^a-z0-9._-]/g, ''); // Only allow valid username characters
+};
 
 export default function WithEmailScreen({ navigation }) {
   const [firstName, setFirstName] = useState('');
@@ -42,14 +61,20 @@ export default function WithEmailScreen({ navigation }) {
 
   // Validation states
   const [usernameError, setUsernameError] = useState('');
+  const [usernameAvailable, setUsernameAvailable] = useState(false);
   const [isValidEmail, setIsValidEmail] = useState(true);
   const [isValidPhone, setIsValidPhone] = useState(true);
   const [isStrongPassword, setIsStrongPassword] = useState(true);
   const [passwordsMatch, setPasswordsMatch] = useState(true);
   const [isCheckingUsername, setIsCheckingUsername] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, message: '' });
 
   const phoneInput = useRef(null);
+  const emailValidationTimeout = useRef(null);
+  const usernameValidationTimeout = useRef(null);
 
   let [fontsLoaded] = useFonts({
     Manrope_700Bold,
@@ -59,7 +84,51 @@ export default function WithEmailScreen({ navigation }) {
 
   if (!fontsLoaded) return null;
 
-  // Validation functions with real-time feedback
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (emailValidationTimeout.current) clearTimeout(emailValidationTimeout.current);
+      if (usernameValidationTimeout.current) clearTimeout(usernameValidationTimeout.current);
+    };
+  }, []);
+
+  // Enhanced password strength validation
+  const checkPasswordStrength = useCallback((password) => {
+    if (!password) {
+      setPasswordStrength({ score: 0, message: '' });
+      return false;
+    }
+
+    let score = 0;
+    let message = '';
+
+    // Length check
+    if (password.length >= 8) score++;
+    if (password.length >= 12) score++;
+
+    // Character type checks
+    if (/[a-z]/.test(password)) score++; // lowercase
+    if (/[A-Z]/.test(password)) score++; // uppercase
+    if (/\d/.test(password)) score++; // numbers
+    if (/[@$!%*?&#]/.test(password)) score++; // special characters
+
+    // Set strength message
+    if (score <= 2) {
+      message = 'Weak - Add uppercase, numbers, and special characters';
+      setPasswordStrength({ score, message, color: '#FF0000' });
+      return false;
+    } else if (score <= 4) {
+      message = 'Medium - Consider adding more character types';
+      setPasswordStrength({ score, message, color: '#FFA500' });
+      return true;
+    } else {
+      message = 'Strong password';
+      setPasswordStrength({ score, message, color: '#00FF00' });
+      return true;
+    }
+  }, []);
+
+  // Validation functions with real-time feedback and debouncing
   const validateEmail = async (text) => {
     setEmail(text);
 
@@ -162,170 +231,191 @@ export default function WithEmailScreen({ navigation }) {
     }
   };
 
-  const validatePassword = (text) => {
-    setIsStrongPassword(text.length >= 8);
+  // Sanitized name handlers
+  const handleFirstNameChange = useCallback((text) => {
+    const sanitized = sanitizeInput(text);
+    setFirstName(sanitized);
+  }, []);
+
+  const handleLastNameChange = useCallback((text) => {
+    const sanitized = sanitizeInput(text);
+    setLastName(sanitized);
+  }, []);
+
+  const validatePassword = useCallback((text) => {
     setPassword(text);
+    const isStrong = checkPasswordStrength(text);
+    setIsStrongPassword(isStrong && text.length >= 8);
     if (confirmPassword) {
       setPasswordsMatch(text === confirmPassword);
     }
-  };
+  }, [confirmPassword, checkPasswordStrength]);
 
   const validateConfirmPassword = (text) => {
     setConfirmPassword(text);
     setPasswordsMatch(text === password);
   };
 
-  const handleUsernameChange = (text) => {
-    setUsername(text);
+  const handleUsernameChange = useCallback((text) => {
+    const sanitized = sanitizeUsername(text);
+    setUsername(sanitized);
     if (usernameError) {
       setUsernameError('');
     }
-  };
+    if (usernameAvailable) {
+      setUsernameAvailable(false);
+    }
+  }, [usernameError, usernameAvailable]);
 
-  const handleUsernameBlur = async () => {
-    const normalized = username.trim().toLowerCase().replace(/\s+/g, '');
+  const handleUsernameBlur = useCallback(async () => {
+    // Clear previous timeout
+    if (usernameValidationTimeout.current) {
+      clearTimeout(usernameValidationTimeout.current);
+    }
+
+    const normalized = sanitizeUsername(username);
     setUsername(normalized);
 
     if (!normalized) {
       setUsernameError('Username is required');
+      setUsernameAvailable(false);
       return;
     }
 
     if (!USERNAME_REGEX.test(normalized)) {
-      setUsernameError('Username must be 3-20 characters (letters, numbers, ., -, _)');
+      setUsernameError('Username must be 3-20 characters (lowercase letters, numbers, ., -, _)');
+      setUsernameAvailable(false);
       return;
     }
 
-    setIsCheckingUsername(true);
-    try {
-      const usernameDocRef = doc(db, 'usernames', normalized);
-      const usernameSnap = await getDoc(usernameDocRef);
-      if (usernameSnap.exists()) {
-        setUsernameError('This username is already taken');
-      } else {
-        setUsernameError('');
+    // Debounce username check
+    usernameValidationTimeout.current = setTimeout(async () => {
+      setIsCheckingUsername(true);
+      try {
+        const usernameDocRef = doc(db, 'usernames', normalized);
+        const usernameSnap = await getDoc(usernameDocRef);
+        if (usernameSnap.exists()) {
+          setUsernameError('Username already taken - please choose another');
+          setUsernameAvailable(false);
+        } else {
+          setUsernameError('');
+          setUsernameAvailable(true);
+        }
+      } catch (error) {
+        console.error('Username check error:', error);
+        setUsernameError('Unable to verify username. Please check your connection.');
+        setUsernameAvailable(false);
+      } finally {
+        setIsCheckingUsername(false);
       }
-    } catch (error) {
-      console.error('Username check error:', error);
-      setUsernameError('Unable to verify username right now');
-    } finally {
-      setIsCheckingUsername(false);
-    }
-  };
+    }, 500); // Wait 500ms after blur
+  }, [username]);
 
   const handleSignup = async () => {
     if (isSubmitting || isCheckingUsername) {
       return;
     }
 
-    // Validate all fields
-    if (!firstName.trim() || !lastName.trim()) {
-      Alert.alert('Error', 'Please enter your full name');
+    // Sanitize and validate all fields
+    const sanitizedFirstName = sanitizeInput(firstName);
+    const sanitizedLastName = sanitizeInput(lastName);
+    const normalizedUsername = sanitizeUsername(username);
+    const sanitizedEmail = email.trim().toLowerCase();
+
+    if (!sanitizedFirstName || !sanitizedLastName) {
+      Alert.alert('Invalid Input', 'Please enter your full name');
       return;
     }
-
-    const normalizedUsername = username.trim().toLowerCase().replace(/\s+/g, '');
-    setUsername(normalizedUsername);
 
     if (!normalizedUsername) {
       const message = 'Please choose a username';
       setUsernameError(message);
-      Alert.alert('Error', message);
+      Alert.alert('Invalid Input', message);
       return;
     }
 
     if (!USERNAME_REGEX.test(normalizedUsername)) {
-      const message = 'Username must be 3-20 characters (letters, numbers, ., -, _)';
+      const message = 'Username must be 3-20 characters (lowercase letters, numbers, ., -, _)';
       setUsernameError(message);
-      Alert.alert('Error', message);
+      Alert.alert('Invalid Username', message);
       return;
     }
 
-    if (!isValidEmail) {
-      Alert.alert('Error', 'Please enter a valid email address');
+    if (!isValidEmail || !sanitizedEmail) {
+      Alert.alert('Invalid Email', 'Please enter a valid email address');
       return;
     }
 
     if (!phoneInput.current?.isValidNumber(phoneNumber)) {
-      Alert.alert('Error', 'Please enter a valid phone number');
+      Alert.alert('Invalid Phone', 'Please enter a valid phone number');
       return;
     }
 
-    if (!isStrongPassword) {
-      Alert.alert('Error', 'Password must be at least 8 characters long');
+    if (!isStrongPassword || password.length < 8) {
+      Alert.alert('Weak Password', 'Password must be at least 8 characters and include uppercase, lowercase, number, and special character for better security.');
       return;
     }
 
     if (!passwordsMatch) {
-      Alert.alert('Error', 'Passwords do not match');
+      Alert.alert('Password Mismatch', 'Passwords do not match');
       return;
     }
 
-    setIsCheckingUsername(true);
-    try {
-      const usernameDocRef = doc(db, 'usernames', normalizedUsername);
-      const usernameSnap = await getDoc(usernameDocRef);
-      if (usernameSnap.exists()) {
-        const message = 'This username is already taken. Please choose another one.';
-        setUsernameError('This username is already taken');
-        Alert.alert('Error', message);
-        return;
-      }
-      setUsernameError('');
-    } catch (error) {
-      console.error('Username availability error:', error);
-      const message = 'Unable to verify username. Please try again.';
-      setUsernameError(message);
-      Alert.alert('Error', message);
-      return;
-    } finally {
-      setIsCheckingUsername(false);
-    }
+    setIsSubmitting(true);
+    let userCredential = null;
+    let userDocCreated = false;
 
     try {
       const auth = getAuth(app);
-      // db is now imported globally
-      setIsSubmitting(true);
 
-      // Create user with email and password
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      // Step 1: Create Firebase Auth user
+      console.log('Creating Firebase Auth user...');
+      userCredential = await createUserWithEmailAndPassword(auth, sanitizedEmail, password);
+      const userId = userCredential.user.uid;
+      console.log('✅ Firebase Auth user created:', userId);
 
-      // Save additional user info to Firestore
-      const userData = {
-        firstName,
-        lastName,
-        email,
-        phoneNumber: phoneInput.current?.getCallingCode() + phoneNumber,
-        createdAt: new Date().toISOString(),
-        // initialize social stats
-        followers: 0,
-        following: 0,
-        friends: 0,
-        visits: 0,
-        // optional profile defaults
-        bio: '',
-        username: normalizedUsername,
-        profileImage: '',
-      };
+      // Step 2: Use Firestore transaction to atomically reserve username and create user doc
+      console.log('Starting atomic transaction for username reservation...');
+      await runTransaction(db, async (transaction) => {
+        const usernameRef = doc(db, 'usernames', normalizedUsername);
+        const userRef = doc(db, 'users', userId);
 
-      await setDoc(doc(db, 'users', userCredential.user.uid), userData);
+        // Check if username is available (inside transaction for atomicity)
+        const usernameDoc = await transaction.get(usernameRef);
+        if (usernameDoc.exists()) {
+          throw new Error('USERNAME_TAKEN');
+        }
 
-      try {
-        await setDoc(doc(db, 'usernames', normalizedUsername), {
-          ownerId: userCredential.user.uid,
+        // Reserve the username
+        transaction.set(usernameRef, {
+          ownerId: userId,
           createdAt: new Date().toISOString(),
         });
-      } catch (usernameClaimError) {
-        console.error('Username reservation error:', usernameClaimError);
-        try {
-          await deleteUser(userCredential.user);
-        } catch (cleanupError) {
-          console.error('Cleanup after username reservation failure:', cleanupError);
-        }
-        setUsernameError('This username is no longer available. Please choose another one.');
-        Alert.alert('Error', 'This username is no longer available. Please choose another one.');
-        return;
-      }
+
+        // Create user document
+        const userData = {
+          firstName: sanitizedFirstName,
+          lastName: sanitizedLastName,
+          email: sanitizedEmail,
+          phoneNumber: phoneInput.current?.getCallingCode() + phoneNumber,
+          createdAt: new Date().toISOString(),
+          // initialize social stats
+          followers: 0,
+          following: 0,
+          friends: 0,
+          visits: 0,
+          // profile defaults
+          bio: '',
+          username: normalizedUsername,
+          profileImage: '',
+          uid: userId,
+        };
+        transaction.set(userRef, userData);
+
+        userDocCreated = true;
+      });
+
+      console.log('✅ Transaction completed - username reserved and user created');
 
       // Save authentication state to AsyncStorage for persistent login
       try {
@@ -350,7 +440,59 @@ export default function WithEmailScreen({ navigation }) {
       ]);
     } catch (error) {
       console.error('Signup Error:', error);
-      Alert.alert('Error', error.message);
+
+      // Comprehensive error cleanup
+      if (userCredential) {
+        console.log('⚠️  Signup failed, cleaning up...');
+        try {
+          // Delete username reservation if it was created
+          if (error.message === 'USERNAME_TAKEN') {
+            setUsernameError('Username already taken - please choose another');
+            setUsernameAvailable(false);
+            Alert.alert('Username Taken', 'This username was just taken by another user. Please choose a different username.');
+          } else {
+            // Clean up user document if it exists
+            if (userDocCreated) {
+              await deleteDoc(doc(db, 'users', userCredential.user.uid));
+              console.log('✅ User document deleted');
+            }
+            // Clean up username reservation if it exists
+            try {
+              await deleteDoc(doc(db, 'usernames', normalizedUsername));
+              console.log('✅ Username reservation deleted');
+            } catch (usernameDeleteError) {
+              console.log('No username to delete or already deleted');
+            }
+          }
+
+          // Delete Firebase Auth user
+          await deleteUser(userCredential.user);
+          console.log('✅ Firebase Auth user deleted');
+        } catch (cleanupError) {
+          console.error('❌ Cleanup error:', cleanupError);
+          Alert.alert(
+            'Account Cleanup Failed',
+            'There was an issue cleaning up the partial account. Please contact support if you experience login issues.',
+            [{ text: 'OK' }]
+          );
+        }
+      }
+
+      // Show user-friendly error message
+      let errorMessage = 'An error occurred during signup';
+      if (error.code === 'auth/email-already-in-use') {
+        errorMessage = 'This email is already registered. Please try logging in instead.';
+      } else if (error.code === 'auth/weak-password') {
+        errorMessage = 'Password is too weak. Please use a stronger password.';
+      } else if (error.code === 'auth/network-request-failed') {
+        errorMessage = 'Network error. Please check your internet connection and try again.';
+      } else if (error.message !== 'USERNAME_TAKEN') {
+        errorMessage = error.message || errorMessage;
+      }
+
+      if (error.message !== 'USERNAME_TAKEN') {
+        Alert.alert('Signup Failed', errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -408,7 +550,8 @@ export default function WithEmailScreen({ navigation }) {
                         placeholder="First Name"
                         placeholderTextColor="#BDBDBD"
                         value={firstName}
-                        onChangeText={setFirstName}
+                        onChangeText={handleFirstNameChange}
+                        autoCapitalize="words"
                       />
                     </LinearGradient>
 
@@ -423,7 +566,8 @@ export default function WithEmailScreen({ navigation }) {
                         placeholder="Last Name"
                         placeholderTextColor="#BDBDBD"
                         value={lastName}
-                        onChangeText={setLastName}
+                        onChangeText={handleLastNameChange}
+                        autoCapitalize="words"
                       />
                     </LinearGradient>
 
@@ -432,20 +576,43 @@ export default function WithEmailScreen({ navigation }) {
                       colors={['rgba(5,0,14,0.5)', 'rgba(52,42,66,0.5)']}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
-                      style={[styles.inputContainer, usernameError && styles.invalidInput]}>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Username"
-                        placeholderTextColor="#BDBDBD"
-                        value={username}
-                        onChangeText={handleUsernameChange}
-                        onBlur={handleUsernameBlur}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                      />
+                      style={[
+                        styles.inputContainer,
+                        usernameError && styles.invalidInput,
+                        usernameAvailable && !usernameError && styles.validInput
+                      ]}>
+                      <View style={styles.usernameRow}>
+                        <TextInput
+                          style={[styles.input, styles.usernameInputField]}
+                          placeholder="Username"
+                          placeholderTextColor="#BDBDBD"
+                          value={username}
+                          onChangeText={handleUsernameChange}
+                          onBlur={handleUsernameBlur}
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                        />
+                        {isCheckingUsername && (
+                          <View style={styles.usernameStatusIcon}>
+                            <Text style={styles.statusText}>⏳</Text>
+                          </View>
+                        )}
+                        {!isCheckingUsername && usernameAvailable && (
+                          <View style={styles.usernameStatusIcon}>
+                            <Ionicons name="checkmark-circle" size={20} color="#00FF00" />
+                          </View>
+                        )}
+                        {!isCheckingUsername && usernameError && (
+                          <View style={styles.usernameStatusIcon}>
+                            <Ionicons name="close-circle" size={20} color="#FF0000" />
+                          </View>
+                        )}
+                      </View>
                     </LinearGradient>
                     {isCheckingUsername ? (
                       <Text style={styles.validationHelperText}>Checking username availability...</Text>
+                    ) : usernameAvailable && !usernameError ? (
+                      <Text style={styles.validationSuccessText}>✓ Username is available!</Text>
                     ) : (
                       usernameError ? (
                         <Text style={styles.validationText}>{usernameError}</Text>
@@ -512,14 +679,26 @@ export default function WithEmailScreen({ navigation }) {
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={[styles.inputContainer, !isStrongPassword && password && styles.invalidInput]}>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Password"
-                        placeholderTextColor="#BDBDBD"
-                        secureTextEntry
-                        value={password}
-                        onChangeText={validatePassword}
-                      />
+                      <View style={styles.passwordRow}>
+                        <TextInput
+                          style={[styles.input, styles.passwordInputField]}
+                          placeholder="Password"
+                          placeholderTextColor="#BDBDBD"
+                          secureTextEntry={!showPassword}
+                          value={password}
+                          onChangeText={validatePassword}
+                          contextMenuHidden={false}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowPassword(!showPassword)}
+                          style={styles.eyeIconButton}>
+                          <Ionicons
+                            name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                            size={20}
+                            color="#FF06C8"
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </LinearGradient>
 
                     {/* Confirm Password Input */}
@@ -528,20 +707,46 @@ export default function WithEmailScreen({ navigation }) {
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 1 }}
                       style={[styles.inputContainer, !passwordsMatch && confirmPassword && styles.invalidInput]}>
-                      <TextInput
-                        style={styles.input}
-                        placeholder="Confirm Password"
-                        placeholderTextColor="#BDBDBD"
-                        secureTextEntry
-                        value={confirmPassword}
-                        onChangeText={validateConfirmPassword}
-                      />
+                      <View style={styles.passwordRow}>
+                        <TextInput
+                          style={[styles.input, styles.passwordInputField]}
+                          placeholder="Confirm Password"
+                          placeholderTextColor="#BDBDBD"
+                          secureTextEntry={!showConfirmPassword}
+                          value={confirmPassword}
+                          onChangeText={validateConfirmPassword}
+                          contextMenuHidden={false}
+                        />
+                        <TouchableOpacity
+                          onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                          style={styles.eyeIconButton}>
+                          <Ionicons
+                            name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'}
+                            size={20}
+                            color="#FF06C8"
+                          />
+                        </TouchableOpacity>
+                      </View>
                     </LinearGradient>
 
-                    {/* Password Requirements */}
+                    {/* Password Strength Indicator */}
+                    {password && passwordStrength.message && (
+                      <Text style={[styles.passwordStrengthText, { color: passwordStrength.color }]}>
+                        {passwordStrength.message}
+                      </Text>
+                    )}
+
+                    {/* Password Requirements Helper */}
                     {password && !isStrongPassword && (
                       <Text style={styles.requirementText}>
-                        Password must be at least 8 characters long
+                        💡 Include: uppercase, lowercase, number, special character (@$!%*?&#)
+                      </Text>
+                    )}
+
+                    {/* Password Match Feedback */}
+                    {confirmPassword && !passwordsMatch && (
+                      <Text style={styles.validationText}>
+                        Passwords do not match
                       </Text>
                     )}
 
@@ -650,6 +855,10 @@ const styles = StyleSheet.create({
     borderColor: '#FF0000',
   },
 
+  validInput: {
+    borderColor: '#00FF00',
+  },
+
   input: {
     flex: 1,
     borderRadius: 6,
@@ -657,6 +866,48 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#FFFFFF',
     fontFamily: 'Manrope_400Regular',
+  },
+
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    borderRadius: 6,
+  },
+
+  passwordInputField: {
+    paddingRight: 45,
+  },
+
+  usernameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    borderRadius: 6,
+  },
+
+  usernameInputField: {
+    paddingRight: 45,
+  },
+
+  usernameStatusIcon: {
+    position: 'absolute',
+    right: 15,
+    height: '100%',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+
+  statusText: {
+    fontSize: 16,
+  },
+
+  eyeIconButton: {
+    position: 'absolute',
+    right: 15,
+    height: '100%',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
   },
 
   phoneContainer: {
@@ -704,10 +955,21 @@ const styles = StyleSheet.create({
   requirementText: {
     fontFamily: 'Manrope_400Regular',
     fontSize: 12,
-    color: '#FF0000',
+    color: '#FFA500',
     textAlign: 'center',
     width: 300,
-    marginBottom: 20,
+    marginTop: -15,
+    marginBottom: 15,
+  },
+
+  passwordStrengthText: {
+    fontFamily: 'Manrope_500Medium',
+    fontSize: 12,
+    textAlign: 'left',
+    width: 300,
+    marginTop: -15,
+    marginBottom: 10,
+    fontWeight: '600',
   },
 
   validationText: {
@@ -724,6 +986,16 @@ const styles = StyleSheet.create({
     fontFamily: 'Manrope_400Regular',
     fontSize: 12,
     color: '#BDBDBD',
+    textAlign: 'left',
+    width: 300,
+    marginTop: -15,
+    marginBottom: 15,
+  },
+
+  validationSuccessText: {
+    fontFamily: 'Manrope_400Regular',
+    fontSize: 12,
+    color: '#00FF00',
     textAlign: 'left',
     width: 300,
     marginTop: -15,

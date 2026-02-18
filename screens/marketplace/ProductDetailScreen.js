@@ -15,6 +15,8 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWallet } from '../../context/WalletContext';
 import { productAPI } from '../../api/productAPI';
+import { getFunctions, httpsCallable } from 'firebase/functions';
+import { auth } from '../../firebaseConfig';
 
 const BG = '#0B0B0E';
 const CARD = '#17171C';
@@ -58,13 +60,21 @@ export default function ProductDetailScreen({ route, navigation }) {
     const handlePurchase = async () => {
         if (!product) return;
 
+        // Check authentication
+        const user = auth.currentUser;
+        if (!user) {
+            Alert.alert('Error', 'Please log in to make a purchase');
+            navigation.navigate('Login');
+            return;
+        }
+
         // Check if already purchased
         if (product.hasPurchased) {
             Alert.alert('Already Owned', 'You already own this product.');
             return;
         }
 
-        // Check balance
+        // Check balance (client-side pre-check for better UX)
         const currency = product.currency;
         const price = product.price;
 
@@ -103,27 +113,58 @@ export default function ProductDetailScreen({ route, navigation }) {
                     onPress: async () => {
                         setPurchasing(true);
                         try {
-                            // Deduct balance
-                            if (currency === 'diamonds') {
-                                await deductDiamonds(price, productId);
-                            } else {
-                                await deductCoins(price, `Purchase: ${product.title}`);
-                            }
-
-                            // Create order
-                            const orderResponse = await productAPI.createOrder({
-                                productId: product.productId,
-                                paymentMethod: 'wallet',
+                            // ✅ SECURE: Call Cloud Function instead of direct wallet update
+                            const functions = getFunctions();
+                            const buyProduct = httpsCallable(functions, 'buyProduct');
+                            
+                            const result = await buyProduct({ 
+                                productId: product.productId 
                             });
 
-                            if (orderResponse.success) {
-                                navigation.navigate('OrderSuccess', {
-                                    order: orderResponse.data,
-                                    product: product,
-                                });
+                            if (result.data.success) {
+                                // Purchase successful!
+                                Alert.alert(
+                                    'Success! 🎉',
+                                    result.data.message,
+                                    [
+                                        {
+                                            text: 'View in Library',
+                                            onPress: () => navigation.navigate('Library', {
+                                                type: product.type
+                                            })
+                                        },
+                                        {
+                                            text: 'OK',
+                                            onPress: () => {
+                                                // Refresh wallet balance
+                                                if (wallet.refreshWallet) {
+                                                    wallet.refreshWallet();
+                                                }
+                                                // Mark product as purchased
+                                                setProduct({ ...product, hasPurchased: true });
+                                            }
+                                        }
+                                    ]
+                                );
                             }
                         } catch (error) {
-                            Alert.alert('Error', error.message || 'Purchase failed. Please try again.');
+                            console.error('Purchase error:', error);
+                            
+                            // Handle specific error codes from Cloud Function
+                            if (error.code === 'functions/failed-precondition') {
+                                // Insufficient balance or product not available
+                                Alert.alert('Purchase Failed', error.message);
+                            } else if (error.code === 'functions/already-exists') {
+                                Alert.alert('Already Owned', 'You already own this product');
+                                setProduct({ ...product, hasPurchased: true });
+                            } else if (error.code === 'functions/unauthenticated') {
+                                Alert.alert('Authentication Required', 'Please log in to purchase');
+                                navigation.navigate('Login');
+                            } else if (error.code === 'functions/not-found') {
+                                Alert.alert('Error', 'Product not found');
+                            } else {
+                                Alert.alert('Purchase Failed', error.message || 'Something went wrong. Please try again.');
+                            }
                         } finally {
                             setPurchasing(false);
                         }

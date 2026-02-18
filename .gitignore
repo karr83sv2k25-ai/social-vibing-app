@@ -7,3 +7,18 @@ backend/config/*.json
 # Firebase service account keys (SECURITY: Never commit these!)
 serviceAccountKey.json
 *-firebase-adminsdk-*.json
+
+# Build artifacts (APK, AAB, IPA files)
+*.apk
+*.aab
+*.ipa
+build-*.apk
+build-*.aab
+
+# Android build outputs
+android/app/build/
+android/build/
+
+# iOS build outputs
+ios/build/
+ios/Pods/

@@ -39,8 +39,21 @@ service cloud.firestore {
       // Users can create their own profile during signup
       allow create: if isSignedIn() && isOwner(userId);
       
-      // Users can update their own profile
-      allow update: if isSignedIn() && isOwner(userId);
+      // Users can update their own profile, BUT NEVER wallet fields directly
+      allow update: if isSignedIn() && isOwner(userId)
+                      && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+                        'coins', 
+                        'diamonds', 
+                        'ownedProducts',
+                        'earningsBalance',
+                        'totalEarnings'
+                      ]);
+      
+      // Allow activeCustomizations updates (frames/bubbles from marketplace)
+      allow update: if isSignedIn() && isOwner(userId)
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+                        'activeCustomizations'
+                      ]);
       
       // Admins can update user moderation fields
       allow update: if isAdmin() && 
@@ -822,5 +835,59 @@ service cloud.firestore {
       }
     }
     
+    // =============================================================================
+    // MARKETPLACE SECURITY - CRITICAL
+    // =============================================================================
+    
+    // Products - Read-only for clients, managed by Cloud Functions
+    match /products/{productId} {
+      // Anyone can read active products
+      allow read: if resource.data.status == 'active';
+      
+      // Only Cloud Functions can create/update/delete products
+      allow create, update, delete: if false;
+    }
+    
+    // Orders - Users can read their own orders, Cloud Functions create them
+    match /orders/{orderId} {
+      // Users can only read their own orders
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // Orders can only be created by Cloud Functions (not directly by clients)
+      allow create, update, delete: if false;
+    }
+    
+    // Libraries - Users can read their own library, Cloud Functions modify it
+    match /libraries/{userId} {
+      // Users can only read their own library
+      allow read: if isOwner(userId);
+      
+      // Libraries can only be modified by Cloud Functions
+      allow create, update, delete: if false;
+    }
+    
+    // IAP Transactions - Cloud Functions only
+    match /iap_transactions/{transactionId} {
+      // Users can read their own IAP transactions
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      
+      // IAP transactions can only be created by Cloud Functions
+      allow create, update, delete: if false;
+    }
+    
+    // Product Reviews (Optional feature)
+    match /reviews/{reviewId} {
+      // Anyone can read reviews
+      allow read: if true;
+      
+      // Users can create reviews for products they own
+      allow create: if isSignedIn()
+                      && request.resource.data.userId == request.auth.uid
+                      && request.resource.data.productId != null;
+      
+      // Users can update/delete their own reviews
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
   }
 }
