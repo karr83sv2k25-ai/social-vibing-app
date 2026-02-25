@@ -151,6 +151,8 @@ import KingMediaImageGenScreen from './screens/KingMediaImageGenScreen';
 import KingMediaVideoGenScreen from './screens/KingMediaVideoGenScreen';
 import AdminPanelScreen from './screens/AdminPanelScreen';
 import AdminModerationScreen from './AdminModerationScreen';
+import CommunityStaffScreen from './CommunityStaffScreen';
+import CommunityModerationScreen from './CommunityModerationScreen';
 
 // Product Viewer Screens
 import ComicReaderScreen from './screens/viewers/ComicReaderScreen';
@@ -448,6 +450,8 @@ export default function App() {
                 <Stack.Screen name="KingMediaVideoGen" component={KingMediaVideoGenScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="AdminModeration" component={AdminModerationScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityStaff" component={CommunityStaffScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityModeration" component={CommunityModerationScreen} options={{ headerShown: false }} />
               </>
             )}
           </Stack.Navigator>

@@ -40,7 +40,10 @@ export const createCommunity = async (db, creatorId, communityData) => {
       coverImage: communityData.coverImage || '',
       tags: communityData.tags || [],
       creatorId: creatorId,
-      moderators: [creatorId],
+      moderators: [creatorId], // legacy – kept for backward compat
+      leaders: [],            // Amino-style: top staff
+      curators: [],           // Amino-style: junior staff
+      bannedUsers: [],        // users banned from this community
       members: [creatorId],
       memberCount: 1,
       postCount: 0,
@@ -465,6 +468,7 @@ export const removeModerator = async (db, communityId, userId, targetUserId) => 
 };
 
 // ==================== CHECK IF USER IS MODERATOR ====================
+// Backward-compatible: treats leaders, curators, and legacy moderators as staff
 export const isModerator = async (db, communityId, userId) => {
   try {
     const communityDoc = await getDoc(doc(db, 'communities', communityId));
@@ -474,10 +478,33 @@ export const isModerator = async (db, communityId, userId) => {
     }
 
     const communityData = communityDoc.data();
-    return communityData.creatorId === userId || communityData.moderators?.includes(userId);
+    return (
+      communityData.creatorId === userId ||
+      communityData.leaders?.includes(userId) ||
+      communityData.curators?.includes(userId) ||
+      communityData.moderators?.includes(userId) // legacy
+    );
   } catch (error) {
     console.error('❌ Check moderator error:', error);
     return false;
+  }
+};
+
+// ==================== GET USER'S COMMUNITY ROLE ====================
+// Returns 'owner' | 'leader' | 'curator' | 'member' | null
+export const getCommunityRole = async (db, communityId, userId) => {
+  try {
+    const communityDoc = await getDoc(doc(db, 'communities', communityId));
+    if (!communityDoc.exists()) return null;
+    const d = communityDoc.data();
+    if (d.creatorId === userId) return 'owner';
+    if ((d.leaders || []).includes(userId)) return 'leader';
+    if ((d.curators || []).includes(userId)) return 'curator';
+    if ((d.members || []).includes(userId)) return 'member';
+    return null;
+  } catch (error) {
+    console.error('❌ Get community role error:', error);
+    return null;
   }
 };
 

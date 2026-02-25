@@ -201,6 +201,16 @@ export default function EditProfileScreen({ navigation, route }) {
       // Update local state immediately for instant UI feedback
       const updatedData = { ...userData, ...updates };
       setUserData(updatedData);
+      // Keep name/username state in sync so the modal always reflects saved values
+      if (updates.firstName !== undefined || updates.lastName !== undefined) {
+        setName({
+          firstName: updates.firstName ?? updatedData.firstName ?? '',
+          lastName: updates.lastName ?? updatedData.lastName ?? '',
+        });
+      }
+      if (updates.username !== undefined) {
+        setUsername(updates.username);
+      }
       console.log('✅ Local state updated');
 
       // Save to AsyncStorage as backup (always succeeds)

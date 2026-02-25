@@ -753,6 +753,7 @@ export default function GroupInfoScreen() {
   const [showDraftsModal, setShowDraftsModal] = useState(false);
   const [selectedDraft, setSelectedDraft] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [membersModalContext, setMembersModalContext] = useState('all'); // 'all' or 'online'
@@ -926,8 +927,15 @@ export default function GroupInfoScreen() {
             // Check if current user is admin - ONLY based on adminIds array
             // This allows super admin to fully revoke admin privileges from anyone, including the creator
             const isCurrentAdmin = auth.currentUser && _adminIds.includes(auth.currentUser.uid);
+            const _moderatorIds = Array.isArray(data.moderatorIds)
+              ? data.moderatorIds
+              : Array.isArray(data.moderators)
+                ? data.moderators
+                : [];
+            const isCurrentModerator = auth.currentUser && _moderatorIds.includes(auth.currentUser.uid);
 
             setIsAdmin(Boolean(isCurrentAdmin));
+            setIsModerator(Boolean(isCurrentModerator));
             if (isCurrentAdmin) {
               // Generate invite link for admins
               setInviteLink(`https://socialvibing.app/community/${communityId}`);
@@ -5138,7 +5146,7 @@ export default function GroupInfoScreen() {
     ];
 
     if (isAdmin) {
-      // Announcement options
+      // Announcement options (admin-only)
       if (isPinned) {
         options.unshift({
           text: 'Unpin Announcement',
@@ -5150,8 +5158,10 @@ export default function GroupInfoScreen() {
           onPress: () => handlePinAnnouncement(post.id)
         });
       }
+    }
 
-      // Featured options
+    if (isAdmin || isModerator) {
+      // Featured options (admin and moderator)
       if (isFeatured) {
         options.unshift({
           text: 'Remove from Featured',
@@ -5178,8 +5188,8 @@ export default function GroupInfoScreen() {
 
   // Handle Feature Post
   const handleFeaturePost = async (postId) => {
-    if (!isAdmin) {
-      Alert.alert('Permission Denied', 'Only admins can feature posts');
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only admins and moderators can feature posts');
       return;
     }
 
@@ -5208,8 +5218,8 @@ export default function GroupInfoScreen() {
 
   // Handle Unfeature Post
   const handleUnfeaturePost = async (postId) => {
-    if (!isAdmin) {
-      Alert.alert('Permission Denied', 'Only admins can remove featured posts');
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only admins and moderators can remove featured posts');
       return;
     }
 
@@ -5424,7 +5434,7 @@ export default function GroupInfoScreen() {
                           Featured Posts {featuredPosts.length > 0 && `(${featuredPosts.length})`}
                         </Text>
                       </View>
-                      {isAdmin && (
+                      {(isAdmin || isModerator) && (
                         <TouchableOpacity
                           onPress={() => setShowFeaturedModal(true)}
                           style={{
@@ -5449,7 +5459,7 @@ export default function GroupInfoScreen() {
                       <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center' }}>
                         <MaterialIcons name="star-border" size={40} color="#666" />
                         <Text style={{ color: '#888', fontSize: 14, marginTop: 8 }}>No featured posts yet</Text>
-                        {isAdmin && (
+                        {(isAdmin || isModerator) && (
                           <Text style={{ color: '#666', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
                             Long-press any post and select "Add to Featured"
                           </Text>
@@ -6029,7 +6039,7 @@ export default function GroupInfoScreen() {
                 <View style={{ paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                     <Text style={{ color: '#FFD700', fontWeight: 'bold', fontSize: 18 }}>⭐ Featured Posts</Text>
-                    {isAdmin && (
+                    {(isAdmin || isModerator) && (
                       <TouchableOpacity onPress={() => setShowFeaturedModal(true)}>
                         <MaterialIcons name="settings" size={24} color="#FFD700" />
                       </TouchableOpacity>
@@ -6043,7 +6053,7 @@ export default function GroupInfoScreen() {
                     <View style={{ paddingVertical: 40, alignItems: 'center' }}>
                       <MaterialIcons name="star-border" size={60} color="#444" />
                       <Text style={{ color: '#888', fontSize: 16, marginTop: 12 }}>No featured posts yet</Text>
-                      {isAdmin && (
+                      {(isAdmin || isModerator) && (
                         <Text style={{ color: '#666', fontSize: 13, marginTop: 8, textAlign: 'center', paddingHorizontal: 32 }}>
                           Long-press any post and select "Add to Featured"
                         </Text>

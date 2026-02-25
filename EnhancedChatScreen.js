@@ -28,6 +28,8 @@ import {
   Keyboard,
   BackHandler,
   Alert,
+  Modal,
+  ActivityIndicator,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useChatState } from './hooks/useChatState';
@@ -37,6 +39,8 @@ import { InlineStatus } from './components/StatusBadge';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadVideoToHostinger } from './hostingerConfig';
 import { compressChatImage } from './utils/imageCompression';
+import { flagMessage, MESSAGE_REPORT_REASONS } from './shared/services/moderationService';
+import { db, auth } from './firebaseConfig';
 
 const ACCENT = "#7C3AED";
 const BG = "#0B0B0E";
@@ -113,6 +117,13 @@ export default function EnhancedChatScreen({ route, navigation }) {
   const [isLoading, setIsLoading] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [uploadProgress, setUploadProgress] = useState(null);
+
+  // Flag / report message states
+  const [showFlagModal, setShowFlagModal] = useState(false);
+  const [flaggedMessage, setFlaggedMessage] = useState(null);
+  const [flagSelectedReason, setFlagSelectedReason] = useState(null);
+  const [flagLoading, setFlagLoading] = useState(false);
+
   const flatListRef = useRef(null);
   const recordingTimerRef = useRef(null);
   const messageInputRef = useRef(null);
@@ -373,6 +384,57 @@ export default function EnhancedChatScreen({ route, navigation }) {
     }
   }, [setIsUserScrolling]);
 
+  // Handle message long-press: flag others', delete own
+  const handleMessageLongPress = useCallback((item) => {
+    const currentUser = auth.currentUser;
+    if (item.from === 'me') {
+      Alert.alert(
+        'Delete Message',
+        'Remove this message?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => {
+            setMessages(prev => prev.filter(m => m.id !== item.id));
+          }},
+        ]
+      );
+    } else {
+      setFlaggedMessage(item);
+      setFlagSelectedReason(null);
+      setShowFlagModal(true);
+    }
+  }, []);
+
+  const submitFlagMessage = async () => {
+    if (!flagSelectedReason) {
+      Alert.alert('Select a reason', 'Please choose a reason before submitting.');
+      return;
+    }
+    const currentUser = auth.currentUser;
+    if (!currentUser) return;
+    setFlagLoading(true);
+    try {
+      const result = await flagMessage(db, currentUser.uid, {
+        messageId: flaggedMessage.id,
+        messageText: flaggedMessage.text || '',
+        reportedUserId: flaggedMessage.senderId || user.id || user.userId || '',
+        conversationId: chatId,
+        chatType: user.isGroup ? 'group' : 'private',
+        reason: flagSelectedReason,
+      });
+      setShowFlagModal(false);
+      if (result.success) {
+        Alert.alert('Reported', 'Thank you — our moderation team will review this message.');
+      } else {
+        Alert.alert('Notice', result.error || 'Could not submit report.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to submit report.');
+    } finally {
+      setFlagLoading(false);
+    }
+  };
+
   // Scroll to bottom
   const scrollToBottom = useCallback(() => {
     flatListRef.current?.scrollToEnd({ animated: true });
@@ -391,7 +453,9 @@ export default function EnhancedChatScreen({ route, navigation }) {
       {item.from !== "me" && (
         <Avatar name={user.name} size={28} source={user.avatar} />
       )}
-      <View
+      <TouchableOpacity
+        activeOpacity={0.8}
+        onLongPress={() => handleMessageLongPress(item)}
         style={[
           styles.bubble,
           item.from === "me" ? styles.bubbleMe : styles.bubbleThem,
@@ -427,7 +491,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
           <Text style={styles.bubbleText}>{item.text}</Text>
         )}
         <Text style={styles.bubbleTime}>{item.time}</Text>
-      </View>
+      </TouchableOpacity>
     </View>
   );
 
@@ -506,6 +570,60 @@ export default function EnhancedChatScreen({ route, navigation }) {
 
 
       </KeyboardAvoidingView>
+
+      {/* Flag / Report Message Modal */}
+      <Modal
+        visible={showFlagModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFlagModal(false)}
+      >
+        <TouchableOpacity
+          style={flagStyles.overlay}
+          activeOpacity={1}
+          onPress={() => setShowFlagModal(false)}
+        >
+          <View style={flagStyles.sheet} onStartShouldSetResponder={() => true}>
+            <View style={flagStyles.header}>
+              <Text style={flagStyles.title}>Report Message</Text>
+              <TouchableOpacity onPress={() => setShowFlagModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={flagStyles.subtitle}>Why are you reporting this message?</Text>
+
+            {MESSAGE_REPORT_REASONS.map((r) => (
+              <TouchableOpacity
+                key={r.key}
+                style={[
+                  flagStyles.reasonRow,
+                  flagSelectedReason === r.key && flagStyles.reasonRowSelected,
+                ]}
+                onPress={() => setFlagSelectedReason(r.key)}
+              >
+                <View style={[
+                  flagStyles.radio,
+                  flagSelectedReason === r.key && flagStyles.radioSelected,
+                ]} />
+                <Text style={flagStyles.reasonText}>{r.label}</Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={[flagStyles.submitBtn, flagLoading && { opacity: 0.6 }]}
+              onPress={submitFlagMessage}
+              disabled={flagLoading}
+            >
+              {flagLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={flagStyles.submitText}>Submit Report</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -604,4 +722,78 @@ const styles = StyleSheet.create({
   },
   avatarText: { color: "#fff", fontWeight: "700", fontSize: 14 },
 
+});
+
+const flagStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: '#17171C',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 36,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  subtitle: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    marginBottom: 14,
+  },
+  reasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: '#17171C',
+    borderWidth: 1,
+    borderColor: '#23232A',
+  },
+  reasonRowSelected: {
+    backgroundColor: `${ACCENT}33`,
+    borderColor: ACCENT,
+  },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#9CA3AF',
+    marginRight: 12,
+  },
+  radioSelected: {
+    borderColor: ACCENT,
+    backgroundColor: ACCENT,
+  },
+  reasonText: {
+    color: '#fff',
+    fontSize: 15,
+  },
+  submitBtn: {
+    marginTop: 10,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: ACCENT,
+    alignItems: 'center',
+  },
+  submitText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
 });

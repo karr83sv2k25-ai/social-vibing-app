@@ -23,6 +23,7 @@ import { uploadImageToHostinger } from './hostingerConfig';
 import { StickerPicker } from './components/StickerPicker';
 import { AttachmentPicker } from './components/AttachmentPicker';
 import { cacheMessages, getCachedMessages } from './utils/messageCache';
+import { flagMessage, MESSAGE_REPORT_REASONS } from './shared/services/moderationService';
 import { SimpleInlineStatus } from './components/StatusBadge';
 import * as WebBrowser from 'expo-web-browser';
 import * as ImagePicker from 'expo-image-picker';
@@ -100,6 +101,12 @@ export default function ChatScreen({ route, navigation }) {
   const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+
+  // Flag / report message states
+  const [showFlagModal, setShowFlagModal] = useState(false);
+  const [flaggedMessage, setFlaggedMessage] = useState(null);
+  const [flagSelectedReason, setFlagSelectedReason] = useState(null);
+  const [flagLoading, setFlagLoading] = useState(false);
 
   // Party/Feature functionality states
   const [showFeatureModal, setShowFeatureModal] = useState(false);
@@ -858,6 +865,53 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
+  // Long-press a message: delete own, flag others
+  const handleMessageLongPress = (message) => {
+    if (message.from === 'me') {
+      Alert.alert(
+        'Delete Message',
+        'Remove this message for everyone?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMessage(message.id) },
+        ]
+      );
+    } else {
+      setFlaggedMessage(message);
+      setFlagSelectedReason(null);
+      setShowFlagModal(true);
+    }
+  };
+
+  const submitFlagMessage = async () => {
+    if (!flagSelectedReason) {
+      Alert.alert('Select a reason', 'Please choose a reason before submitting.');
+      return;
+    }
+    if (!currentUser) return;
+    setFlagLoading(true);
+    try {
+      const result = await flagMessage(db, currentUser.uid, {
+        messageId: flaggedMessage.id,
+        messageText: flaggedMessage.text || '',
+        reportedUserId: flaggedMessage.senderId || otherUserId,
+        conversationId: conversationId,
+        chatType: isGroupChat ? 'group' : 'private',
+        reason: flagSelectedReason,
+      });
+      setShowFlagModal(false);
+      if (result.success) {
+        Alert.alert('Reported', 'Thank you — our moderation team will review this message.');
+      } else {
+        Alert.alert('Notice', result.error || 'Could not submit report.');
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Failed to submit report.');
+    } finally {
+      setFlagLoading(false);
+    }
+  };
+
   // Handle party feature selection
   const handleFeatureSelect = (feature) => {
     console.log('Feature selected:', feature);
@@ -1100,8 +1154,8 @@ export default function ChatScreen({ route, navigation }) {
                     <Avatar name={user.name} size={28} source={user.avatar} />
                   )}
                   <TouchableOpacity
-                    onLongPress={() => m.from === "me" && handleDeleteMessage(m.id)}
-                    activeOpacity={m.from === "me" ? 0.7 : 1}
+                    onLongPress={() => handleMessageLongPress(m)}
+                    activeOpacity={0.7}
                     style={[
                       styles.bubble,
                       m.from === "me" ? styles.bubbleMe : styles.bubbleThem,
@@ -1397,6 +1451,80 @@ export default function ChatScreen({ route, navigation }) {
                   User is blocked. They will remain in your messages list but cannot send you messages.
                 </Text>
               )}
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Flag / Report Message Modal */}
+      <Modal
+        visible={showFlagModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowFlagModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowFlagModal(false)}
+        >
+          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Report Message</Text>
+              <TouchableOpacity onPress={() => setShowFlagModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <Text style={{ color: TEXT_DIM, fontSize: 13, marginBottom: 12 }}>
+                Why are you reporting this message?
+              </Text>
+              {MESSAGE_REPORT_REASONS.map((r) => (
+                <TouchableOpacity
+                  key={r.key}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    paddingVertical: 12,
+                    paddingHorizontal: 14,
+                    borderRadius: 12,
+                    marginBottom: 8,
+                    backgroundColor: flagSelectedReason === r.key ? `${ACCENT}33` : CARD,
+                    borderWidth: 1,
+                    borderColor: flagSelectedReason === r.key ? ACCENT : '#23232A',
+                  }}
+                  onPress={() => setFlagSelectedReason(r.key)}
+                >
+                  <View style={{
+                    width: 20, height: 20, borderRadius: 10,
+                    borderWidth: 2,
+                    borderColor: flagSelectedReason === r.key ? ACCENT : TEXT_DIM,
+                    backgroundColor: flagSelectedReason === r.key ? ACCENT : 'transparent',
+                    marginRight: 12,
+                  }} />
+                  <Text style={{ color: '#fff', fontSize: 15 }}>{r.label}</Text>
+                </TouchableOpacity>
+              ))}
+
+              <TouchableOpacity
+                style={{
+                  marginTop: 8,
+                  paddingVertical: 14,
+                  borderRadius: 14,
+                  backgroundColor: ACCENT,
+                  alignItems: 'center',
+                  opacity: flagLoading ? 0.6 : 1,
+                }}
+                onPress={submitFlagMessage}
+                disabled={flagLoading}
+              >
+                {flagLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Submit Report</Text>
+                )}
+              </TouchableOpacity>
             </View>
           </View>
         </TouchableOpacity>

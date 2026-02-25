@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { launchImageLibraryAsync, MediaTypeOptions, requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
-import { firebaseApp } from './firebaseConfig';
+import { app, db } from './firebaseConfig';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { Ionicons } from "@expo/vector-icons";
@@ -129,8 +129,7 @@ export default function EditCommunityScreen({ route, navigation }) {
 
   const fetchCommunityData = async () => {
     try {
-      // db is now imported globally
-      const auth = getAuth(firebaseApp);
+      const auth = getAuth(app);
       const currentUserId = auth.currentUser?.uid;
 
       if (!currentUserId) {
@@ -173,7 +172,8 @@ export default function EditCommunityScreen({ route, navigation }) {
       setLanguage(data.language || 'English');
       setCategory(data.category || '');
       setPrivacy(data.privacy || 'open');
-      setDiscover(data.discover === 'private' ? 'private' : 'public');
+      // discover is stored as a boolean (true = public, false = private)
+      setDiscover(data.discover === false ? 'private' : 'public');
       setThemeColor(data.themeColor || '#4b6cff');
       
       // Set existing image URLs
@@ -241,8 +241,7 @@ export default function EditCommunityScreen({ route, navigation }) {
     setShowReminder(false);
     setUploading(true);
     try {
-      // db is now imported globally
-      const auth = getAuth(firebaseApp);
+      const auth = getAuth(app);
       const currentUserId = auth.currentUser?.uid;
 
       if (!currentUserId) {

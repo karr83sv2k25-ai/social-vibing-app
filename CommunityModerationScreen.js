@@ -1,0 +1,730 @@
+/**
+ * CommunityModerationScreen.js
+ *
+ * Full moderation panel for Leaders & Curators of a community.
+ * Tabs: Members | Posts | Chat Rooms | Mod Log
+ *
+ * Each tab surfaces the actions available to the current user's role.
+ */
+
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  FlatList,
+  Image,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  TextInput,
+  ScrollView,
+} from 'react-native';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { getAuth } from 'firebase/auth';
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  getDoc,
+  doc,
+  orderBy,
+  limit,
+} from 'firebase/firestore';
+import { app, db } from './firebaseConfig';
+import * as ModerationService from './shared/services/moderationService';
+
+// Module-level constant — avoids recreation on every render
+const TITLE_COLORS = ['#08FFE2', '#BF2EF0', '#FFD700', '#FF3232', '#36E3C0', '#FF8C00', '#FFFFFF'];
+
+const C = {
+  bg:     '#0B0B10',
+  card:   '#1A1F27',
+  border: '#242A33',
+  text:   '#EAEAF0',
+  dim:    '#A2A8B3',
+  cyan:   '#08FFE2',
+  brand:  '#BF2EF0',
+  green:  '#36E3C0',
+  red:    '#FF3232',
+  yellow: '#FFD700',
+  gold:   '#FFB800',
+  orange: '#FF8C00',
+};
+
+const MOD_ACTIONS = ModerationService.MOD_ACTIONS;
+const ROLES = ModerationService.ROLES;
+
+const TABS = ['Members', 'Posts', 'Rooms', 'Mod Log'];
+
+const STRIKE_OPTIONS = [
+  { label: '1 Hour',   ms: ModerationService.STRIKE_DURATIONS.ONE_HOUR },
+  { label: '6 Hours',  ms: ModerationService.STRIKE_DURATIONS.SIX_HOURS },
+  { label: '12 Hours', ms: ModerationService.STRIKE_DURATIONS.TWELVE_HOURS },
+  { label: '1 Day',    ms: ModerationService.STRIKE_DURATIONS.ONE_DAY },
+  { label: '3 Days',   ms: ModerationService.STRIKE_DURATIONS.THREE_DAYS },
+  { label: '1 Week',   ms: ModerationService.STRIKE_DURATIONS.ONE_WEEK },
+  { label: 'Permanent',ms: ModerationService.STRIKE_DURATIONS.PERMANENT },
+];
+
+export default function CommunityModerationScreen({ route, navigation }) {
+  const { communityId } = route.params || {};
+  const auth = getAuth(app);
+  const currentUserId = auth.currentUser?.uid;
+
+  const [myRole, setMyRole] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState(0);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  // Data
+  const [members, setMembers] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [rooms, setRooms] = useState([]);
+  const [modLogs, setModLogs] = useState([]);
+
+  // Strike modal
+  const [strikeModal, setStrikeModal] = useState({ visible: false, user: null });
+  const [selectedDuration, setSelectedDuration] = useState(STRIKE_OPTIONS[3]); // 1 Day default
+  const [strikeReason, setStrikeReason] = useState('');
+
+  // Reason modal (for ban/disable)
+  const [reasonModal, setReasonModal] = useState({ visible: false, title: '', onConfirm: null });
+  const [reasonText, setReasonText] = useState('');
+
+  // Title modal
+  const [titleModal, setTitleModal] = useState({ visible: false, user: null });
+  const [titleText, setTitleText] = useState('');
+  const [titleColor, setTitleColor] = useState('#08FFE2');
+
+  // ── Load ──────────────────────────────────────────────────────────────────
+
+  const loadMembers = async () => {
+    const commDoc = await getDoc(doc(db, 'communities', communityId));
+    if (!commDoc.exists()) return;
+    const commData = commDoc.data();
+    const memberIds = commData.members || [];
+    const docs = await Promise.all(
+      memberIds.slice(0, 100).map(id => getDoc(doc(db, 'users', id)))
+    );
+    setMembers(docs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() })));
+  };
+
+  const loadPosts = async () => {
+    const q = query(
+      collection(db, 'posts'),
+      where('communityId', '==', communityId),
+      orderBy('createdAt', 'desc'),
+      limit(50)
+    );
+    const snap = await getDocs(q);
+    setPosts(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  };
+
+  const loadRooms = async () => {
+    const q = query(
+      collection(db, 'chatRooms'),
+      where('communityId', '==', communityId)
+    );
+    const snap = await getDocs(q);
+    setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+  };
+
+  const loadModLogs = async () => {
+    const result = await ModerationService.getModerationHistory(db, communityId, 80);
+    if (result.success) setModLogs(result.data);
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const role = await ModerationService.getCommunityRole(db, communityId, currentUserId);
+      setMyRole(role);
+      if (!role || role === ROLES.MEMBER) {
+        Alert.alert('Access Denied', 'You must be a staff member to access this panel.');
+        navigation.goBack();
+        return;
+      }
+      await Promise.all([loadMembers(), loadPosts(), loadRooms(), loadModLogs()]);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
+  }, [communityId, currentUserId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  const can = (action) => ModerationService.hasPermission(myRole, action);
+
+  const withReason = (title, onConfirm) => {
+    setReasonText('');
+    setReasonModal({ visible: true, title, onConfirm });
+  };
+
+  const doAction = async (fn) => {
+    setActionLoading(true);
+    try {
+      await fn();
+      load();
+    } catch (e) {
+      Alert.alert('Error', e.message);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // ── Members Tab ───────────────────────────────────────────────────────────
+
+  const renderMember = ({ item }) => {
+    const isSelf = item.id === currentUserId;
+    const isStruck = item.isStruck;
+    const isBanned = item.isBanned;
+
+    return (
+      <View style={styles.card}>
+        <Image
+          source={{ uri: item.profileImage || item.photoURL || 'https://via.placeholder.com/44' }}
+          style={styles.avatar}
+        />
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardName}>{item.displayName || 'User'}</Text>
+          <View style={styles.statusRow}>
+            {isStruck && (
+              <View style={[styles.statusBadge, { backgroundColor: 'rgba(255,140,0,0.2)', borderColor: C.orange }]}>
+                <Text style={[styles.statusBadgeText, { color: C.orange }]}>Struck</Text>
+              </View>
+            )}
+            {isBanned && (
+              <View style={[styles.statusBadge, { backgroundColor: 'rgba(255,50,50,0.2)', borderColor: C.red }]}>
+                <Text style={[styles.statusBadgeText, { color: C.red }]}>Banned</Text>
+              </View>
+            )}
+          </View>
+        </View>
+        {!isSelf && (
+          <View style={styles.actionGroup}>
+            {/* Strike / Unstrike */}
+            {can(MOD_ACTIONS.STRIKE_USER) && !item.isStruck && (
+              <ActionBtn
+                icon="timer-outline"
+                color={C.orange}
+                onPress={() => {
+                  setStrikeModal({ visible: true, user: item });
+                  setStrikeReason('');
+                  setSelectedDuration(STRIKE_OPTIONS[3]);
+                }}
+                tooltip="Strike"
+              />
+            )}
+            {can(MOD_ACTIONS.UNSTRIKE_USER) && item.isStruck && (
+              <ActionBtn
+                icon="timer-off-outline"
+                color={C.green}
+                onPress={() => withReason(`Unstrike ${item.displayName}`, (reason) =>
+                  doAction(() => ModerationService.unstrikeUser(db, currentUserId, communityId, item.id, reason))
+                )}
+                tooltip="Unstrike"
+              />
+            )}
+            {/* Ban / Unban */}
+            {can(MOD_ACTIONS.BAN_USER) && !item.isBanned && (
+              <ActionBtn
+                icon="ban-outline"
+                color={C.red}
+                onPress={() => withReason(`Ban ${item.displayName}`, (reason) =>
+                  doAction(() => ModerationService.banUser(db, currentUserId, communityId, item.id, reason))
+                )}
+                tooltip="Ban"
+              />
+            )}
+            {can(MOD_ACTIONS.UNBAN_USER) && item.isBanned && (
+              <ActionBtn
+                icon="checkmark-circle-outline"
+                color={C.green}
+                onPress={() => doAction(() =>
+                  ModerationService.unbanUser(db, currentUserId, communityId, item.id)
+                )}
+                tooltip="Unban"
+              />
+            )}
+            {/* Disable messages */}
+            {can(MOD_ACTIONS.DISABLE_MESSAGES) && item.canMessage !== false && (
+              <ActionBtn
+                icon="chatbubble-ellipses-outline"
+                color={C.yellow}
+                onPress={() => withReason(`Disable messages for ${item.displayName}`, (reason) =>
+                  doAction(() => ModerationService.disableUserMessages(db, currentUserId, communityId, item.id, reason))
+                )}
+                tooltip="Mute"
+              />
+            )}
+            {can(MOD_ACTIONS.ENABLE_MESSAGES) && item.canMessage === false && (
+              <ActionBtn
+                icon="chatbubble-outline"
+                color={C.green}
+                onPress={() => doAction(() =>
+                  ModerationService.enableUserMessages(db, currentUserId, communityId, item.id)
+                )}
+                tooltip="Unmute"
+              />
+            )}
+            {/* Grant title */}
+            {can(MOD_ACTIONS.GRANT_TITLE) && (
+              <ActionBtn
+                icon="ribbon-outline"
+                color={C.brand}
+                onPress={() => {
+                  setTitleText('');
+                  setTitleColor('#08FFE2');
+                  setTitleModal({ visible: true, user: item });
+                }}
+                tooltip="Title"
+              />
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
+  // ── Posts Tab ─────────────────────────────────────────────────────────────
+
+  const renderPost = ({ item }) => (
+    <View style={styles.card}>
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardName} numberOfLines={2}>{item.content || item.text || '(no text)'}</Text>
+        <View style={styles.statusRow}>
+          {item.isDisabled && <StatusTag label="Disabled" color={C.red} />}
+          {item.isHidden && <StatusTag label="Hidden" color={C.yellow} />}
+          {item.isFeatured && <StatusTag label="Featured" color={C.cyan} />}
+        </View>
+      </View>
+      <View style={styles.actionGroup}>
+        {can(MOD_ACTIONS.FEATURE_POST) && !item.isFeatured && (
+          <ActionBtn icon="star-outline" color={C.cyan} onPress={() =>
+            doAction(() => ModerationService.featurePost(db, currentUserId, communityId, item.id))
+          } tooltip="Feature" />
+        )}
+        {can(MOD_ACTIONS.UNFEATURE_POST) && item.isFeatured && (
+          <ActionBtn icon="star" color={C.dim} onPress={() =>
+            doAction(() => ModerationService.unfeaturePost(db, currentUserId, communityId, item.id))
+          } tooltip="Unfeature" />
+        )}
+        {can(MOD_ACTIONS.HIDE_POST) && !item.isHidden && !item.isDisabled && (
+          <ActionBtn icon="eye-off-outline" color={C.yellow} onPress={() =>
+            withReason('Hide Post', (reason) =>
+              doAction(() => ModerationService.hidePost(db, currentUserId, communityId, item.id, reason))
+            )
+          } tooltip="Hide" />
+        )}
+        {can(MOD_ACTIONS.UNHIDE_POST) && item.isHidden && (
+          <ActionBtn icon="eye-outline" color={C.green} onPress={() =>
+            doAction(() => ModerationService.unhidePost(db, currentUserId, communityId, item.id))
+          } tooltip="Unhide" />
+        )}
+        {can(MOD_ACTIONS.DISABLE_POST) && !item.isDisabled && (
+          <ActionBtn icon="close-circle-outline" color={C.red} onPress={() =>
+            withReason('Disable Post', (reason) =>
+              doAction(() => ModerationService.disablePost(db, currentUserId, communityId, item.id, reason))
+            )
+          } tooltip="Disable" />
+        )}
+        {can(MOD_ACTIONS.ENABLE_POST) && item.isDisabled && (
+          <ActionBtn icon="checkmark-circle-outline" color={C.green} onPress={() =>
+            doAction(() => ModerationService.enablePost(db, currentUserId, communityId, item.id))
+          } tooltip="Enable" />
+        )}
+      </View>
+    </View>
+  );
+
+  // ── Rooms Tab ─────────────────────────────────────────────────────────────
+
+  const renderRoom = ({ item }) => (
+    <View style={styles.card}>
+      <MaterialCommunityIcons name="forum" size={36} color={C.brand} style={{ marginRight: 12 }} />
+      <View style={styles.cardInfo}>
+        <Text style={styles.cardName}>{item.name || item.title || 'Chat Room'}</Text>
+        <View style={styles.statusRow}>
+          {item.isDisabled && <StatusTag label="Disabled" color={C.red} />}
+          {item.isFeatured && <StatusTag label="Featured" color={C.cyan} />}
+        </View>
+      </View>
+      <View style={styles.actionGroup}>
+        {can(MOD_ACTIONS.FEATURE_ROOM) && !item.isFeatured && (
+          <ActionBtn icon="star-outline" color={C.cyan} onPress={() =>
+            doAction(() => ModerationService.featureChatRoom(db, currentUserId, communityId, item.id))
+          } tooltip="Feature" />
+        )}
+        {can(MOD_ACTIONS.UNFEATURE_ROOM) && item.isFeatured && (
+          <ActionBtn icon="star" color={C.dim} onPress={() =>
+            doAction(() => ModerationService.unfeatureChatRoom(db, currentUserId, communityId, item.id))
+          } tooltip="Unfeature" />
+        )}
+        {can(MOD_ACTIONS.DISABLE_ROOM) && !item.isDisabled && (
+          <ActionBtn icon="close-circle-outline" color={C.red} onPress={() =>
+            withReason('Disable Room', (reason) =>
+              doAction(() => ModerationService.disableChatRoom(db, currentUserId, communityId, item.id, reason))
+            )
+          } tooltip="Disable" />
+        )}
+        {can(MOD_ACTIONS.ENABLE_ROOM) && item.isDisabled && (
+          <ActionBtn icon="checkmark-circle-outline" color={C.green} onPress={() =>
+            doAction(() => ModerationService.enableChatRoom(db, currentUserId, communityId, item.id))
+          } tooltip="Enable" />
+        )}
+      </View>
+    </View>
+  );
+
+  // ── Mod Log Tab ───────────────────────────────────────────────────────────
+
+  const ACTION_COLORS = {
+    [MOD_ACTIONS.BAN_USER]:       C.red,
+    [MOD_ACTIONS.STRIKE_USER]:    C.orange,
+    [MOD_ACTIONS.DISABLE_POST]:   C.yellow,
+    [MOD_ACTIONS.FEATURE_POST]:   C.cyan,
+    [MOD_ACTIONS.PROMOTE_TO_LEADER]: C.gold,
+    [MOD_ACTIONS.PROMOTE_TO_CURATOR]: C.brand,
+  };
+
+  const renderLogEntry = ({ item }) => {
+    const color = ACTION_COLORS[item.action] || C.dim;
+    const ts = item.createdAt?.toDate ? item.createdAt.toDate().toLocaleString() : '';
+    return (
+      <View style={[styles.card, { borderLeftWidth: 3, borderLeftColor: color }]}>
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.logAction, { color }]}>{item.action.replace(/_/g, ' ').toUpperCase()}</Text>
+          {item.reason ? <Text style={styles.logReason}>"{item.reason}"</Text> : null}
+          <Text style={styles.logMeta}>
+            by {item.performedByRole} • {ts}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color={C.cyan} />
+      </View>
+    );
+  }
+
+  const tabData = [members, posts, rooms, modLogs];
+  const tabRenderers = [renderMember, renderPost, renderRoom, renderLogEntry];
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+          <Ionicons name="chevron-back" size={24} color={C.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Moderation Panel</Text>
+        <RoleBadge role={myRole} />
+      </View>
+
+      {/* Tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabBar}>
+        {TABS.map((tab, i) => (
+          <TouchableOpacity
+            key={tab}
+            onPress={() => setActiveTab(i)}
+            style={[styles.tabItem, activeTab === i && styles.tabItemActive]}
+          >
+            <Text style={[styles.tabText, activeTab === i && styles.tabTextActive]}>{tab}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+
+      {/* List */}
+      {actionLoading && (
+        <View style={styles.loadingBar}>
+          <ActivityIndicator size="small" color={C.cyan} />
+          <Text style={styles.loadingBarText}>Processing…</Text>
+        </View>
+      )}
+
+      <FlatList
+        data={tabData[activeTab]}
+        keyExtractor={item => item.id}
+        renderItem={tabRenderers[activeTab]}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
+        ListEmptyComponent={<Text style={styles.empty}>Nothing here yet.</Text>}
+      />
+
+      {/* Strike Modal */}
+      <Modal
+        visible={strikeModal.visible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setStrikeModal({ visible: false, user: null })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Strike {strikeModal.user?.displayName}
+            </Text>
+            <Text style={styles.modalSubtitle}>
+              User will be in view-only mode (cannot post, message, follow, or create content).
+            </Text>
+
+            {/* Duration picker */}
+            <Text style={styles.fieldLabel}>Duration</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              {STRIKE_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.label}
+                  onPress={() => setSelectedDuration(opt)}
+                  style={[
+                    styles.durationChip,
+                    selectedDuration.label === opt.label && styles.durationChipActive,
+                  ]}
+                >
+                  <Text style={[
+                    styles.durationChipText,
+                    selectedDuration.label === opt.label && styles.durationChipTextActive,
+                  ]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Reason */}
+            <Text style={styles.fieldLabel}>Reason</Text>
+            <TextInput
+              style={styles.reasonInput}
+              placeholder="What rule was broken?"
+              placeholderTextColor={C.dim}
+              value={strikeReason}
+              onChangeText={setStrikeReason}
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={() => setStrikeModal({ visible: false, user: null })}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  setStrikeModal({ visible: false, user: null });
+                  await doAction(() => ModerationService.strikeUser(
+                    db, currentUserId, communityId,
+                    strikeModal.user.id, selectedDuration.ms, strikeReason
+                  ));
+                }}
+                style={[styles.confirmBtn, { backgroundColor: C.orange }]}
+                disabled={actionLoading}
+              >
+                <Text style={styles.confirmBtnText}>Strike</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reason Modal (generic) */}
+      <Modal
+        visible={reasonModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReasonModal({ visible: false, title: '', onConfirm: null })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>{reasonModal.title}</Text>
+            <TextInput
+              style={styles.reasonInput}
+              placeholder="Reason (optional)"
+              placeholderTextColor={C.dim}
+              value={reasonText}
+              onChangeText={setReasonText}
+              multiline
+            />
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={() => setReasonModal({ visible: false, title: '', onConfirm: null })}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const cb = reasonModal.onConfirm;
+                  setReasonModal({ visible: false, title: '', onConfirm: null });
+                  cb?.(reasonText);
+                }}
+                style={styles.confirmBtn}
+              >
+                <Text style={styles.confirmBtnText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Title Modal */}
+      <Modal
+        visible={titleModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setTitleModal({ visible: false, user: null })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Grant Title to {titleModal.user?.displayName}</Text>
+            <TextInput
+              style={styles.reasonInput}
+              placeholder="Title text (e.g. Legendary Artist)"
+              placeholderTextColor={C.dim}
+              value={titleText}
+              onChangeText={setTitleText}
+            />
+            {/* Color picker */}
+            <Text style={styles.fieldLabel}>Title Color</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+              {TITLE_COLORS.map(col => (
+                <TouchableOpacity
+                  key={col}
+                  onPress={() => setTitleColor(col)}
+                  style={[
+                    styles.colorDot,
+                    { backgroundColor: col },
+                    titleColor === col && styles.colorDotSelected,
+                  ]}
+                />
+              ))}
+            </View>
+            {titleText ? (
+              <Text style={[styles.titlePreview, { color: titleColor }]}>{titleText}</Text>
+            ) : null}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                onPress={() => setTitleModal({ visible: false, user: null })}
+                style={styles.cancelBtn}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!titleText.trim()) return;
+                  setTitleModal({ visible: false, user: null });
+                  await doAction(() =>
+                    ModerationService.grantTitle(db, currentUserId, communityId, titleModal.user.id, titleText.trim(), titleColor)
+                  );
+                }}
+                style={[styles.confirmBtn, { backgroundColor: titleColor }]}
+              >
+                <Text style={[styles.confirmBtnText, { color: '#000' }]}>Grant</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
+
+function ActionBtn({ icon, color, onPress, tooltip }) {
+  return (
+    <TouchableOpacity onPress={onPress} style={[styles.iconBtn, { borderColor: color }]}>
+      <Ionicons name={icon} size={18} color={color} />
+    </TouchableOpacity>
+  );
+}
+
+function StatusTag({ label, color }) {
+  return (
+    <View style={[styles.statusBadge, { backgroundColor: `${color}22`, borderColor: color }]}>
+      <Text style={[styles.statusBadgeText, { color }]}>{label}</Text>
+    </View>
+  );
+}
+
+function RoleBadge({ role }) {
+  const meta = {
+    owner:   { label: 'Owner',   color: '#FFB800' },
+    leader:  { label: 'Leader',  color: '#BF2EF0' },
+    curator: { label: 'Curator', color: '#08FFE2' },
+  };
+  const m = meta[role];
+  if (!m) return null;
+  return (
+    <View style={[styles.rolePill, { borderColor: m.color }]}>
+      <Text style={[styles.rolePillText, { color: m.color }]}>{m.label}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container:        { flex: 1, backgroundColor: C.bg },
+  center:           { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
+  header:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12 },
+  headerTitle:      { flex: 1, fontSize: 18, fontWeight: '700', color: C.text },
+  rolePill:         { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
+  rolePillText:     { fontSize: 12, fontWeight: '700' },
+
+  // Tabs
+  tabBar:           { paddingHorizontal: 16, marginBottom: 12, flexGrow: 0 },
+  tabItem:          { marginRight: 20, paddingBottom: 8, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabItemActive:    { borderBottomColor: C.cyan },
+  tabText:          { color: C.dim, fontSize: 14, fontWeight: '600' },
+  tabTextActive:    { color: C.cyan },
+
+  loadingBar:       { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 8 },
+  loadingBarText:   { color: C.dim, fontSize: 13 },
+
+  // Cards
+  card:             { flexDirection: 'row', alignItems: 'center', backgroundColor: C.card, borderRadius: 12, padding: 12, marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  avatar:           { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
+  cardInfo:         { flex: 1, marginRight: 8 },
+  cardName:         { fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 4 },
+  statusRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  statusBadge:      { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
+  statusBadgeText:  { fontSize: 10, fontWeight: '700' },
+  actionGroup:      { flexDirection: 'row', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end', maxWidth: 110 },
+  iconBtn:          { borderWidth: 1, borderRadius: 8, padding: 5 },
+  empty:            { color: C.dim, textAlign: 'center', marginTop: 32 },
+
+  // Mod log
+  logAction:        { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  logReason:        { fontSize: 12, color: C.dim, marginTop: 2, fontStyle: 'italic' },
+  logMeta:          { fontSize: 11, color: C.dim, marginTop: 2 },
+
+  // Modal
+  modalOverlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
+  modalCard:        { backgroundColor: C.card, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24 },
+  modalTitle:       { fontSize: 17, fontWeight: '700', color: C.text, marginBottom: 6 },
+  modalSubtitle:    { fontSize: 13, color: C.dim, marginBottom: 16 },
+  fieldLabel:       { fontSize: 12, color: C.dim, marginBottom: 8, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  reasonInput:      { backgroundColor: '#111827', borderRadius: 10, padding: 12, color: C.text, minHeight: 70, textAlignVertical: 'top', marginBottom: 16, fontSize: 14 },
+  durationChip:     { borderWidth: 1, borderColor: C.border, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7, marginRight: 8 },
+  durationChipActive:{ backgroundColor: C.orange, borderColor: C.orange },
+  durationChipText: { color: C.dim, fontSize: 13, fontWeight: '600' },
+  durationChipTextActive:{ color: '#000' },
+  modalActions:     { flexDirection: 'row', gap: 10, marginTop: 4 },
+  cancelBtn:        { flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 10, padding: 14, alignItems: 'center' },
+  cancelBtnText:    { color: C.dim, fontWeight: '600' },
+  confirmBtn:       { flex: 1, backgroundColor: C.cyan, borderRadius: 10, padding: 14, alignItems: 'center' },
+  confirmBtnText:   { color: '#000', fontWeight: '700' },
+
+  // Title
+  colorDot:         { width: 28, height: 28, borderRadius: 14 },
+  colorDotSelected: { borderWidth: 3, borderColor: '#FFFFFF' },
+  titlePreview:     { fontSize: 15, fontWeight: '700', textAlign: 'center', marginBottom: 12 },
+});
