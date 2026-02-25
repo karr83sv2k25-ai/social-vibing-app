@@ -89,15 +89,6 @@ export default function DiamondPurchaseScreen({navigation}) {
       localizedPrice: storeProduct?.localizedPrice || product.price,
     };
   });
-  // Get diamond products from config
-  const diamondProducts = Object.entries(IAP_PRODUCTS.DIAMONDS).map(([id, product]) => {
-    const storeProduct = getProduct(id);
-    return {
-      id,
-      ...product,
-      localizedPrice: storeProduct?.localizedPrice || product.price,
-    };
-  });
 
   return (
     <SafeAreaView style={styles.container}>

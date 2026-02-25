@@ -62,6 +62,7 @@ export default function MarketPlaceScreen({ navigation }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [isSeller, setIsSeller] = useState(false);
   const [libraryCounts, setLibraryCounts] = useState({
     comics: 0,
     books: 0,
@@ -70,12 +71,33 @@ export default function MarketPlaceScreen({ navigation }) {
     frames: 0,
     bubbles: 0,
   });
+  const [featuredSellers, setFeaturedSellers] = useState([]);
+  const [loadingStores, setLoadingStores] = useState(false);
 
   useEffect(() => {
     console.log('🚀 Marketplace mounted, fetching products...');
     fetchProducts();
     fetchLibraryCounts();
+    checkSellerStatus();
+    fetchFeaturedSellers();
   }, [activeTab]);
+
+  const checkSellerStatus = async () => {
+    try {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      const userRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userRef);
+      
+      if (userDoc.exists()) {
+        const userData = userDoc.data();
+        setIsSeller(userData.isSeller === true);
+      }
+    } catch (error) {
+      console.error('Failed to check seller status:', error);
+    }
+  };
 
   const fetchProducts = async () => {
     try {
@@ -129,13 +151,7 @@ export default function MarketPlaceScreen({ navigation }) {
 
       console.log(`✅ Final products to display: ${filteredProducts.length}`);
       
-      if (filteredProducts.length > 0) {
-        console.log('✨ Setting Firestore products');
-        setProducts(filteredProducts);
-      } else {
-        console.warn('⚠️ No products after filtering, using dummy data');
-        setProducts(PRODUCTS);
-      }
+      setProducts(filteredProducts);
     } catch (error) {
       console.error('❌ Failed to fetch products:', error);
       console.error('❌ Error details:', error.message);
@@ -143,12 +159,11 @@ export default function MarketPlaceScreen({ navigation }) {
 
       // Show helpful message if index is building
       if (error.message?.includes('index is currently building')) {
-        console.log('⏳ Firestore indexes are building. This takes 1-2 minutes. Showing dummy data...');
+        console.log('⏳ Firestore indexes are building. This takes 1-2 minutes.');
       }
 
-      // Fallback to dummy data if Firestore fails
-      console.log('📦 Using fallback dummy products');
-      setProducts(PRODUCTS);
+      // Keep products empty on error - user can refresh
+      setProducts([]);
     } finally {
       setLoading(false);
       console.log('✅ Fetch complete');
@@ -201,8 +216,54 @@ export default function MarketPlaceScreen({ navigation }) {
     setRefreshing(false);
   };
 
+  const fetchFeaturedSellers = async () => {
+    try {
+      setLoadingStores(true);
+      console.log('🏪 Fetching featured sellers...');
+      
+      // Query users who are sellers and have products
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('isSeller', '==', true), limit(10));
+      
+      const snapshot = await getDocs(q);
+      const sellers = [];
+      
+      for (const userDoc of snapshot.docs) {
+        const userData = userDoc.data();
+        
+        // Count products for this seller
+        const productsRef = collection(db, 'products');
+        const productsQuery = query(
+          productsRef,
+          where('sellerId', '==', userDoc.id),
+          where('status', '==', 'published')
+        );
+        const productsSnapshot = await getDocs(productsQuery);
+        
+        if (productsSnapshot.size > 0) {
+          sellers.push({
+            id: userDoc.id,
+            ...userData,
+            productCount: productsSnapshot.size,
+          });
+        }
+      }
+      
+      console.log(`✅ Found ${sellers.length} featured sellers`);
+      setFeaturedSellers(sellers);
+    } catch (error) {
+      console.error('❌ Failed to fetch sellers:', error);
+    } finally {
+      setLoadingStores(false);
+    }
+  };
+
   const handleProductPress = (productId) => {
     navigation.navigate('ProductDetail', { productId });
+  };
+  
+  const handleStorePress = (sellerId) => {
+    navigation.navigate('SellerStore', { sellerId });
   };
 
   return (
@@ -254,6 +315,37 @@ export default function MarketPlaceScreen({ navigation }) {
           </TouchableOpacity>
         </View>
 
+        {/* 💼 Seller Button */}
+        <TouchableOpacity
+          style={styles.sellerButton}
+          onPress={() => navigation.navigate(isSeller ? 'SellerDashboard' : 'BecomeSeller')}
+          activeOpacity={0.8}
+        >
+          <LinearGradient
+            colors={['#7C3AED', '#EC4899']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.sellerButtonGradient}
+          >
+            <View style={styles.sellerButtonContent}>
+              <MaterialCommunityIcons 
+                name={isSeller ? "storefront" : "store-plus"} 
+                size={24} 
+                color="#FFF" 
+              />
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.sellerButtonTitle}>
+                  {isSeller ? '📦 My Store' : '🚀 Start Selling'}
+                </Text>
+                <Text style={styles.sellerButtonDesc}>
+                  {isSeller ? 'Manage your products & earnings' : 'Turn your creativity into income'}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={20} color="#FFF" />
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
+
         {/* 🎁 Promo Card */}
         <LinearGradient
           colors={["#7C3AED", "#08FFE2"]}
@@ -280,6 +372,53 @@ export default function MarketPlaceScreen({ navigation }) {
             label="Books"
             onPress={() => navigation.navigate('MarketPlaceExplore', { type: 'book' })}
           />
+        </View>
+
+        {/* 🏪 Featured Stores */}
+        {!loadingStores && featuredSellers.length > 0 && (
+          <View style={{ marginTop: 20 }}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>🏪 Featured Stores</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('MarketPlaceExplore', { viewStores: true })}>
+                <Text style={styles.sectionView}>View all ➜</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 16 }}
+            >
+              {featuredSellers.map((seller) => (
+                <TouchableOpacity
+                  key={seller.id}
+                  style={styles.storeCard}
+                  onPress={() => handleStorePress(seller.id)}
+                  activeOpacity={0.8}
+                >
+                  <Image
+                    source={{ uri: seller.profileImage || seller.avatar || 'https://via.placeholder.com/80' }}
+                    style={styles.storeAvatar}
+                  />
+                  <Text style={styles.storeName} numberOfLines={1}>
+                    {seller.username || seller.displayName || 'Creator'}
+                  </Text>
+                  <Text style={styles.storeProducts}>
+                    {seller.productCount} product{seller.productCount !== 1 ? 's' : ''}
+                  </Text>
+                  <View style={styles.storeStats}>
+                    <Ionicons name="star" size={12} color="#FFD700" />
+                    <Text style={styles.storeRating}>
+                      {seller.stats?.averageRating?.toFixed(1) || '5.0'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {/* 📸 More Categories */}
+        <View style={styles.categoryRow}>
           <Category
             icon={require("./assets/photos.png")}
             label="Art"
@@ -561,6 +700,31 @@ const styles = StyleSheet.create({
   },
   balanceText: { color: "#fff", fontWeight: "600" },
 
+  sellerButton: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sellerButtonGradient: {
+    padding: 14,
+  },
+  sellerButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  sellerButtonTitle: {
+    color: '#FFF',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  sellerButtonDesc: {
+    color: '#FFF',
+    fontSize: 12,
+    opacity: 0.9,
+    marginTop: 2,
+  },
+
   promoCard: {
     marginHorizontal: 16,
     borderRadius: 16,
@@ -721,5 +885,46 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
   },
+  
+  // Store card styles
+  storeCard: {
+    width: 140,
+    backgroundColor: CARD,
+    borderRadius: 12,
+    padding: 12,
+    marginRight: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#23232A',
+  },
+  storeAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    marginBottom: 10,
+    borderWidth: 2,
+    borderColor: ACCENT,
+  },
+  storeName: {
+    color: TEXT,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  storeProducts: {
+    color: TEXT_DIM,
+    fontSize: 11,
+    marginBottom: 6,
+  },
+  storeStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  storeRating: {
+    color: TEXT,
+    fontSize: 11,
+    fontWeight: '600',
+  },
 });
-

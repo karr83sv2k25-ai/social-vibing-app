@@ -13,9 +13,9 @@ import {
   Dimensions,
 } from 'react-native';
 import {Ionicons} from '@expo/vector-icons';
-import {getFunctions, httpsCallable} from 'firebase/functions';
+import {httpsCallable} from 'firebase/functions';
 import {getDoc, doc, updateDoc} from 'firebase/firestore';
-import {db, auth} from '../../firebaseConfig';
+import {db, auth, functions} from '../../firebaseConfig';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 
@@ -73,7 +73,6 @@ export default function CustomizationScreen({route, navigation}) {
     setApplying(true);
 
     try {
-      const functions = getFunctions();
       const setActiveCustomization = httpsCallable(
         functions,
         'setActiveCustomization',
@@ -119,7 +118,6 @@ export default function CustomizationScreen({route, navigation}) {
           onPress: async () => {
             setApplying(true);
             try {
-              const functions = getFunctions();
               const setActiveCustomization = httpsCallable(
                 functions,
                 'setActiveCustomization',

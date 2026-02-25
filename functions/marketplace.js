@@ -186,13 +186,16 @@ exports.buyProduct = functions.https.onCall(async (data, context) => {
       });
 
       // Credit creator (70% revenue share for non-official products)
-      if (!product.isOfficial && product.creatorId && product.creatorId !== userId) {
+      if (!product.isOfficial && product.creatorId &&
+          product.creatorId !== userId) {
         const creatorRef = db.doc(`users/${product.creatorId}`);
-        const creatorEarnings = Math.floor(product.price * 0.7); // 70% to creator
+        const creatorEarnings = Math.floor(product.price * 0.7);
 
         transaction.update(creatorRef, {
-          earningsBalance: admin.firestore.FieldValue.increment(creatorEarnings),
-          totalEarnings: admin.firestore.FieldValue.increment(creatorEarnings),
+          earningsBalance:
+            admin.firestore.FieldValue.increment(creatorEarnings),
+          totalEarnings:
+            admin.firestore.FieldValue.increment(creatorEarnings),
         });
       }
 
@@ -230,7 +233,8 @@ exports.buyProduct = functions.https.onCall(async (data, context) => {
  * Credit Coins After IAP - Verify in-app purchases and credit coins securely
  *
  * @param {number} amount - Amount of coins to credit
- * @param {string} purchaseToken - Purchase receipt/token from App Store/Play Store
+ * @param {string} purchaseToken - Purchase receipt/token from
+ *   App Store/Play Store
  * @param {string} platform - 'ios' or 'android'
  * @param {string} productId - IAP product identifier
  * @returns {Object} Credit result with success status and amount
@@ -332,7 +336,8 @@ exports.creditCoinsAfterIAP = functions.https.onCall(async (data, context) => {
 
       // Credit coins or diamonds using wallet structure
       const walletUpdate = {};
-      walletUpdate[`wallet.${currency}`] = admin.firestore.FieldValue.increment(amount);
+      walletUpdate[`wallet.${currency}`] =
+        admin.firestore.FieldValue.increment(amount);
       transaction.update(userRef, walletUpdate);
 
       // Record transaction
@@ -345,7 +350,8 @@ exports.creditCoinsAfterIAP = functions.https.onCall(async (data, context) => {
         platform: platform,
         productId: productId,
         verificationData: verificationResult ? {
-          transactionId: verificationResult.transactionId || verificationResult.orderId,
+          transactionId: verificationResult.transactionId ||
+            verificationResult.orderId,
           environment: verificationResult.environment,
           verifiedAt: admin.firestore.FieldValue.serverTimestamp(),
         } : null,
@@ -389,7 +395,8 @@ exports.creditCoinsAfterIAP = functions.https.onCall(async (data, context) => {
  * - Ownership verification
  * - Server-side validation
  */
-exports.setActiveCustomization = functions.https.onCall(async (data, context) => {
+exports.setActiveCustomization =
+functions.https.onCall(async (data, context) => {
   if (!context.auth) {
     throw new functions.https.HttpsError(
         "unauthenticated",
@@ -563,14 +570,32 @@ exports.createProduct = functions.https.onCall(async (data, context) => {
 
   const userId = context.auth.uid;
 
-  // TODO: Verify user is admin or approved creator
-  // const userDoc = await db.doc(`users/${userId}`).get();
-  // if (!userDoc.exists || !['admin', 'creator'].includes(userDoc.data().role)) {
-  //   throw new functions.https.HttpsError(
-  //     'permission-denied',
-  //     'Only admins and creators can create products'
-  //   );
-  // }
+  // Verify user is a seller (or admin/verified creator)
+  const userDoc = await db.doc(`users/${userId}`).get();
+  if (!userDoc.exists) {
+    throw new functions.https.HttpsError(
+        "not-found",
+        "User profile not found",
+    );
+  }
+
+  const userData = userDoc.data();
+  const isSeller = userData.isSeller === true;
+  const isAdmin = userData.role === "admin";
+  const isVerifiedCreator = [
+    "creator",
+    "verified_creator",
+  ].includes(userData.role);
+
+  // Allow sellers, admins, and verified creators to create products
+  if (!isSeller && !isAdmin && !isVerifiedCreator) {
+    throw new functions.https.HttpsError(
+        "permission-denied",
+        "You must be a registered seller to create products. " +
+        "Please go to Marketplace and tap 'Start Selling' " +
+        "to become a seller.",
+    );
+  }
 
   const productData = data;
 
@@ -591,7 +616,12 @@ exports.createProduct = functions.https.onCall(async (data, context) => {
       ...productData,
       productId: productRef.id,
       creatorId: userId,
+      creatorName: userData.displayName ||
+                  userData.username ||
+                  "Unknown Seller",
+      creatorAvatar: userData.profileImage || userData.avatar || "",
       status: "active",
+      isOfficial: isAdmin || isVerifiedCreator,
       stats: {
         purchaseCount: 0,
         viewCount: 0,
@@ -604,9 +634,15 @@ exports.createProduct = functions.https.onCall(async (data, context) => {
 
     await productRef.set(product);
 
+    // Update user's seller stats
+    await db.doc(`users/${userId}`).update({
+      "sellerStats.totalProducts": admin.firestore.FieldValue.increment(1),
+    });
+
     functions.logger.info("Product created", {
       productId: productRef.id,
       creatorId: userId,
+      isSeller,
     });
 
     return {

@@ -4,10 +4,14 @@
       "productId": "comic_001",
       "type": "comic",
       "title": "Attack on Titan: Origins",
-      "description": "Experience the epic origin story of the Survey Corps.",
+      "description": "Experience the epic origin story of the Survey Corps. An exclusive manga series featuring the untold stories of humanity's battle against the titans.",
       "price": 100,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder1.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp1.png?alt=media",
+      "previewImages": [
+        "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fc1.png?alt=media",
+        "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fc2.png?alt=media"
+      ],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -31,10 +35,14 @@
       "productId": "comic_002",
       "type": "comic",
       "title": "My Hero Academia Special",
-      "description": "The untold story of All Might.",
+      "description": "The untold story of All Might. Discover the secrets behind the world's greatest hero in this exclusive special edition comic.",
       "price": 80,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder2.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp2.png?alt=media",
+      "previewImages": [
+        "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fc3.png?alt=media",
+        "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fc4.png?alt=media"
+      ],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -58,10 +66,11 @@
       "productId": "book_001",
       "type": "book",
       "title": "The Art of Character Design",
-      "description": "Master character design fundamentals.",
+      "description": "Master character design fundamentals with this comprehensive guide. Learn from industry professionals and take your art to the next level.",
       "price": 150,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder3.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp3.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fch1.jpg?alt=media"],
       "creatorId": "official",
       "creatorName": "Design Academy",
       "isOfficial": true,
@@ -75,7 +84,7 @@
       "tags": ["art", "tutorial", "educational"],
       "bookConfig": {
         "format": "pdf",
-        "fileUrl": "https://example.com/character_design.pdf",
+        "fileUrl": "",
         "fileSize": 15728640,
         "pageCount": 180,
         "author": "Hiroshi Tanaka",
@@ -87,10 +96,11 @@
       "productId": "art_001",
       "type": "art",
       "title": "Sunset Over Tokyo",
-      "description": "Breathtaking digital artwork.",
+      "description": "Breathtaking digital artwork capturing the vibrant colors of a Tokyo sunset. Perfect for desktop wallpapers and prints.",
       "price": 50,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder4.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fa1.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpost1.1.jpg?alt=media"],
       "creatorId": "artist_001",
       "creatorName": "Sakura Artist",
       "isOfficial": false,
@@ -103,8 +113,8 @@
       "status": "active",
       "tags": ["landscape", "digital-art", "wallpaper"],
       "artConfig": {
-        "fullResUrl": "https://example.com/tokyo_sunset_4k.jpg",
-        "thumbnailUrl": "https://example.com/tokyo_sunset_thumb.jpg",
+        "fullResUrl": "",
+        "thumbnailUrl": "",
         "dimensions": {
           "width": 3840,
           "height": 2160
@@ -119,10 +129,11 @@
       "productId": "art_002",
       "type": "art",
       "title": "Neon Portrait",
-      "description": "Vibrant neon-themed anime portrait.",
+      "description": "Vibrant neon-themed anime portrait with stunning cyberpunk aesthetics.",
       "price": 75,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder5.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fa2.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpost1.2.jpg?alt=media"],
       "creatorId": "artist_002",
       "creatorName": "Neon Dreams",
       "isOfficial": false,
@@ -135,8 +146,8 @@
       "status": "active",
       "tags": ["portrait", "neon", "cyberpunk"],
       "artConfig": {
-        "fullResUrl": "https://example.com/neon_portrait_full.png",
-        "thumbnailUrl": "https://example.com/neon_portrait_thumb.jpg",
+        "fullResUrl": "",
+        "thumbnailUrl": "",
         "dimensions": {
           "width": 2480,
           "height": 3508
@@ -151,10 +162,11 @@
       "productId": "sticker_001",
       "type": "sticker_pack",
       "title": "Kawaii Emotions Pack",
-      "description": "24 adorable kawaii emotion stickers.",
+      "description": "24 adorable kawaii emotion stickers to express yourself in every chat!",
       "price": 30,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder6.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fsticker.gif?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fs1.jpg?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -170,12 +182,12 @@
         "stickers": [
           {
             "stickerId": "s001",
-            "imageUrl": "https://example.com/sticker1.png",
+            "imageUrl": "",
             "emoji": "😊"
           },
           {
             "stickerId": "s002",
-            "imageUrl": "https://example.com/sticker2.png",
+            "imageUrl": "",
             "emoji": "😭"
           }
         ],
@@ -188,10 +200,11 @@
       "productId": "sticker_002",
       "type": "sticker_pack",
       "title": "Anime Reaction Pack",
-      "description": "30 hilarious anime reaction stickers.",
+      "description": "30 hilarious anime reaction stickers for every mood and situation.",
       "price": 40,
       "currency": "coins",
-      "coverImage": "https://i.imgur.com/placeholder7.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp4.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fs2.jpg?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -214,10 +227,11 @@
       "productId": "frame_001",
       "type": "profile_frame",
       "title": "Golden Luxury Frame",
-      "description": "Elegant golden frame for VIP users.",
+      "description": "Elegant golden frame for VIP users. Show off your premium status with this exclusive design.",
       "price": 200,
       "currency": "diamonds",
-      "coverImage": "https://i.imgur.com/placeholder8.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fprofileframe.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fcrown.png?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -230,8 +244,8 @@
       "status": "active",
       "tags": ["luxury", "vip", "gold"],
       "frameConfig": {
-        "frameUrl": "https://example.com/golden_frame_full.png",
-        "previewUrl": "https://example.com/golden_frame_preview.png",
+        "frameUrl": "",
+        "previewUrl": "",
         "dimensions": {
           "width": 500,
           "height": 500
@@ -244,10 +258,11 @@
       "productId": "frame_002",
       "type": "profile_frame",
       "title": "Neon Cyberpunk Frame",
-      "description": "Futuristic neon frame with animated effects.",
+      "description": "Futuristic neon frame with animated effects. Stand out with this cutting-edge design.",
       "price": 150,
       "currency": "diamonds",
-      "coverImage": "https://i.imgur.com/placeholder9.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp5.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fa3.png?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -260,8 +275,8 @@
       "status": "active",
       "tags": ["neon", "cyberpunk", "animated"],
       "frameConfig": {
-        "frameUrl": "https://example.com/neon_frame_full.png",
-        "previewUrl": "https://example.com/neon_frame_preview.png",
+        "frameUrl": "",
+        "previewUrl": "",
         "dimensions": {
           "width": 500,
           "height": 500
@@ -274,10 +289,11 @@
       "productId": "bubble_001",
       "type": "chat_bubble",
       "title": "Dark Galaxy Theme",
-      "description": "Stunning dark galaxy chat theme.",
+      "description": "Stunning dark galaxy chat theme with mysterious cosmic vibes.",
       "price": 100,
       "currency": "diamonds",
-      "coverImage": "https://i.imgur.com/placeholder10.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fchatbubbles.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fch2.jpg?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -306,17 +322,18 @@
             "backgroundColor": "#0B0B0E"
           }
         },
-        "previewImages": ["https://example.com/galaxy_preview.jpg"]
+        "previewImages": []
       }
     },
     "bubble_002": {
       "productId": "bubble_002",
       "type": "chat_bubble",
       "title": "Pastel Dream Theme",
-      "description": "Soft and cute pastel-colored chat theme.",
+      "description": "Soft and cute pastel-colored chat theme for sweet conversations.",
       "price": 80,
       "currency": "diamonds",
-      "coverImage": "https://i.imgur.com/placeholder11.jpg",
+      "coverImage": "https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fpp6.png?alt=media",
+      "previewImages": ["https://firebasestorage.googleapis.com/v0/b/social-vibing-app.appspot.com/o/marketplace%2Fch3.jpg?alt=media"],
       "creatorId": "official",
       "creatorName": "Official Store",
       "isOfficial": true,
@@ -345,7 +362,7 @@
             "backgroundColor": "#FFF5F7"
           }
         },
-        "previewImages": ["https://example.com/pastel_preview.jpg"]
+        "previewImages": []
       }
     }
   }

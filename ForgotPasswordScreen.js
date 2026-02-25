@@ -31,7 +31,7 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [emailSent, setEmailSent] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
@@ -45,8 +45,6 @@ export default function ForgotPasswordScreen({ navigation }) {
     }
     return () => clearTimeout(timer);
   }, [cooldownSeconds]);
-
-  if (!fontsLoaded) return null;
 
   const validateEmail = (text) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -157,6 +155,21 @@ export default function ForgotPasswordScreen({ navigation }) {
       handleResetPassword();
     }
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}
+        blurRadius={10}>
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF06C8" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -301,6 +314,12 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
     resizeMode: 'cover',
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   header: {

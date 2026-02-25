@@ -32,7 +32,7 @@ export default function LoginScreen({ navigation }) {
   const [isValidEmail, setIsValidEmail] = useState(true);
   const [isConnected, setIsConnected] = useState(true);
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
@@ -46,8 +46,6 @@ export default function LoginScreen({ navigation }) {
 
     return () => unsubscribe();
   }, []);
-
-  if (!fontsLoaded) return null;
 
   const validateEmail = (text) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -212,9 +210,8 @@ export default function LoginScreen({ navigation }) {
       setEmail('');
       setPassword('');
 
-      // Navigate to TabBar (bottom tabs) on successful login
-      console.log('🚀 Navigating to TabBar...');
-      navigation.replace('TabBar');
+      // Navigation will happen automatically via onAuthStateChanged in App.js
+      console.log('✅ Login successful! Authentication state will trigger navigation...');
     } catch (error) {
       console.error('❌ Login Error:', error);
 
@@ -276,6 +273,21 @@ export default function LoginScreen({ navigation }) {
   const handleBack = () => {
     navigation.goBack();
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}
+        blurRadius={10}>
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF06C8" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -368,6 +380,12 @@ export default function LoginScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   background: { flex: 1, resizeMode: 'cover' },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   header: {
     marginTop: 60,

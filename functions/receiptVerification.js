@@ -5,7 +5,7 @@ const functions = require("firebase-functions");
  * Verify iOS receipt with App Store Server API
  * @param {string} receiptData - Base64 encoded receipt
  * @param {boolean} isSandbox - Use sandbox environment
- * @returns {Object} Verification result
+ * @return {Object} Verification result
  */
 async function verifyIOSReceipt(receiptData, isSandbox = false) {
   const url = isSandbox ?
@@ -34,7 +34,8 @@ async function verifyIOSReceipt(receiptData, isSandbox = false) {
 
     // Handle sandbox redirect (status 21007)
     if (result.status === 21007 && !isSandbox) {
-      functions.logger.info("Redirecting to sandbox for iOS receipt verification");
+      functions.logger.info(
+          "Redirecting to sandbox for iOS receipt verification");
       return await verifyIOSReceipt(receiptData, true);
     }
 
@@ -56,7 +57,8 @@ async function verifyIOSReceipt(receiptData, isSandbox = false) {
 
     // Extract purchase data
     const receipt = result.receipt;
-    const inAppPurchases = result["latest_receipt_info"] || receipt.in_app || [];
+    const inAppPurchases =
+      result["latest_receipt_info"] || receipt.in_app || [];
 
     if (inAppPurchases.length === 0) {
       throw new functions.https.HttpsError(
@@ -66,7 +68,8 @@ async function verifyIOSReceipt(receiptData, isSandbox = false) {
     }
 
     // Get most recent purchase
-    const latestPurchase = inAppPurchases[inAppPurchases.length - 1];
+    const latestPurchase =
+      inAppPurchases[inAppPurchases.length - 1];
 
     return {
       valid: true,
@@ -77,7 +80,8 @@ async function verifyIOSReceipt(receiptData, isSandbox = false) {
       environment: isSandbox ? "sandbox" : "production",
     };
   } catch (error) {
-    functions.logger.error("iOS receipt verification error", {error: error.message});
+    functions.logger.error("iOS receipt verification error",
+        {error: error.message});
     throw error;
   }
 }
@@ -87,11 +91,12 @@ async function verifyIOSReceipt(receiptData, isSandbox = false) {
  * @param {string} packageName - App package name
  * @param {string} productId - Product SKU
  * @param {string} purchaseToken - Purchase token
- * @returns {Object} Verification result
+ * @return {Object} Verification result
  */
 async function verifyAndroidReceipt(packageName, productId, purchaseToken) {
   try {
-    // Note: This requires Google Cloud service account with Play Developer API access
+    // Note: This requires Google Cloud service account with
+    // Play Developer API access
     // Setup instructions:
     // 1. Enable Google Play Developer API in Cloud Console
     // 2. Create/use service account with API access
@@ -101,13 +106,15 @@ async function verifyAndroidReceipt(packageName, productId, purchaseToken) {
     const androidPublisher = google.androidpublisher("v3");
 
     // Get service account credentials from Firebase config or environment
-    const serviceAccount = functions.config().google?.service_account ?
-      JSON.parse(functions.config().google.service_account) :
-      require("./service-account-key.json"); // Fallback to file
+    const serviceAccount =
+      functions.config().google?.service_account ?
+        JSON.parse(functions.config().google.service_account) :
+        require("./service-account-key.json");
 
     const auth = new google.auth.GoogleAuth({
       credentials: serviceAccount,
-      scopes: ["https://www.googleapis.com/auth/androidpublisher"],
+      scopes:
+        ["https://www.googleapis.com/auth/androidpublisher"],
     });
 
     const authClient = await auth.getClient();
@@ -162,12 +169,14 @@ async function verifyAndroidReceipt(packageName, productId, purchaseToken) {
 }
 
 /**
- * Acknowledge Android purchase (required as of Google Play Billing 3.0)
+ * Acknowledge Android purchase (required as of
+ * Google Play Billing 3.0)
  * @param {string} packageName - App package name
  * @param {string} productId - Product SKU
  * @param {string} purchaseToken - Purchase token
  */
-async function acknowledgeAndroidPurchase(packageName, productId, purchaseToken) {
+async function acknowledgeAndroidPurchase(
+    packageName, productId, purchaseToken) {
   try {
     const {google} = require("googleapis");
     const androidPublisher = google.androidpublisher("v3");
@@ -203,7 +212,7 @@ async function acknowledgeAndroidPurchase(packageName, productId, purchaseToken)
 /**
  * Main receipt verification function
  * @param {Object} data - Purchase data
- * @returns {Object} Verification result
+ * @return {Object} Verification result
  */
 async function verifyReceipt(data) {
   const {platform, purchaseToken, productId, packageName} = data;

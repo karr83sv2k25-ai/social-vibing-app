@@ -1,5 +1,5 @@
 // screens/marketplace/ProductCreationWizardScreen.js - 3-step product creation
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
@@ -35,6 +35,13 @@ const PRODUCT_TYPES = [
 export default function ProductCreationWizardScreen({ route, navigation }) {
     const { productType, productId } = route.params || {}; // productId for editing
     const isEditing = !!productId;
+
+    // If productType is specified, redirect to TypeSpecificUploadScreen
+    useEffect(() => {
+        if (productType && !isEditing) {
+            navigation.replace('TypeSpecificUpload', { productType });
+        }
+    }, [productType]);
 
     // Step 1: Category & Name
     const [step, setStep] = useState(1);

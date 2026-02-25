@@ -14,9 +14,9 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useWallet } from '../../context/WalletContext';
-import { productAPI } from '../../api/productAPI';
-import { getFunctions, httpsCallable } from 'firebase/functions';
-import { auth } from '../../firebaseConfig';
+import { httpsCallable } from 'firebase/functions';
+import { db, auth, functions } from '../../firebaseConfig';
+import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 
 const BG = '#0B0B0E';
 const CARD = '#17171C';
@@ -25,7 +25,7 @@ const ACCENT = '#7C3AED';
 
 export default function ProductDetailScreen({ route, navigation }) {
     const { productId } = route.params;
-    const { wallet, deductDiamonds, deductCoins } = useWallet();
+    const { wallet, refreshWallet } = useWallet();
 
     const [product, setProduct] = useState(null);
     const [reviews, setReviews] = useState([]);
@@ -39,21 +39,99 @@ export default function ProductDetailScreen({ route, navigation }) {
 
     const fetchProductDetails = async () => {
         try {
-            const response = await productAPI.getProduct(productId);
-            if (response.success) {
-                setProduct(response.data);
+            console.log('📦 Fetching product:', productId);
+            
+            // Fetch product from Firestore
+            const productRef = doc(db, 'products', productId);
+            const productDoc = await getDoc(productRef);
 
-                // Fetch reviews
-                const reviewsRes = await productAPI.getProductReviews(productId);
-                if (reviewsRes.success) {
-                    setReviews(reviewsRes.data.reviews);
+            if (!productDoc.exists()) {
+                Alert.alert('Error', 'Product not found');
+                navigation.goBack();
+                return;
+            }
+
+            const productData = {
+                id: productDoc.id,
+                productId: productDoc.id,
+                ...productDoc.data()
+            };
+
+            // Check if user already owns this product
+            const user = auth.currentUser;
+            if (user) {
+                const userRef = doc(db, 'users', user.uid);
+                const userDoc = await getDoc(userRef);
+                
+                if (userDoc.exists()) {
+                    const ownedProducts = userDoc.data().ownedProducts || [];
+                    productData.hasPurchased = ownedProducts.includes(productId);
                 }
             }
+
+            // Create seller info from product data
+            productData.seller = {
+                userId: productData.creatorId || 'official',
+                username: productData.creatorName || 'Official Store',
+                displayName: productData.creatorName || 'Official Store',
+                avatar: productData.creatorAvatar || 'https://via.placeholder.com/100',
+                stats: {
+                    averageRating: productData.stats?.rating || 5,
+                    totalSales: productData.stats?.purchaseCount || 0
+                }
+            };
+
+            // Ensure stats exist
+            if (!productData.stats) {
+                productData.stats = {
+                    rating: 5,
+                    reviewCount: 0,
+                    purchases: 0,
+                    views: 0
+                };
+            } else {
+                productData.stats.purchases = productData.stats.purchaseCount || 0;
+                productData.stats.views = productData.stats.viewCount || 0;
+            }
+
+            console.log('✅ Product loaded:', productData.title);
+            setProduct(productData);
+
+            // Fetch reviews
+            await fetchProductReviews(productId);
         } catch (error) {
+            console.error('❌ Failed to load product:', error);
             Alert.alert('Error', 'Failed to load product details');
             navigation.goBack();
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchProductReviews = async (productId) => {
+        try {
+            const reviewsRef = collection(db, 'reviews');
+            const q = query(
+                reviewsRef,
+                where('productId', '==', productId),
+                orderBy('createdAt', 'desc'),
+                limit(10)
+            );
+            
+            const snapshot = await getDocs(q);
+            const reviewsList = snapshot.docs.map(doc => ({
+                reviewId: doc.id,
+                ...doc.data(),
+                buyer: {
+                    username: doc.data().buyerName || 'Anonymous',
+                    avatar: doc.data().buyerAvatar || 'https://via.placeholder.com/50'
+                }
+            }));
+
+            setReviews(reviewsList);
+        } catch (error) {
+            console.error('Failed to fetch reviews:', error);
+            // Reviews are not critical, so we don't show error to user
         }
     };
 
@@ -113,13 +191,28 @@ export default function ProductDetailScreen({ route, navigation }) {
                     onPress: async () => {
                         setPurchasing(true);
                         try {
+                            // Verify user is still authenticated
+                            const currentUser = auth.currentUser;
+                            if (!currentUser) {
+                                throw new Error('User not authenticated');
+                            }
+                            
+                            // Force refresh the auth token to ensure it's valid
+                            console.log('🔐 Refreshing auth token...');
+                            await currentUser.getIdToken(true);
+                            console.log('✅ Auth token refreshed');
+                            
+                            console.log('🔐 Making purchase as user:', currentUser.uid);
+                            console.log('📦 Product ID:', product.productId);
+                            
                             // ✅ SECURE: Call Cloud Function instead of direct wallet update
-                            const functions = getFunctions();
                             const buyProduct = httpsCallable(functions, 'buyProduct');
                             
                             const result = await buyProduct({ 
                                 productId: product.productId 
                             });
+                            
+                            console.log('✅ Purchase result:', result.data);
 
                             if (result.data.success) {
                                 // Purchase successful!
@@ -137,30 +230,38 @@ export default function ProductDetailScreen({ route, navigation }) {
                                             text: 'OK',
                                             onPress: () => {
                                                 // Refresh wallet balance
-                                                if (wallet.refreshWallet) {
-                                                    wallet.refreshWallet();
-                                                }
-                                                // Mark product as purchased
-                                                setProduct({ ...product, hasPurchased: true });
-                                            }
-                                        }
-                                    ]
-                                );
+                                    if (refreshWallet) {
+                                        refreshWallet();
+                                    }
+                                    // Mark product as purchased and refetch
+                                    fetchProductDetails();
+                                }
                             }
-                        } catch (error) {
-                            console.error('Purchase error:', error);
-                            
-                            // Handle specific error codes from Cloud Function
-                            if (error.code === 'functions/failed-precondition') {
-                                // Insufficient balance or product not available
-                                Alert.alert('Purchase Failed', error.message);
-                            } else if (error.code === 'functions/already-exists') {
-                                Alert.alert('Already Owned', 'You already own this product');
-                                setProduct({ ...product, hasPurchased: true });
-                            } else if (error.code === 'functions/unauthenticated') {
-                                Alert.alert('Authentication Required', 'Please log in to purchase');
-                                navigation.navigate('Login');
-                            } else if (error.code === 'functions/not-found') {
+                        ]
+                    );
+                } else {
+                    Alert.alert('Purchase Failed', 'Something went wrong. Please try again.');
+                }
+            } catch (error) {
+                console.error('❌ Purchase error:', error);
+                console.error('Error code:', error.code);
+                console.error('Error message:', error.message);
+                
+                // Handle specific error codes from Cloud Function
+                if (error.code === 'functions/unauthenticated') {
+                    Alert.alert(
+                        'Authentication Error',
+                        'Please log out and log back in, then try again.',
+                        [
+                            { text: 'OK', onPress: () => navigation.navigate('Login') }
+                        ]
+                    );
+                } else if (error.code === 'functions/failed-precondition') {
+                    // Insufficient balance or product not available
+                    Alert.alert('Purchase Failed', error.message);
+                } else if (error.code === 'functions/already-exists') {
+                    Alert.alert('Already Owned', 'You already own this product');
+                    fetchProductDetails();
                                 Alert.alert('Error', 'Product not found');
                             } else {
                                 Alert.alert('Purchase Failed', error.message || 'Something went wrong. Please try again.');
@@ -175,6 +276,8 @@ export default function ProductDetailScreen({ route, navigation }) {
     };
 
     const handleContactSeller = () => {
+        if (!product || !product.seller) return;
+        
         // Navigate to chat with seller
         navigation.navigate('ChatScreen', {
             recipientId: product.seller.userId,
@@ -186,15 +289,23 @@ export default function ProductDetailScreen({ route, navigation }) {
         return (
             <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
                 <ActivityIndicator size="large" color={ACCENT} />
+                <Text style={{ color: TEXT, marginTop: 12 }}>Loading product...</Text>
             </View>
         );
     }
 
     if (!product) {
-        return null;
+        return (
+            <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Text style={{ color: TEXT }}>Product not found</Text>
+            </View>
+        );
     }
 
-    const images = [product.coverImage, ...product.previewImages];
+    // Prepare images array with fallback
+    const images = product.coverImage 
+        ? [product.coverImage, ...(product.previewImages || [])]
+        : ['https://via.placeholder.com/400x400?text=No+Image'];
 
     return (
         <SafeAreaView style={styles.container}>

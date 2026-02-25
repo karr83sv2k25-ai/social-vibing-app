@@ -43,7 +43,8 @@ service cloud.firestore {
       allow update: if isSignedIn() && isOwner(userId)
                       && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
                         'coins', 
-                        'diamonds', 
+                        'diamonds',
+                        'wallet',
                         'ownedProducts',
                         'earningsBalance',
                         'totalEarnings'
@@ -267,10 +268,10 @@ service cloud.firestore {
     // MARKETPLACE COLLECTIONS
     // =============================================================================
     
-    // Wallets - users can read/write their own, but can read others for display purposes
+    // Wallets - users can read their own, only Cloud Functions can write
     match /wallets/{userId} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && isOwner(userId);
+      allow write: if false; // Only Cloud Functions can modify wallets
     }
     
     // Products - anyone can read, authenticated users can create

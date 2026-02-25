@@ -7,20 +7,28 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 // Import screens
-import MarketPlaceScreen from './marketplace';
-import MarketplaceExploreScreen from './marketplaceexplore';
-import CategoriesScreen from './screens/marketplace/CategoriesScreen';
-import ProductDetailScreen from './screens/marketplace/ProductDetailScreen';
-import CheckoutScreen from './screens/marketplace/CheckoutScreen';
-import OrderSuccessScreen from './screens/marketplace/OrderSuccessScreen';
-import MyOrdersScreen from './screens/marketplace/MyOrdersScreen';
-import SellerDashboardScreen from './screens/marketplace/SellerDashboardScreen';
-import ProductCreationWizardScreen from './screens/marketplace/ProductCreationWizardScreen';
-import WalletScreen from './screens/marketplace/WalletScreen';
-import WithdrawalScreen from './screens/marketplace/WithdrawalScreen';
-import AILabScreen from './screens/marketplace/AILabScreen';
-import FreelanceMarketplaceScreen from './screens/marketplace/FreelanceMarketplaceScreen';
-import GigDetailScreen from './screens/marketplace/GigDetailScreen';
+import MarketPlaceScreen from '../marketplace';
+import MarketplaceExploreScreen from '../marketplaceexplore';
+import CategoriesScreen from '../screens/marketplace/CategoriesScreen';
+import ProductDetailScreen from '../screens/marketplace/ProductDetailScreen';
+// import CheckoutScreen from '../screens/marketplace/CheckoutScreen';
+// import OrderSuccessScreen from '../screens/marketplace/OrderSuccessScreen';
+import MyOrdersScreen from '../screens/marketplace/MyOrdersScreen';
+import SellerDashboardScreen from '../screens/marketplace/SellerDashboardScreen';
+import BecomeSellerScreen from '../screens/marketplace/BecomeSellerScreen';
+import ProductCreationWizardScreen from '../screens/marketplace/ProductCreationWizardScreen';
+import WalletScreen from '../screens/marketplace/WalletScreen';
+import WithdrawalScreen from '../screens/marketplace/WithdrawalScreen';
+// New screens
+import TypeSpecificUploadScreen from '../screens/marketplace/TypeSpecificUploadScreen';
+import ProductTypeSelectionScreen from '../screens/marketplace/ProductTypeSelectionScreen';
+import ProductPublishScreen from '../screens/marketplace/ProductPublishScreen';
+import BubbleCustomizerScreen from '../screens/marketplace/BubbleCustomizerScreen';
+import FrameCustomizerScreen from '../screens/marketplace/FrameCustomizerScreen';
+import SellerStoreScreen from '../screens/marketplace/SellerStoreScreen';
+// import AILabScreen from '../screens/marketplace/AILabScreen';
+// import FreelanceMarketplaceScreen from '../screens/marketplace/FreelanceMarketplaceScreen';
+// import GigDetailScreen from '../screens/marketplace/GigDetailScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -63,7 +71,8 @@ function MarketplaceTabNavigator() {
                 }}
             />
 
-            <Tab.Screen
+            {/* TODO: Implement AILab and Freelance screens */}
+            {/* <Tab.Screen
                 name="AILab"
                 component={AILabScreen}
                 options={{
@@ -83,7 +92,7 @@ function MarketplaceTabNavigator() {
                         <Ionicons name="briefcase-outline" size={size} color={color} />
                     ),
                 }}
-            />
+            /> */}
 
             <Tab.Screen
                 name="Wallet"
@@ -113,23 +122,46 @@ export function MarketplaceStackNavigator() {
 
             {/* Product Flow */}
             <Stack.Screen name="ProductDetail" component={ProductDetailScreen} />
-            <Stack.Screen name="Checkout" component={CheckoutScreen} />
-            <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} />
+            {/* TODO: Implement Checkout and OrderSuccess screens */}
+            {/* <Stack.Screen name="Checkout" component={CheckoutScreen} />
+            <Stack.Screen name="OrderSuccess" component={OrderSuccessScreen} /> */}
             <Stack.Screen name="MyOrders" component={MyOrdersScreen} />
 
             {/* Seller Flow */}
+            <Stack.Screen name="BecomeSeller" component={BecomeSellerScreen} />
             <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} />
+            <Stack.Screen name="SellerStore" component={SellerStoreScreen} />
+            <Stack.Screen
+                name="ProductTypeSelection"
+                component={ProductTypeSelectionScreen}
+                options={{ presentation: 'modal' }}
+            />
             <Stack.Screen
                 name="ProductCreation"
                 component={ProductCreationWizardScreen}
                 options={{ presentation: 'modal' }}
             />
+            <Stack.Screen
+                name="TypeSpecificUpload"
+                component={TypeSpecificUploadScreen}
+                options={{ presentation: 'modal' }}
+            />
+            <Stack.Screen
+                name="ProductPublish"
+                component={ProductPublishScreen}
+                options={{ presentation: 'modal' }}
+            />
+
+            {/* Product Customizers */}
+            <Stack.Screen name="BubbleCustomizer" component={BubbleCustomizerScreen} />
+            <Stack.Screen name="FrameCustomizer" component={FrameCustomizerScreen} />
 
             {/* Wallet Flow */}
             <Stack.Screen name="Withdrawal" component={WithdrawalScreen} />
 
             {/* Freelance Flow */}
-            <Stack.Screen name="GigDetail" component={GigDetailScreen} />
+            {/* TODO: Implement GigDetail screen */}
+            {/* <Stack.Screen name="GigDetail" component={GigDetailScreen} /> */}
 
             {/* Search/Explore */}
             <Stack.Screen name="MarketPlaceExplore" component={MarketplaceExploreScreen} />

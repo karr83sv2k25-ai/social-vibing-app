@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Modal,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -41,13 +42,11 @@ export default function CreateAccountScreen({ navigation }) {
     { name: 'UAE', flag: '🇦🇪' },
   ];
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
   });
-
-  if (!fontsLoaded) return null;
 
   const handleNext = () => {
     if (!name || !password || !confirmPassword || !age || !gender) {
@@ -59,6 +58,21 @@ export default function CreateAccountScreen({ navigation }) {
       // navigation.navigate('NextScreen');
     }
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}
+        blurRadius={10}>
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF06C8" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -212,6 +226,11 @@ export default function CreateAccountScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   background: { flex: 1, resizeMode: 'cover' },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   header: {
     marginTop: 60,
     marginLeft: 30,

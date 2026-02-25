@@ -965,33 +965,40 @@ const HomeScreen = React.memo(({ navigation }) => {
 
       console.log('📥 Fetching posts from Firestore...');
 
-      // Increase timeout to 30 seconds for long polling mode
-      const fetchWithTimeout = (promise, timeoutMs = 30000, label = 'Query') => {
+      // Timeout helper with reduced verbosity - only log if actually times out
+      const fetchWithTimeout = (promise, timeoutMs = 15000, label = 'Query') => {
         const startTime = Date.now();
+        let timedOut = false;
+        
         return Promise.race([
           promise.then(result => {
             const elapsed = Date.now() - startTime;
-            console.log(`✅ ${label} completed in ${elapsed}ms`);
+            if (!timedOut) {
+              console.log(`✅ ${label} completed in ${elapsed}ms`);
+            }
             return result;
           }).catch(error => {
             const elapsed = Date.now() - startTime;
-            console.log(`❌ ${label} promise rejected after ${elapsed}ms:`, error.code || error.message);
+            if (!timedOut) {
+              console.warn(`⚠️ ${label} error after ${elapsed}ms:`, error.code || error.message);
+            }
             throw error;
           }),
           new Promise((_, reject) =>
             setTimeout(() => {
-              console.log(`⏱️ ${label} timeout triggered at ${timeoutMs}ms`);
-              reject(new Error(`${label} timeout after ${timeoutMs}ms`));
+              timedOut = true;
+              console.warn(`⏱️ ${label} timeout at ${timeoutMs}ms - continuing with empty data`);
+              reject(new Error(`${label} timeout`));
             }, timeoutMs)
           )
         ]);
       };
 
-      // Fetch with 30-second timeout per collection (long polling needs more time)
+      // Fetch with 15-second timeout per collection
       console.log('📥 Fetching posts...');
       globalPostsSnapshot = await fetchWithTimeout(
         getDocs(query(collection(db, 'posts'), limit(10))),
-        30000,
+        15000,
         'Posts'
       ).then(snapshot => {
         console.log('✅ Posts fetched:', snapshot.docs.length, 'documents');
@@ -1004,7 +1011,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       console.log('📥 Fetching polls...');
       pollsSnapshot = await fetchWithTimeout(
         getDocs(query(collection(db, 'polls'), limit(5))),
-        30000,
+        15000,
         'Polls'
       ).then(snapshot => {
         console.log('✅ Polls fetched:', snapshot.docs.length, 'documents');
@@ -1017,7 +1024,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       console.log('📥 Fetching quizzes...');
       quizzesSnapshot = await fetchWithTimeout(
         getDocs(query(collection(db, 'quizzes'), limit(5))),
-        30000,
+        15000,
         'Quizzes'
       ).then(snapshot => {
         console.log('✅ Quizzes fetched:', snapshot.docs.length, 'documents');
@@ -1030,7 +1037,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       console.log('📥 Fetching questions...');
       questionsSnapshot = await fetchWithTimeout(
         getDocs(query(collection(db, 'questions'), limit(5))),
-        30000,
+        15000,
         'Questions'
       ).then(snapshot => {
         console.log('✅ Questions fetched:', snapshot.docs.length, 'documents');
@@ -1043,7 +1050,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       console.log('📥 Fetching communities...');
       communitiesSnapshot = await fetchWithTimeout(
         getDocs(query(collection(db, 'communities'), limit(3))),
-        30000,
+        15000,
         'Communities'
       ).then(snapshot => {
         console.log('✅ Communities fetched:', snapshot.docs.length, 'documents');

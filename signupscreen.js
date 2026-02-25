@@ -12,6 +12,7 @@ import {
   Platform,
   Keyboard,
   TouchableWithoutFeedback,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
@@ -51,6 +52,7 @@ const sanitizeUsername = (text) => {
 };
 
 export default function WithEmailScreen({ navigation }) {
+  // All hooks must be called before any conditional returns
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [username, setUsername] = useState('');
@@ -76,13 +78,11 @@ export default function WithEmailScreen({ navigation }) {
   const emailValidationTimeout = useRef(null);
   const usernameValidationTimeout = useRef(null);
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
   });
-
-  if (!fontsLoaded) return null;
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -506,6 +506,25 @@ export default function WithEmailScreen({ navigation }) {
     }
   };
 
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <SafeAreaProvider>
+        <SafeAreaView style={styles.background}>
+          <ImageBackground
+            source={require('./assets/login_bg.png')}
+            style={styles.background}
+            blurRadius={10}>
+            <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#FF06C8" />
+            </View>
+          </ImageBackground>
+        </SafeAreaView>
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     <SafeAreaProvider>
       <SafeAreaView style={styles.background}>
@@ -788,6 +807,12 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
     resizeMode: 'cover'
+  },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   scrollView: {

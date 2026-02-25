@@ -1,6 +1,7 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence, getAuth, connectAuthEmulator } from "firebase/auth";
 import { initializeFirestore, getFirestore, memoryLocalCache, enableNetwork, connectFirestoreEmulator } from "firebase/firestore";
+import { getFunctions, connectFunctionsEmulator } from "firebase/functions";
 import ReactNativeAsyncStorage from "@react-native-async-storage/async-storage";
 import Constants from "expo-constants";
 import { Platform } from "react-native";
@@ -195,7 +196,12 @@ auth.onAuthStateChanged(
   }
 );
 
+// ✅ Initialize Firebase Functions with region
+// CRITICAL: Must specify region to match deployed functions (us-central1)
+const functions = getFunctions(app, 'us-central1');
+originalConsoleLog('✅ Firebase Functions initialized (region: us-central1)');
+
 originalConsoleLog('✅ Firebase initialization complete');
 
-export { app, auth, db };
+export { app, auth, db, functions };
 

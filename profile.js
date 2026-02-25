@@ -923,15 +923,12 @@ export default function ProfileScreen() {
                   console.log('🗑️ Clearing saved login state from AsyncStorage...');
                   await AsyncStorage.multiRemove(['userLoggedIn', 'userEmail']);
 
-                  // Sign out from Firebase
+                  // Sign out from Firebase - navigation will happen automatically via onAuthStateChanged
+                  console.log('🚪 Signing out...');
                   await signOut(auth);
 
                   console.log('✅ User logged out successfully');
-
-                  navigation.reset({
-                    index: 0,
-                    routes: [{ name: 'Login' }],
-                  });
+                  // No need to manually navigate - App.js onAuthStateChanged will handle it
                 } catch (error) {
                   console.error('Logout Error:', error);
                   Alert.alert('Error', 'Failed to log out. Please try again.');

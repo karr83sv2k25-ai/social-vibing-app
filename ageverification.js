@@ -24,13 +24,11 @@ export default function AgeVerificationScreen({ navigation, route }) {
   const [loading, setLoading] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
   });
-
-  if (!fontsLoaded) return null;
 
   const handlePickDocument = async () => {
     try {
@@ -109,8 +107,9 @@ export default function AgeVerificationScreen({ navigation, route }) {
       Alert.alert(
         'Verification Submitted',
         'Your verification request has been submitted. An admin will review it within 24-48 hours.',
-        [{ text: 'OK', onPress: () => navigation.replace('TabBar') }]
+        [{ text: 'OK' }]
       );
+      // Navigation will happen automatically via onAuthStateChanged
     } catch (error) {
       console.error('Verification error:', error);
       Alert.alert('Error', 'Failed to submit verification. Please try again.');
@@ -126,8 +125,8 @@ export default function AgeVerificationScreen({ navigation, route }) {
       [
         { text: 'Verify Now', style: 'cancel' },
         { 
-          text: 'Continue Without Verification', 
-          onPress: () => navigation.replace('TabBar')
+          text: 'Continue Without Verification'
+          // Navigation will happen automatically via onAuthStateChanged
         }
       ]
     );
@@ -140,6 +139,21 @@ export default function AgeVerificationScreen({ navigation, route }) {
     }
     setShowVerificationForm(true);
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}
+        blurRadius={10}>
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF06C8" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -303,6 +317,11 @@ const styles = StyleSheet.create({
   background: {
     flex: 1,
     resizeMode: 'cover',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   container: {
     flex: 1,

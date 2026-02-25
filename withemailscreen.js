@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   ScrollView,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
@@ -25,6 +26,7 @@ import {
 import { app, db } from './firebaseConfig';
 
 export default function WithEmailScreen({ navigation }) {
+  // All hooks must be called before any conditional returns
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
@@ -40,13 +42,11 @@ export default function WithEmailScreen({ navigation }) {
 
   const phoneInput = useRef(null);
 
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
     Manrope_500Medium,
   });
-
-  if (!fontsLoaded) return null;
 
   // Validation functions
   const validateEmail = (text) => {
@@ -126,8 +126,8 @@ export default function WithEmailScreen({ navigation }) {
 
       Alert.alert('Success', 'Account created successfully!', [
         {
-          text: 'OK',
-          onPress: () => navigation.replace('TabBar')
+          text: 'OK'
+          // Navigation will happen automatically via onAuthStateChanged
         }
       ]);
     } catch (error) {
@@ -143,6 +143,21 @@ export default function WithEmailScreen({ navigation }) {
       Alert.alert('Back pressed');
     }
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}
+        blurRadius={10}>
+        <BlurView intensity={40} tint="dark" style={StyleSheet.absoluteFill} />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#FF06C8" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -308,6 +323,12 @@ export default function WithEmailScreen({ navigation }) {
 // 🎨 STYLES
 const styles = StyleSheet.create({
   background: { flex: 1, resizeMode: 'cover' },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 
   scrollView: {
     flex: 1,

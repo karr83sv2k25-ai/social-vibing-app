@@ -5,6 +5,7 @@ import {
   ImageBackground,
   StyleSheet,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import {
   useFonts,
@@ -13,14 +14,10 @@ import {
 } from '@expo-google-fonts/manrope';
 
 export default function LoginScreen({ navigation }) {
-  let [fontsLoaded] = useFonts({
+  const [fontsLoaded] = useFonts({
     Manrope_700Bold,
     Manrope_400Regular,
   });
-
-  if (!fontsLoaded) {
-    return null; // Fonts loading fallback, you can show a custom loader here
-  }
 
   const handleLogin = async (email, password) => {
     try {
@@ -36,8 +33,7 @@ export default function LoginScreen({ navigation }) {
       
       if (data.success) {
         // Store user data in context or async storage
-        // Navigate to tab navigator so bottom tabs are visible
-        navigation.replace('TabBar');
+        // Navigation will happen automatically via onAuthStateChanged
       } else {
         alert(data.error || 'Login failed');
       }
@@ -50,6 +46,19 @@ export default function LoginScreen({ navigation }) {
   const handleSignup = () => {
     navigation.navigate('Signup');
   };
+
+  // Show loading indicator while fonts are loading
+  if (!fontsLoaded) {
+    return (
+      <ImageBackground
+        source={require('./assets/login_bg.png')}
+        style={styles.background}>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#BF2EF0" />
+        </View>
+      </ImageBackground>
+    );
+  }
 
   return (
     <ImageBackground
@@ -83,6 +92,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
     paddingBottom: 100,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headingContainer: {
     alignItems: 'center',

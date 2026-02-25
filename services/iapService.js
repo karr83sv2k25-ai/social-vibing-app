@@ -11,8 +11,9 @@ import {
   purchaseErrorListener,
   Purchase,
 } from 'react-native-iap';
-import {getFunctions, httpsCallable} from 'firebase/functions';
+import {httpsCallable} from 'firebase/functions';
 import {getAllProductIds, getProductById, isCoinProduct} from '../config/iapConfig';
+import {functions} from '../firebaseConfig';
 
 /**
  * IAP Service Hook
@@ -108,7 +109,6 @@ export const useIAP = () => {
   // Handle purchase verification and credit
   const handlePurchaseVerification = async (purchase) => {
     try {
-      const functions = getFunctions();
       const creditCoinsAfterIAP = httpsCallable(functions, 'creditCoinsAfterIAP');
 
       const productInfo = getProductById(purchase.productId);

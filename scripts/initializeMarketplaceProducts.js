@@ -1,106 +1,73 @@
 /**
- * Initialize Marketplace with Sample Products
- * Run this script to populate Firestore with sample products for all 6 types
+ * Production-Ready Marketplace Initialization Script
  * 
- * Usage: node initializeMarketplaceProducts.js
+ * This script initializes the marketplace with real products.
+ * Run this once to populate your Firestore database.
+ * 
+ * Usage: node scripts/initializeMarketplaceProducts.js
  */
 
 const admin = require('firebase-admin');
-const serviceAccount = require('./serviceAccountKey.json'); // You'll need to add your service account key
+const fs = require('fs');
+const path = require('path');
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+// Load service account
+const serviceAccount = require('../serviceAccountKey.json');
+
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 
 const db = admin.firestore();
 
-// Sample product data for all 6 types
-const sampleProducts = [
-  // ===== COMICS =====
-  {
-    productId: 'comic_001',
-    type: 'comic',
-    title: 'Attack on Titan: Origins',
-    description: 'Experience the epic origin story of the Survey Corps and the first encounters with the Titans. A thrilling adventure filled with action, mystery, and unforgettable characters.',
-    price: 100,
-    currency: 'coins',
-    coverImage: 'https://firebasestorage.googleapis.com/v0/b/your-app/o/comics%2Fcomic_001_cover.jpg?alt=media',
-    creatorId: 'official',
-    creatorName: 'Official Store',
-    isOfficial: true,
-    stats: {
-      rating: 5,
-      reviews: 1250,
-      downloads: 8500,
-      purchaseCount: 8500,
-    },
-    status: 'active',
-    tags: ['action', 'adventure', 'manga', 'popular'],
-    category: 'Action',
-    comicConfig: {
-      pages: [
-        { pageNumber: 1, imageUrl: 'https://example.com/page1.jpg' },
-        { pageNumber: 2, imageUrl: 'https://example.com/page2.jpg' },
-        // Add more pages...
-      ],
-      totalPages: 45,
-      genre: ['Action', 'Adventure', 'Drama'],
-      ageRating: 'Teen',
-      language: 'English',
-    },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
-    productId: 'comic_002',
-    type: 'comic',
-    title: 'My Hero Academia: All Might Special',
-    description: 'The untold story of All Might before he became the Symbol of Peace. Discover his journey, struggles, and the battles that shaped him.',
-    price: 80,
-    currency: 'coins',
-    coverImage: 'https://example.com/mha_cover.jpg',
-    creatorId: 'official',
-    creatorName: 'Official Store',
-    isOfficial: true,
-    stats: { rating: 5, reviews: 980, downloads: 6200, purchaseCount: 6200 },
-    status: 'active',
-    tags: ['superhero', 'action', 'shonen'],
-    comicConfig: {
-      pages: [],
-      totalPages: 38,
-      genre: ['Action', 'Superhero'],
-      ageRating: 'Everyone',
-      language: 'English',
-    },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
-  {
-    productId: 'comic_003',
-    type: 'comic',
-    title: 'Death Note: L Chronicles',
-    description: 'Follow L\'s greatest cases before he encountered Light Yagami. A psychological thriller that will keep you on the edge of your seat.',
-    price: 120,
-    currency: 'coins',
-    coverImage: 'https://example.com/deathnote_cover.jpg',
-    creatorId: 'official',
-    creatorName: 'Official Store',
-    isOfficial: true,
-    stats: { rating: 5, reviews: 1500, downloads: 9800, purchaseCount: 9800 },
-    status: 'active',
-    tags: ['mystery', 'thriller', 'psychological'],
-    comicConfig: {
-      pages: [],
-      totalPages: 52,
-      genre: ['Mystery', 'Thriller', 'Psychological'],
-      ageRating: 'Mature',
-      language: 'English',
-    },
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
-  },
+// Load products from JSON file
+const productsFilePath = path.join(__dirname, '..', 'marketplace-products.json');
+const productsData = JSON.parse(fs.readFileSync(productsFilePath, 'utf8'));
 
-  // ===== BOOKS =====
+async function initializeProducts() {
+  console.log('🚀 Starting marketplace initialization...\n');
+
+  const batch = db.batch();
+  let count = 0;
+
+  for (const [productId, productData] of Object.entries(productsData.products)) {
+    const productRef = db.collection('products').doc(productId);
+    
+    // Add timestamps
+    const productWithTimestamps = {
+      ...productData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    batch.set(productRef, productWithTimestamps, { merge: true });
+    count++;
+    
+    console.log(`✅ Queued: ${productData.title} (${productData.type}) - ${productData.price} ${productData.currency}`);
+  }
+
+  try {
+    await batch.commit();
+    console.log(`\n🎉 Successfully initialized ${count} products!`);
+    console.log('\n📱 Your marketplace is now ready for production!');
+    console.log('\nNext steps:');
+    console.log('1. Open your app and navigate to the marketplace');
+    console.log('2. Products should load automatically');
+    console.log('3. Test purchasing with coins/diamonds');
+    console.log('4. Verify products appear in user library after purchase\n');
+  } catch (error) {
+    console.error('❌ Error initializing products:', error);
+    process.exit(1);
+  }
+
+  process.exit(0);
+}
+
+// Run initialization
+initializeProducts();
+
   {
     productId: 'book_001',
     type: 'book',

@@ -8,6 +8,7 @@ import { app as firebaseApp, db } from './firebaseConfig';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { StatusProvider } from './contexts/StatusContext';
 import { WalletProvider } from './context/WalletContext';
+import { isExpoGo } from './utils/platformCheck';
 // import './testFirebaseREST';
 // import './diagnoseFirestore';
 
@@ -76,7 +77,7 @@ const MessageScreen = React.lazy(() => import('./messagescreen'));
 const ChatScreen = React.lazy(() => import('./chatscreen'));
 const MarketPlaceScreen = React.lazy(() => import('./marketplace'));
 const MarketPlaceExploreScreen = React.lazy(() => import('./marketplaceexplore'));
-const ProductDetailScreen = React.lazy(() => import('./ProductDetailScreen'));
+const ProductDetailScreen = React.lazy(() => import('./screens/marketplace/ProductDetailScreen'));
 const ComicsLibraryScreen = React.lazy(() => import('./ComicsLibraryScreen'));
 const GenericLibraryScreen = React.lazy(() => import('./GenericLibraryScreen'));
 const StickerPreviewScreen = React.lazy(() => import('./stickerpreview'));
@@ -95,7 +96,25 @@ const WhatsHappeningScreen = React.lazy(() => import('./whatshappening'));
 const CreateCommunityScreen = React.lazy(() => import('./CreateCommunityScreen'));
 const EditCommunityScreen = React.lazy(() => import('./EditCommunityScreen'));
 const ModeratorsManagementScreen = React.lazy(() => import('./ModeratorsManagementScreen'));
-const GroupAudioCallScreen = React.lazy(() => import('./GroupAudioCallScreen'));
+
+// Conditional loading for screens that require native modules (Agora)
+// These screens will only work in development builds, not in Expo Go
+const GroupAudioCallScreen = React.lazy(() => 
+  isExpoGo() 
+    ? import('./screens/ExpoGoPlaceholderScreen').then(module => ({
+        default: (props) => <module.default {...props} feature="Voice Calls" />
+      }))
+    : import('./GroupAudioCallScreen')
+);
+
+const CallScreen = React.lazy(() => 
+  isExpoGo()
+    ? import('./screens/ExpoGoPlaceholderScreen').then(module => ({
+        default: (props) => <module.default {...props} feature="Voice/Video Calls" />
+      }))
+    : import('./CallScreen')
+);
+
 const ScreenSharingRoom = React.lazy(() => import('./ScreenSharingRoom'));
 const RoleplayScreen = React.lazy(() => import('./RoleplayScreen'));
 const EnhancedChatScreenV2 = React.lazy(() => import('./screens/EnhancedChatScreenV2'));
@@ -139,6 +158,23 @@ import BookReaderScreen from './screens/viewers/BookReaderScreen';
 import ArtViewerScreen from './screens/viewers/ArtViewerScreen';
 import StickerPackViewerScreen from './screens/viewers/StickerPackViewerScreen';
 import CustomizationScreen from './screens/viewers/CustomizationScreen';
+
+// Marketplace Navigator (not used - importing screens directly instead)
+// import { MarketplaceStackNavigator } from './navigation/MarketplaceNavigator';
+
+// Marketplace Screens
+import BecomeSellerScreen from './screens/marketplace/BecomeSellerScreen';
+import SellerDashboardScreen from './screens/marketplace/SellerDashboardScreen';
+import ProductCreationWizardScreen from './screens/marketplace/ProductCreationWizardScreen';
+import MyOrdersScreen from './screens/marketplace/MyOrdersScreen';
+import WalletScreen from './screens/marketplace/WalletScreen';
+import WithdrawalScreen from './screens/marketplace/WithdrawalScreen';
+import ProductTypeSelectionScreen from './screens/marketplace/ProductTypeSelectionScreen';
+import TypeSpecificUploadScreen from './screens/marketplace/TypeSpecificUploadScreen';
+import ProductPublishScreen from './screens/marketplace/ProductPublishScreen';
+import BubbleCustomizerScreen from './screens/marketplace/BubbleCustomizerScreen';
+import FrameCustomizerScreen from './screens/marketplace/FrameCustomizerScreen';
+import SellerStoreScreen from './screens/marketplace/SellerStoreScreen';
 
 const Stack = createStackNavigator();
 
@@ -293,103 +329,127 @@ export default function App() {
     <WalletProvider>
       <StatusProvider>
         <NavigationContainer>
-          <Stack.Navigator screenOptions={{ headerShown: false }} initialRouteName={user ? 'TabBar' : 'Login'}>
-            <Stack.Screen name="Login" component={LoginScreen} />
-            <Stack.Screen name="Signup" component={SignupScreen} />
-            <Stack.Screen name="WithPhone" component={WithPhoneScreen} />
-            <Stack.Screen name="WithEmail" component={WithEmailScreen} />
-            <Stack.Screen name="OtpVerify" component={OtpVerificationScreen} />
-            <Stack.Screen name="CreateAccount" component={CreateAccountScreen} />
-            <Stack.Screen name="AgeVerification" component={AgeVerificationScreen} />
-            <Stack.Screen name="AccountLogin" component={AccountLoginScreen} />
-            <Stack.Screen name="Splash" component={SplashScreen} />
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="SearchBar" component={SearchBarScreen} />
-            <Stack.Screen name="Notification" component={NotificationScreen} />
-            <Stack.Screen name="TabBar" component={TabBarScreen} />
-            <Stack.Screen name="Community" component={CommunityScreen} />
-            <Stack.Screen name="CommunityDetail" component={CommunityDetailScreen} />
-            <Stack.Screen name="Explore" component={ExploreScreen} />
-            <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
-            <Stack.Screen name="Message" component={MessageScreen} />
-            <Stack.Screen name="AddFriends" component={AddFriendsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Chat" component={ChatScreen} />
-            <Stack.Screen name="MarketPlace" component={MarketPlaceScreen} />
-            <Stack.Screen name="Profile" component={ProfileScreen} />
-            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
-            <Stack.Screen name="MarketPlaceExplore" component={MarketPlaceExploreScreen} />
-            <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ComicsLibrary" component={ComicsLibraryScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="BooksLibrary" options={{ headerShown: false }}>
-              {(props) => <GenericLibraryScreen {...props} type="book" />}
-            </Stack.Screen>
-            <Stack.Screen name="ArtLibrary" options={{ headerShown: false }}>
-              {(props) => <GenericLibraryScreen {...props} type="art" />}
-            </Stack.Screen>
-            <Stack.Screen name="StickersLibrary" options={{ headerShown: false }}>
-              {(props) => <GenericLibraryScreen {...props} type="sticker_pack" />}
-            </Stack.Screen>
-            <Stack.Screen name="FramesLibrary" options={{ headerShown: false }}>
-              {(props) => <GenericLibraryScreen {...props} type="profile_frame" />}
-            </Stack.Screen>
-            <Stack.Screen name="BubblesLibrary" options={{ headerShown: false }}>
-              {(props) => <GenericLibraryScreen {...props} type="chat_bubble" />}
-            </Stack.Screen>
-            
-            {/* Product Viewer Screens */}
-            <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="BookReader" component={BookReaderScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ArtViewer" component={ArtViewerScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="StickerPackViewer" component={StickerPackViewerScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Customization" component={CustomizationScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="StickerPreview" component={StickerPreviewScreen} />
-            <Stack.Screen name="PaymentDetail" component={PaymentDetailScreen} />
-            <Stack.Screen name="PaymentSelection" component={PaymentSelectionScreen} />
-            <Stack.Screen name="CoinPurchase" component={CoinPurchaseScreen} />
-            <Stack.Screen name="DiamondPurchase" component={DiamondPurchaseScreen} />
-            <Stack.Screen name="MyStore" component={MyStoreScreen} />
-            <Stack.Screen name="StoreManagment" component={StoreManagmentScreen} />
-            <Stack.Screen name="Reward" component={RewardScreen} />
-            <Stack.Screen name="DailyReward" component={DailyRewardScreen} />
-            <Stack.Screen name="Membership" component={MembershipScreen} />
-            <Stack.Screen name="WhatsHappening" component={WhatsHappeningScreen} />
-            <Stack.Screen name="CreateCommunityScreen" component={CreateCommunityScreen} />
-            <Stack.Screen name="EditCommunity" component={EditCommunityScreen} />
-            <Stack.Screen name="ModeratorsManagement" component={ModeratorsManagementScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="GroupAudioCall" component={GroupAudioCallScreen} />
-            <Stack.Screen name="ScreenSharingRoom" component={ScreenSharingRoom} />
-            <Stack.Screen name="RoleplayScreen" component={RoleplayScreen} />
-            <Stack.Screen name="EnhancedChatV2" component={EnhancedChatScreenV2} options={{ headerShown: false }} />
-            <Stack.Screen name="GroupChatCreation" component={GroupChatCreationScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ChatSettings" component={ChatSettingsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ForwardMessage" component={ForwardMessageScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="NewGroupInfo" component={NewGroupInfoScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="StarredMessages" component={StarredMessagesScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="SearchInChat" component={SearchInChatScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="MessageOptions" component={MessageOptionsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="ChatActions" component={ChatActionsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreatePoll" component={CreatePollScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreateQuiz" component={CreateQuizScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="Draft" component={DraftScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CreateQuestion" component={CreateQuestionScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CommunityCreateGroup" component={CommunityCreateGroupScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="CommunityGroupChat" component={CommunityGroupChatScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="FollowersFollowing" component={FollowersFollowingScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="TestFollowers" component={TestFollowersScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="TestMarketplaceSetup" component={TestMarketplaceSetup} options={{ headerShown: false }} />
-            <Stack.Screen name="KingMediaLogin" component={KingMediaLoginScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="KingMediaHome" component={KingMediaHomeScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="KingMediaAIChat" component={KingMediaAIChatScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="KingMediaImageGen" component={KingMediaImageGenScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="KingMediaVideoGen" component={KingMediaVideoGenScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ headerShown: false }} />
-            <Stack.Screen name="AdminModeration" component={AdminModerationScreen} options={{ headerShown: false }} />
+          <Stack.Navigator screenOptions={{ headerShown: false }}>
+            {user == null ? (
+              // Auth Screens - Only available when not authenticated
+              <>
+                <Stack.Screen name="Login" component={LoginScreen} />
+                <Stack.Screen name="Signup" component={SignupScreen} />
+                <Stack.Screen name="WithPhone" component={WithPhoneScreen} />
+                <Stack.Screen name="WithEmail" component={WithEmailScreen} />
+                <Stack.Screen name="OtpVerify" component={OtpVerificationScreen} />
+                <Stack.Screen name="CreateAccount" component={CreateAccountScreen} />
+                <Stack.Screen name="AgeVerification" component={AgeVerificationScreen} />
+                <Stack.Screen name="AccountLogin" component={AccountLoginScreen} />
+              </>
+            ) : (
+              // App Screens - Only available when authenticated
+              <>
+                <Stack.Screen name="TabBar" component={TabBarScreen} />
+                <Stack.Screen name="Splash" component={SplashScreen} />
+                <Stack.Screen name="Home" component={HomeScreen} />
+                <Stack.Screen name="SearchBar" component={SearchBarScreen} />
+                <Stack.Screen name="Notification" component={NotificationScreen} />
+                <Stack.Screen name="Community" component={CommunityScreen} />
+                <Stack.Screen name="CommunityDetail" component={CommunityDetailScreen} />
+                <Stack.Screen name="Explore" component={ExploreScreen} />
+                <Stack.Screen name="GroupInfo" component={GroupInfoScreen} />
+                <Stack.Screen name="Message" component={MessageScreen} />
+                <Stack.Screen name="AddFriends" component={AddFriendsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Chat" component={ChatScreen} />
+                <Stack.Screen name="Profile" component={ProfileScreen} />
+                <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+                
+                {/* Marketplace Screens */}
+                <Stack.Screen name="MarketPlaceExplore" component={MarketPlaceExploreScreen} />
+                <Stack.Screen name="ProductDetail" component={ProductDetailScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="BecomeSeller" component={BecomeSellerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="SellerDashboard" component={SellerDashboardScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="SellerStore" component={SellerStoreScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ProductTypeSelection" component={ProductTypeSelectionScreen} options={{ headerShown: false, presentation: 'modal' }} />
+                <Stack.Screen name="ProductCreation" component={ProductCreationWizardScreen} options={{ headerShown: false, presentation: 'modal' }} />
+                <Stack.Screen name="TypeSpecificUpload" component={TypeSpecificUploadScreen} options={{ headerShown: false, presentation: 'modal' }} />
+                <Stack.Screen name="ProductPublish" component={ProductPublishScreen} options={{ headerShown: false, presentation: 'modal' }} />
+                <Stack.Screen name="BubbleCustomizer" component={BubbleCustomizerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="FrameCustomizer" component={FrameCustomizerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="MyOrders" component={MyOrdersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Wallet" component={WalletScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Withdrawal" component={WithdrawalScreen} options={{ headerShown: false }} />
+                
+                {/* Library Screens */}
+                <Stack.Screen name="ComicsLibrary" component={ComicsLibraryScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="BooksLibrary" options={{ headerShown: false }}>
+                  {(props) => <GenericLibraryScreen {...props} type="book" />}
+                </Stack.Screen>
+                <Stack.Screen name="ArtLibrary" options={{ headerShown: false }}>
+                  {(props) => <GenericLibraryScreen {...props} type="art" />}
+                </Stack.Screen>
+                <Stack.Screen name="StickersLibrary" options={{ headerShown: false }}>
+                  {(props) => <GenericLibraryScreen {...props} type="sticker_pack" />}
+                </Stack.Screen>
+                <Stack.Screen name="FramesLibrary" options={{ headerShown: false }}>
+                  {(props) => <GenericLibraryScreen {...props} type="profile_frame" />}
+                </Stack.Screen>
+                <Stack.Screen name="BubblesLibrary" options={{ headerShown: false }}>
+                  {(props) => <GenericLibraryScreen {...props} type="chat_bubble" />}
+                </Stack.Screen>
+                
+                {/* Product Viewer Screens */}
+                <Stack.Screen name="ComicReader" component={ComicReaderScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="BookReader" component={BookReaderScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ArtViewer" component={ArtViewerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="StickerPackViewer" component={StickerPackViewerScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Customization" component={CustomizationScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="StickerPreview" component={StickerPreviewScreen} />
+                <Stack.Screen name="PaymentDetail" component={PaymentDetailScreen} />
+                <Stack.Screen name="PaymentSelection" component={PaymentSelectionScreen} />
+                <Stack.Screen name="CoinPurchase" component={CoinPurchaseScreen} />
+                <Stack.Screen name="DiamondPurchase" component={DiamondPurchaseScreen} />
+                <Stack.Screen name="MyStore" component={MyStoreScreen} />
+                <Stack.Screen name="StoreManagment" component={StoreManagmentScreen} />
+                <Stack.Screen name="Reward" component={RewardScreen} />
+                <Stack.Screen name="DailyReward" component={DailyRewardScreen} />
+                <Stack.Screen name="Membership" component={MembershipScreen} />
+                <Stack.Screen name="WhatsHappening" component={WhatsHappeningScreen} />
+                <Stack.Screen name="CreateCommunityScreen" component={CreateCommunityScreen} />
+                <Stack.Screen name="EditCommunity" component={EditCommunityScreen} />
+                <Stack.Screen name="ModeratorsManagement" component={ModeratorsManagementScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="GroupAudioCall" component={GroupAudioCallScreen} />
+                <Stack.Screen name="ScreenSharingRoom" component={ScreenSharingRoom} />
+                <Stack.Screen name="RoleplayScreen" component={RoleplayScreen} />
+                <Stack.Screen name="EnhancedChatV2" component={EnhancedChatScreenV2} options={{ headerShown: false }} />
+                <Stack.Screen name="GroupChatCreation" component={GroupChatCreationScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ChatSettings" component={ChatSettingsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ForwardMessage" component={ForwardMessageScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="NewGroupInfo" component={NewGroupInfoScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AddGroupMembers" component={AddGroupMembersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="MediaGallery" component={MediaGalleryScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="StarredMessages" component={StarredMessagesScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="SearchInChat" component={SearchInChatScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="MessageOptions" component={MessageOptionsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ChatActions" component={ChatActionsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CreatePoll" component={CreatePollScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CreateQuiz" component={CreateQuizScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="Draft" component={DraftScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CreateQuestion" component={CreateQuestionScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityCreateGroup" component={CommunityCreateGroupScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityGroupChat" component={CommunityGroupChatScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="FollowersFollowing" component={FollowersFollowingScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="TestFollowers" component={TestFollowersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="TestMarketplaceSetup" component={TestMarketplaceSetup} options={{ headerShown: false }} />
+                <Stack.Screen name="KingMediaLogin" component={KingMediaLoginScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="KingMediaHome" component={KingMediaHomeScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="KingMediaAIChat" component={KingMediaAIChatScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="KingMediaImageGen" component={KingMediaImageGenScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="KingMediaVideoGen" component={KingMediaVideoGenScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AdminPanel" component={AdminPanelScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AdminModeration" component={AdminModerationScreen} options={{ headerShown: false }} />
+              </>
+            )}
           </Stack.Navigator>
         </NavigationContainer>
       </StatusProvider>
