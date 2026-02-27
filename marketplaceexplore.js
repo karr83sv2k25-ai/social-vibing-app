@@ -6,10 +6,10 @@ import {
   Image,
   ScrollView,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
   TextInput,
 } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { db } from "./firebaseConfig";
 import { collection, query, where, getDocs, orderBy, limit } from "firebase/firestore";

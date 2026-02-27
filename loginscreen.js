@@ -19,30 +19,6 @@ export default function LoginScreen({ navigation }) {
     Manrope_400Regular,
   });
 
-  const handleLogin = async (email, password) => {
-    try {
-      const response = await fetch('http://localhost:5000/api/users/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      const data = await response.json();
-      
-      if (data.success) {
-        // Store user data in context or async storage
-        // Navigation will happen automatically via onAuthStateChanged
-      } else {
-        alert(data.error || 'Login failed');
-      }
-    } catch (error) {
-      console.error('Login error:', error);
-      alert('Login failed. Please try again.');
-    }
-  };
-
   const handleSignup = () => {
     navigation.navigate('Signup');
   };

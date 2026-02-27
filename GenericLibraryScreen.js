@@ -6,9 +6,9 @@ import {
   Image,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from './firebaseConfig';
 import { doc, getDoc } from 'firebase/firestore';

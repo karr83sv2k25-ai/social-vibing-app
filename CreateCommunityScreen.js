@@ -1,5 +1,5 @@
 // screens/CreateCommunityScreen.js
-import React, { useState } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View,
   Text,
@@ -11,14 +11,66 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+  Linking,
+  BackHandler,
 } from "react-native";
-import { launchImageLibraryAsync, MediaTypeOptions, requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { launchImageLibraryAsync, requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
 import { db, auth } from './firebaseConfig';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Ionicons } from "@expo/vector-icons";
 
+// --- Static data (defined outside component to avoid re-creation on every render) ---
+const LANGUAGES = [
+  "English", "Urdu", "Hindi", "Punjabi", "Arabic", "Spanish", "French",
+  "German", "Chinese", "Japanese", "Korean", "Bengali", "Russian",
+  "Portuguese", "Italian", "Turkish", "Persian", "Sindhi", "Pashto",
+  "Tamil", "Telugu", "Marathi", "Vietnamese", "Thai", "Malay",
+];
+
+const THEME_COLORS = [
+  "#4b6cff", "#FF6B6B", "#4ECB71", "#9B6DFF",
+  "#FF9F43", "#FF70A6", "#01C8EE", "#FFCE45",
+  "#2ECC71", "#9B59B6", "#E74C3C", "#1ABC9C",
+];
+
+const CATEGORIES = [
+  { name: "Gaming & Esports",          icon: "game-controller" },
+  { name: "Education & Learning",       icon: "school" },
+  { name: "Technology & Programming",   icon: "code-slash" },
+  { name: "Sports & Athletics",         icon: "basketball" },
+  { name: "Entertainment",              icon: "film" },
+  { name: "Music & Audio",              icon: "musical-notes" },
+  { name: "Art & Design",               icon: "color-palette" },
+  { name: "Food & Cooking",             icon: "restaurant" },
+  { name: "Travel & Adventure",         icon: "airplane" },
+  { name: "Fashion & Style",            icon: "shirt" },
+  { name: "Health & Fitness",           icon: "fitness" },
+  { name: "Business & Entrepreneurship",icon: "briefcase" },
+  { name: "Science & Innovation",       icon: "flask" },
+  { name: "Politics & Current Events",  icon: "newspaper" },
+  { name: "Photography & Video",        icon: "camera" },
+  { name: "Movies & TV Shows",          icon: "tv" },
+  { name: "Books & Literature",         icon: "book" },
+  { name: "Pets & Animals",             icon: "paw" },
+  { name: "Spirituality & Religion",    icon: "moon" },
+  { name: "DIY & Crafts",               icon: "construct" },
+  { name: "Automotive",                 icon: "car-sport" },
+  { name: "Family & Parenting",         icon: "people" },
+  { name: "Mental Health & Wellness",   icon: "heart" },
+  { name: "Finance & Investing",        icon: "cash" },
+  { name: "Nature & Environment",       icon: "leaf" },
+  { name: "Other",                      icon: "apps" },
+];
+
+const TOTAL_STEPS = 3;
+
 export default function CreateCommunityScreen({ navigation }) {
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState(1);
   const [communityName, setCommunityName] = useState("");
   const [description, setDescription] = useState("");
@@ -37,149 +89,106 @@ export default function CreateCommunityScreen({ navigation }) {
   const [coverImage, setCoverImage] = useState(null);
   const [background, setBackground] = useState(null);
   const [themeColor, setThemeColor] = useState("#4b6cff");
+  const [uploadProgress, setUploadProgress] = useState('');
 
-  const languages = [
-    "English",
-    "Urdu",
-    "Hindi",
-    "Punjabi",
-    "Arabic",
-    "Spanish",
-    "French",
-    "German",
-    "Chinese",
-    "Japanese",
-    "Korean",
-    "Bengali",
-    "Russian",
-    "Portuguese",
-    "Italian",
-    "Turkish",
-    "Persian",
-    "Sindhi",
-    "Pashto",
-    "Tamil",
-    "Telugu",
-    "Marathi",
-    "Vietnamese",
-    "Thai",
-    "Malay"
-  ];
+  const isStep1Valid = useCallback(() => (
+    communityName.trim().length >= 3 &&
+    description.trim() !== '' &&
+    category.trim() !== '' &&
+    language.trim() !== ''
+  ), [communityName, description, category, language]);
 
-  const themeColors = [
-    "#4b6cff", // Blue
-    "#FF6B6B", // Red
-    "#4ECB71", // Green
-    "#9B6DFF", // Purple
-    "#FF9F43", // Orange
-    "#FF70A6", // Pink
-    "#01C8EE", // Cyan
-    "#FFCE45", // Yellow
-    "#2ECC71", // Emerald
-    "#9B59B6", // Violet
-    "#E74C3C", // Crimson
-    "#1ABC9C", // Turquoise
-  ];
+  // Cover image required; background optional
+  const isStep2Valid = useCallback(() => coverImage !== null, [coverImage]);
 
-  const categories = [
-    { name: "Gaming & Esports", icon: "game-controller" },
-    { name: "Education & Learning", icon: "school" },
-    { name: "Technology & Programming", icon: "code-slash" },
-    { name: "Sports & Athletics", icon: "basketball" },
-    { name: "Entertainment", icon: "film" },
-    { name: "Music & Audio", icon: "musical-notes" },
-    { name: "Art & Design", icon: "color-palette" },
-    { name: "Food & Cooking", icon: "restaurant" },
-    { name: "Travel & Adventure", icon: "airplane" },
-    { name: "Fashion & Style", icon: "shirt" },
-    { name: "Health & Fitness", icon: "fitness" },
-    { name: "Business & Entrepreneurship", icon: "briefcase" },
-    { name: "Science & Innovation", icon: "flask" },
-    { name: "Politics & Current Events", icon: "newspaper" },
-    { name: "Photography & Video", icon: "camera" },
-    { name: "Movies & TV Shows", icon: "tv" },
-    { name: "Books & Literature", icon: "book" },
-    { name: "Pets & Animals", icon: "paw" },
-    { name: "Spirituality & Religion", icon: "moon" },
-    { name: "DIY & Crafts", icon: "construct" },
-    { name: "Automotive", icon: "car-sport" },
-    { name: "Family & Parenting", icon: "people" },
-    { name: "Mental Health & Wellness", icon: "heart" },
-    { name: "Finance & Investing", icon: "cash" },
-    { name: "Nature & Environment", icon: "leaf" },
-    { name: "Other", icon: "apps" }
-  ];
+  const next = useCallback(() => setStep((p) => p + 1), []);
+  const back = useCallback(() => setStep((p) => p - 1), []);
+  const handleCreate = useCallback(() => setShowReminder(true), []);
 
-  const isStep1Valid = () => {
-    return (
-      communityName.trim() !== '' && 
-      description.trim() !== '' && 
-      category.trim() !== '' &&
-      language.trim() !== ''
-    );
-  };
+  // Block Android hardware back during upload (iOS: no-op, skip)
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const onBack = () => {
+      if (uploading) {
+        Alert.alert('Upload in progress', 'Please wait while your images are being uploaded.');
+        return true;
+      }
+      return false;
+    };
+    const sub = BackHandler.addEventListener('hardwareBackPress', onBack);
+    return () => sub.remove();
+  }, [uploading]);
 
-  const isStep2Valid = () => {
-    return (
-      coverImage !== null && 
-      background !== null
-    );
-  };
-
-  const next = () => setStep((p) => p + 1);
-  const back = () => setStep((p) => p - 1);
-
-  const handleCreate = () => setShowReminder(true);
-
-  const pickImage = async (setter) => {
+  const pickImage = useCallback(async (setter) => {
     try {
-      const { status } = await requestMediaLibraryPermissionsAsync();
+      const { status, canAskAgain } = await requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission required', 'Permission to access media library is required!');
+        if (!canAskAgain) {
+          Alert.alert(
+            'Permission Required',
+            'Photo library access is permanently denied. Please enable it in Settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+          );
+        } else {
+          Alert.alert('Permission Required', 'Permission to access your photo library is required.');
+        }
         return;
       }
 
       const result = await launchImageLibraryAsync({
-        mediaTypes: MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.8,
       });
 
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        const picked = result.assets[0].uri || result.uri;
-        setter(picked);
+      if (!result.canceled && result.assets?.length > 0) {
+        setter(result.assets[0].uri);
       }
     } catch (e) {
       console.warn('ImagePicker error', e);
+      Alert.alert('Error', 'Could not open photo library. Please try again.');
     }
-  };
+  }, []);
 
-  const confirmCreate = async () => {
+  const confirmCreate = useCallback(async () => {
     setShowReminder(false);
     setUploading(true);
+    setUploadProgress('');
     try {
-      // Upload all images
       let profileImageUrl = null;
       let coverImageUrl = null;
       let backgroundImageUrl = null;
 
+      const pause = (ms) => new Promise(res => setTimeout(res, ms));
+
+      // Count how many images need uploading for progress label
+      const total = [image, coverImage, background].filter(Boolean).length;
+      let done = 0;
+
       if (image) {
+        setUploadProgress(`Uploading profile image (${++done}/${total})…`);
         const profileRes = await uploadImageToHostinger(image, 'community_profiles');
-        // uploadImageToHostinger returns the URL string directly
         profileImageUrl = typeof profileRes === 'string' ? profileRes : (profileRes?.secure_url || profileRes?.url || null);
       }
 
       if (coverImage) {
+        if (image) await pause(800);
+        setUploadProgress(`Uploading cover image (${++done}/${total})…`);
         const coverRes = await uploadImageToHostinger(coverImage, 'community_covers');
-        // uploadImageToHostinger returns the URL string directly
         coverImageUrl = typeof coverRes === 'string' ? coverRes : (coverRes?.secure_url || coverRes?.url || null);
       }
 
       if (background) {
+        if (coverImage || image) await pause(800);
+        setUploadProgress(`Uploading background (${++done}/${total})…`);
         const bgRes = await uploadImageToHostinger(background, 'community_backgrounds');
-        // uploadImageToHostinger returns the URL string directly
         backgroundImageUrl = typeof bgRes === 'string' ? bgRes : (bgRes?.secure_url || bgRes?.url || null);
       }
+
+      setUploadProgress('Creating community…');
 
       // Save community doc to Firestore
       // db is now imported globally
@@ -195,23 +204,23 @@ export default function CreateCommunityScreen({ navigation }) {
       
       // Build community data object, only including fields that are not undefined
       const communityData = {
-        name: communityName,
-        description: description || '',
+        name: communityName.trim(),
+        description: description.trim(),
         language: language || 'English',
         category: category || '',
         privacy: privacy || 'open',
-        discover: discover !== undefined ? discover : true,
-        themeColor: themeColor || '#8B2EF0',
+        discover: discover || 'public',
+        themeColor: themeColor || '#4b6cff',
+        memberCount: 1,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-        // Creator/Admin information - user who creates community becomes admin
-        creatorId: currentUserId, // Explicit creator ID
-        createdBy: currentUserId, // Creator ID (for compatibility)
-        uid: currentUserId, // Owner/creator ID
-        ownerId: currentUserId, // Owner ID
-        community_admin: currentUserId, // Admin ID (for compatibility)
-        adminIds: [currentUserId], // Admin IDs array - creator is first admin
-        isAdmin: true, // Flag to indicate creator is admin
+        creatorId: currentUserId,
+        createdBy: currentUserId,
+        uid: currentUserId,
+        ownerId: currentUserId,
+        community_admin: currentUserId,
+        adminIds: [currentUserId],
+        memberIds: [currentUserId],
       };
       
       // Only add image fields if they have values (not null or undefined)
@@ -237,17 +246,25 @@ export default function CreateCommunityScreen({ navigation }) {
 
     } catch (err) {
       console.warn('Create community error', err);
-      Alert.alert('Error', err.message || 'Could not create community');
+      Alert.alert('Error', err.message || 'Could not create community. Please check your connection and try again.');
     } finally {
       setUploading(false);
+      setUploadProgress('');
     }
-  };
+  }, [image, coverImage, background, communityName, description, language, category, privacy, discover, themeColor, navigation]);
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top', 'left', 'right', 'bottom']}>
+      <StatusBar barStyle="light-content" backgroundColor="#0c0d0f" />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
       <ScrollView
-        contentContainerStyle={{ padding: 20 }}
+        contentContainerStyle={{ padding: 20, paddingBottom: Math.max(insets.bottom, 32) }}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
       {/* Header */}
       <View style={styles.header}>
@@ -264,6 +281,20 @@ export default function CreateCommunityScreen({ navigation }) {
         <Text style={styles.help}>Help</Text>
       </View>
 
+      {/* Step progress bar */}
+      <View style={styles.stepBar}>
+        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+          <View
+            key={i}
+            style={[
+              styles.stepDot,
+              i < step ? styles.stepDotActive : null,
+              i === step - 1 ? styles.stepDotCurrent : null,
+            ]}
+          />
+        ))}
+      </View>
+
       {/* Step 1 */}
       {step === 1 && (
         <View style={{ marginTop: 40 }}>
@@ -271,27 +302,38 @@ export default function CreateCommunityScreen({ navigation }) {
             {image ? (
               <Image source={{ uri: image }} style={{ width: '100%', height: 120, borderRadius: 12 }} />
             ) : (
-              <Ionicons name="add" size={40} color="#888" />
+              <View style={styles.uploadBoxHint}>
+                <Ionicons name="camera-outline" size={32} color="#555" />
+                <Text style={styles.uploadBoxLabel}>Profile Image (optional)</Text>
+              </View>
             )}
           </TouchableOpacity>
 
-          <TextInput
-            style={[styles.input, { marginTop: 16 }]}
-            placeholder="Community Name"
-            placeholderTextColor="#666"
-            maxLength={50}
-            value={communityName}
-            onChangeText={setCommunityName}
-          />
-          <TextInput
-            style={[styles.input, { marginTop: 12, height: 80 }]}
-            placeholder="Describe your Community in one line"
-            placeholderTextColor="#666"
-            maxLength={200}
-            multiline
-            value={description}
-            onChangeText={setDescription}
-          />
+          <View style={styles.inputWrapper}>
+            <TextInput
+              style={[styles.input, { marginTop: 16 }]}
+              placeholder="Community Name (min 3 characters)"
+              placeholderTextColor="#555"
+              maxLength={50}
+              value={communityName}
+              onChangeText={setCommunityName}
+              returnKeyType="next"
+            />
+            <Text style={styles.charCount}>{communityName.length}/50</Text>
+          </View>
+
+          <View style={styles.inputWrapper}>
+            <TextInput
+              style={[styles.input, { marginTop: 12, height: 90, textAlignVertical: 'top' }]}
+              placeholder="Describe your Community in one line"
+              placeholderTextColor="#555"
+              maxLength={200}
+              multiline
+              value={description}
+              onChangeText={setDescription}
+            />
+            <Text style={styles.charCount}>{description.length}/200</Text>
+          </View>
 
           <TouchableOpacity 
             style={[styles.selectBox, styles.selectBoxRow]} 
@@ -312,6 +354,10 @@ export default function CreateCommunityScreen({ navigation }) {
             </Text>
             <Ionicons name="chevron-down" size={20} color="#666" />
           </TouchableOpacity>
+
+          {communityName.trim().length > 0 && communityName.trim().length < 3 && (
+            <Text style={styles.validationError}>Name must be at least 3 characters</Text>
+          )}
 
           <TouchableOpacity 
             style={[
@@ -336,8 +382,11 @@ export default function CreateCommunityScreen({ navigation }) {
         <View style={{ marginTop: 40 }}>
           <Text style={styles.sectionTitle}>Customize Look</Text>
 
-          <TouchableOpacity style={styles.menuRow} onPress={() => setShowCoverImageModal(true)}>
-            <Text style={styles.menuText}>Cover Image</Text>
+          <TouchableOpacity style={[styles.menuRow, !coverImage && styles.menuRowRequired]} onPress={() => setShowCoverImageModal(true)}>
+            <View>
+              <Text style={styles.menuText}>Cover Image <Text style={styles.required}>*</Text></Text>
+              {!coverImage && <Text style={styles.menuSubText}>Required</Text>}
+            </View>
             {coverImage ? (
               <Image source={{ uri: coverImage }} style={styles.previewImage} />
             ) : (
@@ -346,7 +395,10 @@ export default function CreateCommunityScreen({ navigation }) {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuRow} onPress={() => setShowBackgroundModal(true)}>
-            <Text style={styles.menuText}>Community Background</Text>
+            <View>
+              <Text style={styles.menuText}>Community Background</Text>
+              <Text style={styles.menuSubText}>Optional</Text>
+            </View>
             {background ? (
               <Image source={{ uri: background }} style={styles.previewImage} />
             ) : (
@@ -436,18 +488,28 @@ export default function CreateCommunityScreen({ navigation }) {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.createBtn} onPress={handleCreate} disabled={uploading}>
-            {uploading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.createText}>Create</Text>
-            )}
+            <Text style={styles.createText}>Create Community</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Reminder Popup */}
+      </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Upload overlay */}
+      <Modal visible={uploading} transparent animationType="fade">
+        <View style={styles.uploadOverlay}>
+          <View style={styles.uploadOverlayCard}>
+            <ActivityIndicator size="large" color="#4b6cff" />
+            <Text style={styles.uploadOverlayText}>{uploadProgress || 'Processing…'}</Text>
+            <Text style={styles.uploadOverlaySubText}>Please do not close the app</Text>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Reminder Popup — centered overlay */}
       <Modal visible={showReminder} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
+        <View style={styles.reminderOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Reminder</Text>
             <Text style={styles.modalText}>
@@ -464,21 +526,22 @@ export default function CreateCommunityScreen({ navigation }) {
             </Text>
 
             <View style={styles.modalButtons}>
-              <TouchableOpacity onPress={() => setShowReminder(false)}>
+              <TouchableOpacity
+                style={styles.cancelBtnBox}
+                onPress={() => setShowReminder(false)}
+              >
                 <Text style={styles.cancelBtn}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.agreeBtn}
                 onPress={confirmCreate}
               >
-                <Text style={styles.agreeText}>Agree & Continue</Text>
+                <Text style={styles.agreeText}>Agree & Create</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-
-    </ScrollView>
 
       {/* Language Selection Modal */}
       <Modal
@@ -496,7 +559,7 @@ export default function CreateCommunityScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.optionsList}>
-              {languages.map((lang) => (
+              {LANGUAGES.map((lang) => (
                 <TouchableOpacity
                   key={lang}
                   style={[
@@ -540,7 +603,7 @@ export default function CreateCommunityScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.optionsList}>
-              {categories.map((cat) => (
+              {CATEGORIES.map((cat) => (
                 <TouchableOpacity
                   key={cat.name}
                   style={[
@@ -590,24 +653,27 @@ export default function CreateCommunityScreen({ navigation }) {
               <TouchableOpacity 
                 style={styles.uploadButton}
                 onPress={() => {
-                  pickImage(setCoverImage);
                   setShowCoverImageModal(false);
+                  setTimeout(() => pickImage(setCoverImage), 600);
                 }}
               >
                 <Ionicons name="cloud-upload-outline" size={32} color="#4b6cff" />
                 <Text style={styles.uploadText}>Choose from Gallery</Text>
               </TouchableOpacity>
               {coverImage && (
-                <TouchableOpacity 
-                  style={styles.removeButton}
-                  onPress={() => {
-                    setCoverImage(null);
-                    setShowCoverImageModal(false);
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={20} color="#ff4444" />
-                  <Text style={styles.removeText}>Remove Image</Text>
-                </TouchableOpacity>
+                <>
+                  <Image source={{ uri: coverImage }} style={styles.previewLarge} />
+                  <TouchableOpacity 
+                    style={styles.removeButton}
+                    onPress={() => {
+                      setCoverImage(null);
+                      setShowCoverImageModal(false);
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                    <Text style={styles.removeText}>Remove Image</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </View>
@@ -633,24 +699,27 @@ export default function CreateCommunityScreen({ navigation }) {
               <TouchableOpacity 
                 style={styles.uploadButton}
                 onPress={() => {
-                  pickImage(setBackground);
                   setShowBackgroundModal(false);
+                  setTimeout(() => pickImage(setBackground), 600);
                 }}
               >
                 <Ionicons name="cloud-upload-outline" size={32} color="#4b6cff" />
                 <Text style={styles.uploadText}>Choose from Gallery</Text>
               </TouchableOpacity>
               {background && (
-                <TouchableOpacity 
-                  style={styles.removeButton}
-                  onPress={() => {
-                    setBackground(null);
-                    setShowBackgroundModal(false);
-                  }}
-                >
-                  <Ionicons name="trash-outline" size={20} color="#ff4444" />
-                  <Text style={styles.removeText}>Remove Image</Text>
-                </TouchableOpacity>
+                <>
+                  <Image source={{ uri: background }} style={styles.previewLarge} />
+                  <TouchableOpacity 
+                    style={styles.removeButton}
+                    onPress={() => {
+                      setBackground(null);
+                      setShowBackgroundModal(false);
+                    }}
+                  >
+                    <Ionicons name="trash-outline" size={20} color="#ff4444" />
+                    <Text style={styles.removeText}>Remove Image</Text>
+                  </TouchableOpacity>
+                </>
               )}
             </View>
           </View>
@@ -673,7 +742,7 @@ export default function CreateCommunityScreen({ navigation }) {
               </TouchableOpacity>
             </View>
             <View style={styles.colorGrid}>
-              {themeColors.map((color) => (
+              {THEME_COLORS.map((color) => (
                 <TouchableOpacity
                   key={color}
                   style={[
@@ -695,7 +764,7 @@ export default function CreateCommunityScreen({ navigation }) {
           </View>
         </View>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -703,9 +772,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0c0d0f",
-  },
-  scrollView: {
-    flex: 1,
   },
   header: {
     flexDirection: "row",
@@ -721,6 +787,46 @@ const styles = StyleSheet.create({
   help: {
     color: "#888",
     fontSize: 14,
+    minWidth: 30,
+    textAlign: 'right',
+  },
+  uploadBoxHint: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  uploadBoxLabel: {
+    color: '#555',
+    fontSize: 12,
+    marginTop: 4,
+  },
+  inputWrapper: {
+    position: 'relative',
+  },
+  charCount: {
+    position: 'absolute',
+    bottom: 8,
+    right: 10,
+    color: '#444',
+    fontSize: 11,
+  },
+  validationError: {
+    color: '#ff6b6b',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  required: {
+    color: '#ff6b6b',
+    fontSize: 13,
+  },
+  menuSubText: {
+    color: '#555',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  menuRowRequired: {
+    borderColor: '#ff6b6b44',
   },
   uploadBox: {
     height: 120,
@@ -837,16 +943,11 @@ const styles = StyleSheet.create({
   },
   createText: { color: "#fff", fontWeight: "600" },
   modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "center",
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.75)",
+    justifyContent: "flex-end",
     alignItems: "center",
-    padding: 20,
-    zIndex: 1000,
+    padding: 16,
   },
   modalCard: {
     backgroundColor: "#1b1d23",
@@ -875,7 +976,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 10,
   },
-  cancelBtn: { color: "#888", fontSize: 15 },
+  cancelBtnBox: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  cancelBtn: { color: "#aaa", fontSize: 15 },
   agreeBtn: {
     backgroundColor: "#4b6cff",
     paddingHorizontal: 20,
@@ -969,6 +1077,13 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 14,
   },
+  previewLarge: {
+    width: '100%',
+    height: 120,
+    borderRadius: 10,
+    marginBottom: 12,
+    resizeMode: 'cover',
+  },
   colorGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -986,6 +1101,62 @@ const styles = StyleSheet.create({
   selectedColorOption: {
     borderWidth: 3,
     borderColor: '#fff',
+  },
+  stepBar: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 16,
+    marginBottom: 4,
+    gap: 8,
+  },
+  stepDot: {
+    width: 28,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#2a2d35',
+  },
+  stepDotActive: {
+    backgroundColor: '#4b6cff88',
+  },
+  stepDotCurrent: {
+    backgroundColor: '#4b6cff',
+    width: 40,
+  },
+  reminderOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  uploadOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  uploadOverlayCard: {
+    backgroundColor: '#1b1d23',
+    borderRadius: 20,
+    padding: 32,
+    alignItems: 'center',
+    width: '80%',
+    borderWidth: 1,
+    borderColor: '#333',
+    gap: 16,
+  },
+  uploadOverlayText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  uploadOverlaySubText: {
+    color: '#666',
+    fontSize: 12,
+    textAlign: 'center',
   },
 });
 

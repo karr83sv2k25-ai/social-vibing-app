@@ -221,7 +221,7 @@ export const getDailyRewardsData = async (db, userId) => {
       tasks: {
         [DAILY_TASKS.CHECK_IN.id]: { status: 'available', claimedAt: null },
         [DAILY_TASKS.TIME_SPENT.id]: { status: 'locked', progress: 0, claimedAt: null },
-        [DAILY_TASKS.INVITE_FRIEND.id]: { status: 'available', claimedAt: null },
+        [DAILY_TASKS.INVITE_FRIEND.id]: { status: 'locked', claimedAt: null },
         [DAILY_TASKS.WATCH_AD.id]: { status: 'available', claimedAt: null },
         [DAILY_TASKS.FIRST_POST.id]: { status: 'locked', completed: false, claimedAt: null },
         [DAILY_TASKS.FIRST_COMMENT.id]: { status: 'locked', completed: false, claimedAt: null },
@@ -676,6 +676,34 @@ export const getNextStreakMilestone = (streak) => {
 };
 
 /**
+ * Unlock a locked task so it becomes claimable
+ * @param {Object} db - Firestore instance
+ * @param {string} userId - User ID
+ * @param {string} taskId - Task ID to unlock
+ */
+export const unlockTask = async (db, userId, taskId) => {
+  if (!db || !userId || !taskId) return;
+  const today = getTodayDate();
+  const dailyRewardRef = doc(db, 'users', userId, 'dailyRewards', today);
+  try {
+    const snapshot = await getDoc(dailyRewardRef);
+    if (!snapshot.exists()) {
+      await getDailyRewardsData(db, userId);
+      return unlockTask(db, userId, taskId);
+    }
+    const data = snapshot.data();
+    const taskData = data.tasks?.[taskId];
+    if (!taskData || taskData.status !== 'locked') return;
+    await updateDoc(dailyRewardRef, {
+      [`tasks.${taskId}.status`]: 'available',
+      lastUpdatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('Error unlocking task:', error);
+  }
+};
+
+/**
  * Get user's reward history
  * @param {Object} db - Firestore instance
  * @param {string} userId - User ID
@@ -710,6 +738,7 @@ export default {
   trackActivityCompletion,
   recordFriendInvite,
   getTodayInviteCount,
+  unlockTask,
   getStreakBonus,
   getNextStreakMilestone,
   getRewardHistory,

@@ -20,6 +20,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAuth } from 'firebase/auth';
 import { db } from '../firebaseConfig';
 import { useWallet } from '../context/WalletContext';
@@ -52,9 +53,10 @@ const COLORS = {
   red: '#FF4757',
 };
 
-export default function CommunityCheckInScreen() {
+function CommunityCheckInScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { communityId, communityData } = route.params || {};
   const walletContext = useWallet();
   
@@ -273,15 +275,24 @@ export default function CommunityCheckInScreen() {
   const renderWeekCalendar = () => {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const currentStreak = checkInData?.currentStreak || 0;
-    const today = new Date().getDay();
-    const todayIndex = today === 0 ? 6 : today - 1; // Convert to Mon=0
+    const today = new Date().getUTCDay();
+    const todayIndex = today === 0 ? 6 : today - 1; // Convert to Mon=0 (UTC)
+
+    // Last completed day index:
+    //   - Already checked in today (canCheckIn is false) → today is done
+    //   - Not yet checked in → last done day was yesterday (or earlier)
+    const lastDoneIndex = canCheckIn ? todayIndex - 1 : todayIndex;
+    const streakStartIndex = lastDoneIndex - (currentStreak - 1);
 
     return (
       <View style={styles.calendarContainer}>
         <Text style={styles.calendarTitle}>Weekly Progress</Text>
         <View style={styles.calendarRow}>
           {days.map((day, index) => {
-            const isCompleted = index < (currentStreak % 7) || (currentStreak >= 7 && index <= todayIndex);
+            const isCompleted =
+              currentStreak > 0 &&
+              index >= Math.max(0, streakStartIndex) &&
+              index <= lastDoneIndex;
             const isToday = index === todayIndex;
             
             return (
@@ -327,7 +338,7 @@ export default function CommunityCheckInScreen() {
         colors={['#7C3AED', '#3B82F6']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.header}
+        style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -350,10 +361,19 @@ export default function CommunityCheckInScreen() {
       >
         {/* Community Banner */}
         <View style={styles.communityBanner}>
-          <Image
-            source={{ uri: communityData?.banner || communityData?.coverImage || 'https://via.placeholder.com/400x150' }}
-            style={styles.bannerImage}
-          />
+          {(communityData?.banner || communityData?.coverImage) ? (
+            <Image
+              source={{ uri: communityData.banner || communityData.coverImage }}
+              style={styles.bannerImage}
+            />
+          ) : (
+            <LinearGradient
+              colors={['#3B82F6', '#7C3AED']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.bannerImage}
+            />
+          )}
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.8)']}
             style={styles.bannerOverlay}
@@ -524,6 +544,14 @@ export default function CommunityCheckInScreen() {
   );
 }
 
+export default function CommunityCheckInScreenWithBoundary(props) {
+  return (
+    <ErrorBoundary>
+      <CommunityCheckInScreen {...props} />
+    </ErrorBoundary>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -542,7 +570,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 50 : 40,
     paddingBottom: 16,
     paddingHorizontal: 16,
   },

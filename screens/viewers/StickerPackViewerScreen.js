@@ -7,11 +7,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   Text,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import {getDoc, doc} from 'firebase/firestore';
 import {db} from '../../firebaseConfig';

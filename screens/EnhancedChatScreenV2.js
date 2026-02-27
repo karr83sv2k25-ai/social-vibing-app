@@ -342,7 +342,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
 
               const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images', 'videos'],
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 0.8,
                 videoMaxDuration: 60,
               });
@@ -423,7 +423,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
               }
 
               const result = await ImagePicker.launchCameraAsync({
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 0.8,
               });
 

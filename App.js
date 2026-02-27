@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { View, ActivityIndicator, Text, LogBox, AppState } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { app as firebaseApp, db } from './firebaseConfig';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
@@ -11,6 +12,59 @@ import { WalletProvider } from './context/WalletContext';
 import { isExpoGo } from './utils/platformCheck';
 // import './testFirebaseREST';
 // import './diagnoseFirestore';
+
+// Core screens (always loaded)
+import LoginScreen from './loginscreen';
+import SignupScreen from './signupscreen';
+import HomeScreen from './homescreen';
+import TabBarScreen from './tabbarview';
+
+// Direct-import screens (small / always needed)
+import MessageOptionsScreen from './MessageOptionsScreen';
+import ChatActionsScreen from './ChatActionsScreen';
+import BlockedUsersScreen from './BlockedUsersScreen';
+import CreatePostScreen from './CreatePostScreen';
+import CreateStoryScreen from './CreateStoryScreen';
+import CreatePollScreen from './CreatePollScreen';
+import CreateQuizScreen from './CreateQuizScreen';
+import DraftScreen from './DraftScreen';
+import CreateQuestionScreen from './CreateQuestionScreen';
+import CommunityCreateGroupScreen from './screens/CommunityCreateGroupScreen';
+import CommunityGroupChatScreen from './screens/CommunityGroupChatScreen';
+import GroupDetailsScreen from './screens/GroupDetailsScreen';
+import FollowersFollowingScreen from './screens/FollowersFollowingScreen';
+import TestFollowersScreen from './screens/TestFollowersScreen';
+import TestMarketplaceSetup from './TestMarketplaceSetup';
+import KingMediaLoginScreen from './screens/KingMediaLoginScreen';
+import KingMediaHomeScreen from './screens/KingMediaHomeScreen';
+import KingMediaAIChatScreen from './screens/KingMediaAIChatScreen';
+import KingMediaImageGenScreen from './screens/KingMediaImageGenScreen';
+import KingMediaVideoGenScreen from './screens/KingMediaVideoGenScreen';
+import AdminPanelScreen from './screens/AdminPanelScreen';
+import AdminModerationScreen from './AdminModerationScreen';
+import CommunityStaffScreen from './CommunityStaffScreen';
+import CommunityModerationScreen from './CommunityModerationScreen';
+
+// Product Viewer Screens
+import ComicReaderScreen from './screens/viewers/ComicReaderScreen';
+import BookReaderScreen from './screens/viewers/BookReaderScreen';
+import ArtViewerScreen from './screens/viewers/ArtViewerScreen';
+import StickerPackViewerScreen from './screens/viewers/StickerPackViewerScreen';
+import CustomizationScreen from './screens/viewers/CustomizationScreen';
+
+// Marketplace Screens
+import BecomeSellerScreen from './screens/marketplace/BecomeSellerScreen';
+import SellerDashboardScreen from './screens/marketplace/SellerDashboardScreen';
+import ProductCreationWizardScreen from './screens/marketplace/ProductCreationWizardScreen';
+import MyOrdersScreen from './screens/marketplace/MyOrdersScreen';
+import WalletScreen from './screens/marketplace/WalletScreen';
+import WithdrawalScreen from './screens/marketplace/WithdrawalScreen';
+import ProductTypeSelectionScreen from './screens/marketplace/ProductTypeSelectionScreen';
+import TypeSpecificUploadScreen from './screens/marketplace/TypeSpecificUploadScreen';
+import ProductPublishScreen from './screens/marketplace/ProductPublishScreen';
+import BubbleCustomizerScreen from './screens/marketplace/BubbleCustomizerScreen';
+import FrameCustomizerScreen from './screens/marketplace/FrameCustomizerScreen';
+import SellerStoreScreen from './screens/marketplace/SellerStoreScreen';
 
 // Suppress known Firestore SDK internal errors in development
 LogBox.ignoreLogs([
@@ -53,53 +107,70 @@ if (typeof ErrorUtils !== 'undefined') {
 }
 
 // OPTIMIZATION: Lazy load screens to improve initial load time
-// Core screens loaded immediately
-import LoginScreen from './loginscreen';
-import SignupScreen from './signupscreen';
-import HomeScreen from './homescreen';
-import TabBarScreen from './tabbarview';
 
-// Lazy load all other screens
-const WithPhoneScreen = React.lazy(() => import('./withphonescreen'));
-const WithEmailScreen = React.lazy(() => import('./withemailscreen'));
-const OtpVerificationScreen = React.lazy(() => import('./otpverify'));
-const CreateAccountScreen = React.lazy(() => import('./createaccount'));
-const AgeVerificationScreen = React.lazy(() => import('./ageverification'));
-const AccountLoginScreen = React.lazy(() => import('./accountloginscreen'));
-const SplashScreen = React.lazy(() => import('./splashscreen'));
-const SearchBarScreen = React.lazy(() => import('./searchbar'));
-const NotificationScreen = React.lazy(() => import('./notification'));
-const CommunityScreen = React.lazy(() => import('./community'));
-const CommunityDetailScreen = React.lazy(() => import('./communitydetail'));
-const ExploreScreen = React.lazy(() => import('./explore'));
-const GroupInfoScreen = React.lazy(() => import('./groupinfo'));
-const MessageScreen = React.lazy(() => import('./messagescreen'));
-const ChatScreen = React.lazy(() => import('./chatscreen'));
-const MarketPlaceScreen = React.lazy(() => import('./marketplace'));
-const MarketPlaceExploreScreen = React.lazy(() => import('./marketplaceexplore'));
-const ProductDetailScreen = React.lazy(() => import('./screens/marketplace/ProductDetailScreen'));
-const ComicsLibraryScreen = React.lazy(() => import('./ComicsLibraryScreen'));
-const GenericLibraryScreen = React.lazy(() => import('./GenericLibraryScreen'));
-const StickerPreviewScreen = React.lazy(() => import('./stickerpreview'));
-const PaymentDetailScreen = React.lazy(() => import('./paymentdetail'));
-const PaymentSelectionScreen = React.lazy(() => import('./paymentselection'));
-const CoinPurchaseScreen = React.lazy(() => import('./coinpurchase'));
-const DiamondPurchaseScreen = React.lazy(() => import('./diamondpurchase'));
-const ProfileScreen = React.lazy(() => import('./profile'));
-const EditProfileScreen = React.lazy(() => import('./editprofile'));
-const MyStoreScreen = React.lazy(() => import('./mystore'));
-const StoreManagmentScreen = React.lazy(() => import('./storemanagment'));
-const RewardScreen = React.lazy(() => import('./reward'));
-const DailyRewardScreen = React.lazy(() => import('./dailyreward'));
-const MembershipScreen = React.lazy(() => import('./membership'));
-const WhatsHappeningScreen = React.lazy(() => import('./whatshappening'));
-const CreateCommunityScreen = React.lazy(() => import('./CreateCommunityScreen'));
-const EditCommunityScreen = React.lazy(() => import('./EditCommunityScreen'));
-const ModeratorsManagementScreen = React.lazy(() => import('./ModeratorsManagementScreen'));
+// HOC that wraps any lazy-loaded screen with a Suspense boundary.
+// Must be defined before any withLazy() calls below.
+const withLazy = (importFn) => {
+  const LazyComp = React.lazy(importFn);
+  // React.memo prevents re-rendering the Suspense tree when unrelated parent state changes.
+  const Wrapped = React.memo((props) => (
+    <React.Suspense fallback={
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator size="large" color="#fff" />
+        <Text style={{ color: '#fff', marginTop: 10 }}>Loading...</Text>
+      </View>
+    }>
+      <LazyComp {...props} />
+    </React.Suspense>
+  ));
+  return Wrapped;
+};
+
+// Lazy load all other screens (each wrapped with Suspense via withLazy)
+const WithPhoneScreen = withLazy(() => import('./withphonescreen'));
+const WithEmailScreen = withLazy(() => import('./withemailscreen'));
+const OtpVerificationScreen = withLazy(() => import('./otpverify'));
+const CreateAccountScreen = withLazy(() => import('./createaccount'));
+const AgeVerificationScreen = withLazy(() => import('./ageverification'));
+const AccountLoginScreen = withLazy(() => import('./accountloginscreen'));
+const ForgotPasswordScreen = withLazy(() => import('./ForgotPasswordScreen'));
+const SplashScreen = withLazy(() => import('./splashscreen'));
+const SearchBarScreen = withLazy(() => import('./searchbar'));
+const NotificationScreen = withLazy(() => import('./notification'));
+const CommunityScreen = withLazy(() => import('./community'));
+const CommunityDetailScreen = withLazy(() => import('./communitydetail'));
+const ExploreScreen = withLazy(() => import('./explore'));
+const GroupInfoScreen = withLazy(() => import('./groupinfo'));
+const MessageScreen = withLazy(() => import('./messagescreen'));
+const ChatScreen = withLazy(() => import('./chatscreen'));
+const MarketPlaceScreen = withLazy(() => import('./marketplace'));
+const MarketPlaceExploreScreen = withLazy(() => import('./marketplaceexplore'));
+const ProductDetailScreen = withLazy(() => import('./screens/marketplace/ProductDetailScreen'));
+const ComicsLibraryScreen = withLazy(() => import('./ComicsLibraryScreen'));
+const GenericLibraryScreen = withLazy(() => import('./GenericLibraryScreen'));
+const StickerPreviewScreen = withLazy(() => import('./stickerpreview'));
+const PaymentDetailScreen = withLazy(() => import('./paymentdetail'));
+const PaymentSelectionScreen = withLazy(() => import('./paymentselection'));
+const CoinPurchaseScreen = withLazy(() => import('./coinpurchase'));
+const DiamondPurchaseScreen = withLazy(() => import('./diamondpurchase'));
+const ProfileScreen = withLazy(() => import('./profile'));
+const EditProfileScreen = withLazy(() => import('./editprofile'));
+const MyStoreScreen = withLazy(() => import('./mystore'));
+const StoreManagmentScreen = withLazy(() => import('./storemanagment'));
+const RewardScreen = withLazy(() => import('./reward'));
+const DailyRewardScreen = withLazy(() => import('./dailyreward'));
+const MembershipScreen = withLazy(() => import('./membership'));
+const CommunityLeaderboardScreen = withLazy(() => import('./screens/CommunityLeaderboardScreen'));
+const GlobalLeaderboardScreen = withLazy(() => import('./screens/GlobalLeaderboardScreen'));
+const CommunityCheckInScreen = withLazy(() => import('./screens/CommunityCheckInScreen'));
+const WhatsHappeningScreen = withLazy(() => import('./whatshappening'));
+const CreateCommunityScreen = withLazy(() => import('./CreateCommunityScreen'));
+const EditCommunityScreen = withLazy(() => import('./EditCommunityScreen'));
+const ModeratorsManagementScreen = withLazy(() => import('./ModeratorsManagementScreen'));
 
 // Conditional loading for screens that require native modules (Agora)
 // These screens will only work in development builds, not in Expo Go
-const GroupAudioCallScreen = React.lazy(() => 
+const GroupAudioCallScreen = withLazy(() => 
   isExpoGo() 
     ? import('./screens/ExpoGoPlaceholderScreen').then(module => ({
         default: (props) => <module.default {...props} feature="Voice Calls" />
@@ -107,7 +178,7 @@ const GroupAudioCallScreen = React.lazy(() =>
     : import('./GroupAudioCallScreen')
 );
 
-const CallScreen = React.lazy(() => 
+const CallScreen = withLazy(() => 
   isExpoGo()
     ? import('./screens/ExpoGoPlaceholderScreen').then(module => ({
         default: (props) => <module.default {...props} feature="Voice/Video Calls" />
@@ -115,82 +186,21 @@ const CallScreen = React.lazy(() =>
     : import('./CallScreen')
 );
 
-const ScreenSharingRoom = React.lazy(() => import('./ScreenSharingRoom'));
-const RoleplayScreen = React.lazy(() => import('./RoleplayScreen'));
-const EnhancedChatScreenV2 = React.lazy(() => import('./screens/EnhancedChatScreenV2'));
-const GroupChatCreationScreen = React.lazy(() => import('./screens/GroupChatCreationScreen'));
-const ChatSettingsScreen = React.lazy(() => import('./screens/ChatSettingsScreen'));
-const ForwardMessageScreen = React.lazy(() => import('./screens/ForwardMessageScreen'));
-const AddFriendsScreen = React.lazy(() => import('./AddFriendsScreen'));
-const NewGroupInfoScreen = React.lazy(() => import('./screens/GroupInfoScreen'));
-const AddGroupMembersScreen = React.lazy(() => import('./screens/AddGroupMembersScreen'));
-const MediaGalleryScreen = React.lazy(() => import('./screens/MediaGalleryScreen'));
-const StarredMessagesScreen = React.lazy(() => import('./screens/StarredMessagesScreen'));
-const SearchInChatScreen = React.lazy(() => import('./screens/SearchInChatScreen'));
-
-// Direct imports for newly created screens
-import MessageOptionsScreen from './MessageOptionsScreen';
-import ChatActionsScreen from './ChatActionsScreen';
-import BlockedUsersScreen from './BlockedUsersScreen';
-import CreatePostScreen from './CreatePostScreen';
-import CreateStoryScreen from './CreateStoryScreen';
-import CreatePollScreen from './CreatePollScreen';
-import CreateQuizScreen from './CreateQuizScreen';
-import DraftScreen from './DraftScreen';
-import CreateQuestionScreen from './CreateQuestionScreen';
-import CommunityCreateGroupScreen from './screens/CommunityCreateGroupScreen';
-import CommunityGroupChatScreen from './screens/CommunityGroupChatScreen';
-import GroupDetailsScreen from './screens/GroupDetailsScreen';
-import FollowersFollowingScreen from './screens/FollowersFollowingScreen';
-import TestFollowersScreen from './screens/TestFollowersScreen';
-import TestMarketplaceSetup from './TestMarketplaceSetup';
-import KingMediaLoginScreen from './screens/KingMediaLoginScreen';
-import KingMediaHomeScreen from './screens/KingMediaHomeScreen';
-import KingMediaAIChatScreen from './screens/KingMediaAIChatScreen';
-import KingMediaImageGenScreen from './screens/KingMediaImageGenScreen';
-import KingMediaVideoGenScreen from './screens/KingMediaVideoGenScreen';
-import AdminPanelScreen from './screens/AdminPanelScreen';
-import AdminModerationScreen from './AdminModerationScreen';
-import CommunityStaffScreen from './CommunityStaffScreen';
-import CommunityModerationScreen from './CommunityModerationScreen';
-
-// Product Viewer Screens
-import ComicReaderScreen from './screens/viewers/ComicReaderScreen';
-import BookReaderScreen from './screens/viewers/BookReaderScreen';
-import ArtViewerScreen from './screens/viewers/ArtViewerScreen';
-import StickerPackViewerScreen from './screens/viewers/StickerPackViewerScreen';
-import CustomizationScreen from './screens/viewers/CustomizationScreen';
-
-// Marketplace Navigator (not used - importing screens directly instead)
-// import { MarketplaceStackNavigator } from './navigation/MarketplaceNavigator';
-
-// Marketplace Screens
-import BecomeSellerScreen from './screens/marketplace/BecomeSellerScreen';
-import SellerDashboardScreen from './screens/marketplace/SellerDashboardScreen';
-import ProductCreationWizardScreen from './screens/marketplace/ProductCreationWizardScreen';
-import MyOrdersScreen from './screens/marketplace/MyOrdersScreen';
-import WalletScreen from './screens/marketplace/WalletScreen';
-import WithdrawalScreen from './screens/marketplace/WithdrawalScreen';
-import ProductTypeSelectionScreen from './screens/marketplace/ProductTypeSelectionScreen';
-import TypeSpecificUploadScreen from './screens/marketplace/TypeSpecificUploadScreen';
-import ProductPublishScreen from './screens/marketplace/ProductPublishScreen';
-import BubbleCustomizerScreen from './screens/marketplace/BubbleCustomizerScreen';
-import FrameCustomizerScreen from './screens/marketplace/FrameCustomizerScreen';
-import SellerStoreScreen from './screens/marketplace/SellerStoreScreen';
+const ScreenSharingRoom = withLazy(() => import('./ScreenSharingRoom'));
+const RoleplayScreen = withLazy(() => import('./RoleplayScreen'));
+const EnhancedChatScreenV2 = withLazy(() => import('./screens/EnhancedChatScreenV2'));
+const GroupChatCreationScreen = withLazy(() => import('./screens/GroupChatCreationScreen'));
+const ChatSettingsScreen = withLazy(() => import('./screens/ChatSettingsScreen'));
+const ForwardMessageScreen = withLazy(() => import('./screens/ForwardMessageScreen'));
+const AddFriendsScreen = withLazy(() => import('./AddFriendsScreen'));
+const NewGroupInfoScreen = withLazy(() => import('./screens/GroupInfoScreen'));
+const AddGroupMembersScreen = withLazy(() => import('./screens/AddGroupMembersScreen'));
+const MediaGalleryScreen = withLazy(() => import('./screens/MediaGalleryScreen'));
+const StarredMessagesScreen = withLazy(() => import('./screens/StarredMessagesScreen'));
+const SearchInChatScreen = withLazy(() => import('./screens/SearchInChatScreen'));
+const StoryViewerScreen = withLazy(() => import('./screens/StoryViewerScreen'));
 
 const Stack = createStackNavigator();
-
-// Lazy loading wrapper component
-const LazyScreen = ({ component: Component, ...props }) => (
-  <React.Suspense fallback={
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-      <ActivityIndicator size="large" color="#fff" />
-      <Text style={{ color: '#fff', marginTop: 10 }}>Loading...</Text>
-    </View>
-  }>
-    <Component {...props} />
-  </React.Suspense>
-);
 
 export default function App() {
   const [initializing, setInitializing] = React.useState(true);
@@ -328,6 +338,7 @@ export default function App() {
   }
 
   return (
+    <SafeAreaProvider>
     <WalletProvider>
       <StatusProvider>
         <NavigationContainer>
@@ -343,6 +354,7 @@ export default function App() {
                 <Stack.Screen name="CreateAccount" component={CreateAccountScreen} />
                 <Stack.Screen name="AgeVerification" component={AgeVerificationScreen} />
                 <Stack.Screen name="AccountLogin" component={AccountLoginScreen} />
+                <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
               </>
             ) : (
               // App Screens - Only available when authenticated
@@ -433,6 +445,7 @@ export default function App() {
                 <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="StoryViewer" component={StoryViewerScreen} options={{ headerShown: false, presentation: 'transparentModal', cardStyle: { backgroundColor: 'transparent' } }} />
                 <Stack.Screen name="CreatePoll" component={CreatePollScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreateQuiz" component={CreateQuizScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="Draft" component={DraftScreen} options={{ headerShown: false }} />
@@ -452,12 +465,16 @@ export default function App() {
                 <Stack.Screen name="AdminModeration" component={AdminModerationScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CommunityStaff" component={CommunityStaffScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CommunityModeration" component={CommunityModerationScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityLeaderboard" component={CommunityLeaderboardScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="GlobalLeaderboard" component={GlobalLeaderboardScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityCheckIn" component={CommunityCheckInScreen} options={{ headerShown: false }} />
               </>
             )}
           </Stack.Navigator>
         </NavigationContainer>
       </StatusProvider>
     </WalletProvider>
+    </SafeAreaProvider>
   );
 }
 

@@ -26,7 +26,6 @@ export default function CreatePostScreen({ navigation }) {
   const [selectedVideos, setSelectedVideos] = useState([]);
   const [isPosting, setIsPosting] = useState(false);
   const auth = getAuth();
-  const currentUser = auth.currentUser;
 
   const pickImages = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -109,6 +108,8 @@ export default function CreatePostScreen({ navigation }) {
       return;
     }
 
+    // Always get a fresh reference inside the async function
+    const currentUser = auth.currentUser;
     if (!currentUser) {
       Alert.alert('Authentication Required', 'Please log in again to create a post.');
       return;

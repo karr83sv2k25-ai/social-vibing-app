@@ -15,6 +15,7 @@ import {
   Dimensions,
   Platform,
   Alert,
+  Share,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -139,6 +140,10 @@ const CommunitySidebar = ({
         case 'CommunityLeaderboard':
           navigation.navigate('CommunityLeaderboard', { communityId, communityData });
           break;
+        case 'MyStats':
+          // My Stats lives inside the leaderboard screen
+          navigation.navigate('CommunityLeaderboard', { communityId, communityData });
+          break;
         case 'Members':
           // Navigate back to community info with members tab selected
           onClose();
@@ -179,22 +184,15 @@ const CommunitySidebar = ({
           navigation.navigate('ModeratorsManagement', { communityId });
           break;
         case 'Invite':
-          // Share community link or invite
           onClose();
-          Alert.alert(
-            'Share Community',
-            `Invite others to join ${communityData?.name || 'this community'}!`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Share', 
-                onPress: () => {
-                  // TODO: Implement share functionality
-                  console.log('Share community:', communityId);
-                }
-              }
-            ]
-          );
+          Share.share({
+            message: `Join ${communityData?.name || 'my community'} on Social Vibing!\nhttps://socialvibingapp.karr83anime.com/community/${communityId}`,
+            title: `Join ${communityData?.name || 'Community'}`,
+          }).catch((err) => {
+            if (err?.message !== 'The user did not share') {
+              console.log('Share error:', err?.message);
+            }
+          });
           break;
         default:
           break;

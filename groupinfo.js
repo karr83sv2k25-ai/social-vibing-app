@@ -966,6 +966,15 @@ export default function GroupInfoScreen() {
               }
             }
 
+            // Normalize memberIds: extract uid string from object entries (e.g. {displayName, profileImage, uid})
+            memberIds = memberIds.map(item => {
+              if (typeof item === 'string') return item;
+              if (item && typeof item === 'object') {
+                return item.uid || item.user_id || item.userId || item.id || null;
+              }
+              return null;
+            }).filter(id => id && typeof id === 'string' && id.trim() !== '');
+
             console.log('Member IDs found:', memberIds.length, memberIds);
 
             // Also check uid field (owner/admin) - add it to memberIds if not already present
@@ -1000,6 +1009,7 @@ export default function GroupInfoScreen() {
               const memberDocs = await Promise.all(
                 memberIds.slice(0, 5).map(async (uid) => {
                   try {
+                    if (!uid || typeof uid !== 'string') return null;
                     const userDoc = await getDoc(doc(usersCol, uid));
                     return userDoc.exists() ? { id: userDoc.id, ...userDoc.data() } : null;
                   } catch (e) {

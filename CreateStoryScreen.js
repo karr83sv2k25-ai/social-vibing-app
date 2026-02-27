@@ -13,8 +13,9 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { getAuth } from 'firebase/auth';
 import { compressStoryImage } from './utils/imageCompression';
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from './firebaseConfig';
+import { uploadImageToHostinger } from './hostingerConfig';
 
 export default function CreateStoryScreen({ navigation }) {
   const [selectedImage, setSelectedImage] = useState(null);
@@ -70,14 +71,52 @@ export default function CreateStoryScreen({ navigation }) {
       return;
     }
 
+    if (!currentUser) {
+      Alert.alert('Authentication Required', 'Please log in again to post a story.');
+      return;
+    }
+
     setIsPosting(true);
     try {
+      // Resolve display name and profile image from user document
+      let displayName = currentUser.displayName || currentUser.email?.split('@')[0] || 'User';
+      let userAvatar = currentUser.photoURL || null;
+
+      try {
+        const userDocRef = doc(db, 'users', currentUser.uid);
+        const userSnapshot = await getDoc(userDocRef);
+        if (userSnapshot.exists()) {
+          const userData = userSnapshot.data();
+          const fullName = [userData.firstName || userData.user_firstname, userData.lastName || userData.user_lastname].filter(Boolean).join(' ').trim();
+          displayName = fullName || userData.displayName || userData.username || userData.user_name || displayName;
+          userAvatar = userData.profileImage || userData.user_picture || userData.avatar || userData.photoURL || userAvatar;
+        }
+      } catch (profileError) {
+        console.log('⚠️  Could not load profile for story author:', profileError.message);
+      }
+
+      // Upload image to Hostinger (never store local URIs in Firestore)
+      console.log('📤 Uploading story image to Hostinger...');
+      let imageUrl = null;
+      try {
+        imageUrl = await uploadImageToHostinger(selectedImage, 'stories');
+        console.log('✅ Story image uploaded:', imageUrl);
+      } catch (uploadError) {
+        console.error('❌ Story image upload failed:', uploadError);
+        Alert.alert('Upload Error', 'Failed to upload story image. Please try again.');
+        setIsPosting(false);
+        return;
+      }
+
       const storyData = {
         userId: currentUser.uid,
-        userEmail: currentUser.email,
-        image: selectedImage,
+        userEmail: currentUser.email || null,
+        displayName,
+        userAvatar,
+        image: imageUrl,
         caption: caption,
         views: 0,
+        viewedBy: [],
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
         type: 'story',

@@ -6,12 +6,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   Text,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   ScrollView,
   Dimensions,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import {httpsCallable} from 'firebase/functions';
 import {getDoc, doc, updateDoc} from 'firebase/firestore';

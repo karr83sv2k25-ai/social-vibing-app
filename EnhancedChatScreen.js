@@ -24,13 +24,13 @@ import {
   Platform,
   TouchableOpacity,
   Image,
-  SafeAreaView,
   Keyboard,
   BackHandler,
   Alert,
   Modal,
   ActivityIndicator,
 } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from "@expo/vector-icons";
 import { useChatState } from './hooks/useChatState';
 import { MessageBox } from './components/MessageBox';
@@ -327,7 +327,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
 
               const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images', 'videos'],
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 1.0,
                 videoMaxDuration: 60,
               });

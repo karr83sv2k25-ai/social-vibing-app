@@ -18,9 +18,10 @@ import {
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { getAuth } from 'firebase/auth';
 import { db } from '../firebaseConfig';
-import { collection, query, orderBy, limit, getDocs, getDoc, doc } from 'firebase/firestore';
+import { collection, query, orderBy, limit, getDocs, getDoc, doc, where, documentId } from 'firebase/firestore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -64,6 +65,7 @@ const FILTERS = [
 
 export default function GlobalLeaderboardScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
@@ -136,26 +138,25 @@ export default function GlobalLeaderboardScreen() {
         }
       }
       
-      // Fetch all wallets in parallel for better performance
-      const walletPromises = usersSnapshot.docs.map(async (userDoc) => {
-        const userId = userDoc.id;
-        try {
-          const walletDocRef = doc(db, 'wallets', userId);
-          const walletDocSnap = await getDoc(walletDocRef);
-          if (walletDocSnap.exists()) {
-            return { userId, wallet: walletDocSnap.data() };
-          }
-        } catch (e) {
-          console.log(`Wallet read failed for ${userId}`);
-        }
-        return { userId, wallet: null };
-      });
-      
-      const walletResults = await Promise.all(walletPromises);
+      // Batch-fetch wallets using documentId() in-queries (10 per batch)
+      const allUserIds = usersSnapshot.docs.map(d => d.id);
       const walletMap = {};
-      walletResults.forEach(({ userId, wallet }) => {
-        walletMap[userId] = wallet;
-      });
+      const BATCH_SIZE = 10;
+      for (let i = 0; i < allUserIds.length; i += BATCH_SIZE) {
+        const batch = allUserIds.slice(i, i + BATCH_SIZE);
+        try {
+          const walletQuery = query(
+            collection(db, 'wallets'),
+            where(documentId(), 'in', batch)
+          );
+          const walletSnap = await getDocs(walletQuery);
+          walletSnap.docs.forEach(wDoc => {
+            walletMap[wDoc.id] = wDoc.data();
+          });
+        } catch (e) {
+          console.log(`Wallet batch read failed (offset ${i}):`, e.message);
+        }
+      }
       
       // Add current user's wallet to map if fetched separately
       if (currentUser?.id && currentUserWallet) {
@@ -196,8 +197,9 @@ export default function GlobalLeaderboardScreen() {
             break;
         }
         
-        // Build user display name
-        const displayName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim() 
+        // Build user display name - check all possible field names
+        const displayName = userData.displayName
+          || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() 
           || userData.username 
           || userData.handle 
           || userData.name 
@@ -733,7 +735,7 @@ export default function GlobalLeaderboardScreen() {
         colors={['#0EE7B7', '#8A2BE2']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
+        style={[styles.headerGradient, { paddingTop: insets.top + 6 }]}
       >
         <View style={styles.header}>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -845,7 +847,6 @@ const styles = StyleSheet.create({
   
   // Header
   headerGradient: {
-    paddingTop: Platform.OS === 'ios' ? 50 : 40,
     paddingBottom: 16,
   },
   header: {

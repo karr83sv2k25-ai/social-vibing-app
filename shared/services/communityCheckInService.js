@@ -9,6 +9,7 @@ import {
   updateDoc,
   collection,
   getDocs,
+  getCountFromServer,
   query,
   orderBy,
   limit,
@@ -183,21 +184,28 @@ export const getNextBadge = (totalPoints) => {
 };
 
 /**
- * Get start of current week (Monday)
+ * Get start of current week (Monday) in UTC – consistent with getTodayDate()
  */
 const getWeekStart = () => {
   const now = new Date();
-  const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(now.setDate(diff)).toISOString().split('T')[0];
+  const day = now.getUTCDay(); // 0=Sun … 6=Sat
+  const diffToMonday = day === 0 ? 6 : day - 1;
+  const monday = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate() - diffToMonday
+  ));
+  return monday.toISOString().split('T')[0];
 };
 
 /**
- * Get start of current month
+ * Get start of current month in UTC – consistent with getTodayDate()
  */
 const getMonthStart = () => {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0];
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    .toISOString()
+    .split('T')[0];
 };
 
 // ============================================
@@ -377,10 +385,11 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
     
     // If transaction was successful and not already checked in, update wallet context
     if (result.success && !result.alreadyCheckedIn) {
-      // Refresh wallet context after transaction
-      if (walletContext && walletContext.refreshWallet) {
+      // Refresh wallet context after transaction (supports both fetchWallet and refreshWallet)
+      const refreshFn = walletContext?.refreshWallet || walletContext?.fetchWallet;
+      if (refreshFn) {
         try {
-          await walletContext.refreshWallet();
+          await refreshFn();
         } catch (e) {
           console.log('Could not refresh wallet context:', e.message);
         }
@@ -415,19 +424,32 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
   try {
     const checkInsRef = collection(db, 'communities', communityId, 'checkIns');
     
-    // Determine which field to sort by
+    // Determine sort field and period filter
     let sortField = 'totalPoints';
+    let periodFilter = null;
+
     if (filter === 'weekly') {
       sortField = 'weeklyPoints';
+      periodFilter = { field: 'weekStart', value: getWeekStart() };
     } else if (filter === 'monthly') {
       sortField = 'monthlyPoints';
+      periodFilter = { field: 'monthStart', value: getMonthStart() };
     }
     
-    const q = query(
-      checkInsRef,
-      orderBy(sortField, 'desc'),
-      limit(limitCount)
-    );
+    // Build query – period-filtered queries require composite indexes
+    // (see firestore.indexes.json: checkIns weekStart+weeklyPoints, monthStart+monthlyPoints)
+    const q = periodFilter
+      ? query(
+          checkInsRef,
+          where(periodFilter.field, '==', periodFilter.value),
+          orderBy(sortField, 'desc'),
+          limit(limitCount)
+        )
+      : query(
+          checkInsRef,
+          orderBy(sortField, 'desc'),
+          limit(limitCount)
+        );
     
     const snapshot = await getDocs(q);
     const leaderboard = [];
@@ -531,19 +553,19 @@ export const getUserRank = async (db, communityId, userId, filter = 'all') => {
       sortField = 'monthlyPoints';
     }
     
-    // Count users with more points
+    // Count users with MORE points (= rank - 1) using server-side count (O(1))
     const checkInsRef = collection(db, 'communities', communityId, 'checkIns');
     const higherQuery = query(
       checkInsRef,
       where(sortField, '>', userPoints)
     );
     
-    const higherSnapshot = await getDocs(higherQuery);
-    const rank = higherSnapshot.size + 1;
-    
-    // Count total users
-    const allSnapshot = await getDocs(checkInsRef);
-    const totalUsers = allSnapshot.size;
+    const [higherCount, totalCount] = await Promise.all([
+      getCountFromServer(higherQuery),
+      getCountFromServer(checkInsRef),
+    ]);
+    const rank = higherCount.data().count + 1;
+    const totalUsers = totalCount.data().count;
     
     return {
       rank,

@@ -6,12 +6,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   Text,
-  SafeAreaView,
   Alert,
   ActivityIndicator,
   Dimensions,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system';

@@ -223,9 +223,21 @@ export default function CommunityDetail({ route, navigation }) {
           <Text style={styles.small}>Updated: {updatedAt ? new Date(updatedAt.seconds ? updatedAt.seconds * 1000 : updatedAt).toLocaleString() : '—'}</Text>
         </View>
 
-        <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Members', `Members: ${memberCount}`)}>
-          <Text style={styles.actionText}>View Members</Text>
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10, marginTop: 18 }}>
+          <TouchableOpacity
+            style={[styles.actionButton, { flex: 1, marginTop: 0 }]}
+            onPress={() => Alert.alert('Members', `Members: ${memberCount}`)}
+          >
+            <Text style={styles.actionText}>View Members</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { flex: 1, marginTop: 0, backgroundColor: '#7C3AED' }]}
+            onPress={() => navigation.navigate('DailyReward')}
+          >
+            <Ionicons name="calendar-outline" size={16} color="#fff" style={{ marginBottom: 2 }} />
+            <Text style={[styles.actionText, { color: '#fff' }]}>Check In</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ReportUserModal

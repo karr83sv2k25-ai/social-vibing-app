@@ -103,10 +103,9 @@ export const AttachmentPicker = ({ visible, onClose, onImageSelected, onFileSele
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true, // Enable cropping
-        aspect: [4, 3],
-        quality: 0.6, // Slightly higher quality for cropped images
-        exif: false, // Don't include EXIF data to reduce size
+        allowsEditing: false,
+        quality: 0.6,
+        exif: false,
       });
 
       if (!result.canceled && result.assets && result.assets[0]) {

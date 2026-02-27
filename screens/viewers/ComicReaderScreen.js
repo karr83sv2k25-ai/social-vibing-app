@@ -9,9 +9,9 @@ import {
   TouchableOpacity,
   Text,
   StatusBar,
-  SafeAreaView,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import {Ionicons} from '@expo/vector-icons';
 import Swiper from 'react-native-swiper';
 import {getDoc, doc} from 'firebase/firestore';

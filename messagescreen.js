@@ -6,7 +6,6 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  SafeAreaView,
   TextInput,
   StatusBar,
   Image,
@@ -14,6 +13,7 @@ import {
   Alert,
   Platform,
 } from "react-native";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { collection, query, where, orderBy, onSnapshot, getDocs, limit, getDoc, doc } from 'firebase/firestore';
 import { db, auth } from './firebaseConfig';
@@ -713,8 +713,9 @@ export default function MessagesScreen({ navigation }) {
             cacheConversations(convos);
           },
           (error) => {
-            // Silently handle errors - SDK will retry
-            // Keep cached data on error
+            // Log the specific error code to help diagnose future issues
+            // (permission-denied here usually means a missing composite index)
+            console.warn('Conversations listener error:', error.code, error.message);
             setLoading(false);
           });
 

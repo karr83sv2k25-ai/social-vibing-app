@@ -18,6 +18,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -70,9 +71,10 @@ const FILTERS = [
   { id: 'weekly', label: 'This Week' },
 ];
 
-export default function CommunityLeaderboardScreen() {
+function CommunityLeaderboardScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const { communityId, communityData } = route.params || {};
   
   const [loading, setLoading] = useState(true); // Initial full page load
@@ -263,10 +265,16 @@ export default function CommunityLeaderboardScreen() {
             { width: ringSize, height: ringSize, borderColor: RANK_COLORS[rank] },
             isFirst && styles.avatarRingFirst,
           ]}>
-            <Image
-              source={{ uri: user?.photoURL || 'https://via.placeholder.com/100' }}
-              style={[styles.podiumAvatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}
-            />
+            {user?.photoURL ? (
+              <Image
+                source={{ uri: user.photoURL }}
+                style={[styles.podiumAvatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}
+              />
+            ) : (
+              <View style={[styles.podiumAvatar, styles.avatarFallback, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
+                <Ionicons name="person" size={avatarSize * 0.5} color={COLORS.dim} />
+              </View>
+            )}
           </View>
           
           {/* Medal badge */}
@@ -331,10 +339,16 @@ export default function CommunityLeaderboardScreen() {
         </View>
 
         {/* Avatar */}
-        <Image
-          source={{ uri: item.photoURL || 'https://via.placeholder.com/50' }}
-          style={styles.listAvatar}
-        />
+        {item.photoURL ? (
+          <Image
+            source={{ uri: item.photoURL }}
+            style={styles.listAvatar}
+          />
+        ) : (
+          <View style={[styles.listAvatar, styles.avatarFallback]}>
+            <Ionicons name="person" size={20} color={COLORS.dim} />
+          </View>
+        )}
 
         {/* User Info */}
         <View style={styles.userInfo}>
@@ -378,7 +392,7 @@ export default function CommunityLeaderboardScreen() {
       )}
 
       {/* Header - Simplified dark style */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
         <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={28} color="#fff" />
         </TouchableOpacity>
@@ -464,6 +478,14 @@ export default function CommunityLeaderboardScreen() {
   );
 }
 
+export default function CommunityLeaderboardScreenWithBoundary(props) {
+  return (
+    <ErrorBoundary>
+      <CommunityLeaderboardScreen {...props} />
+    </ErrorBoundary>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -485,12 +507,11 @@ const styles = StyleSheet.create({
     paddingVertical: 100,
   },
   
-  // Header
+  // Header – paddingTop driven by safe-area insets at runtime
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: Platform.OS === 'ios' ? 50 : 40,
     paddingBottom: 12,
     paddingHorizontal: 16,
     backgroundColor: COLORS.bg,
@@ -789,6 +810,11 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     marginRight: 14,
     backgroundColor: COLORS.card2,
+  },
+  avatarFallback: {
+    backgroundColor: COLORS.card2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   userInfo: {
     flex: 1,

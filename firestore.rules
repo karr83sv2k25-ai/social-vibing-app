@@ -63,16 +63,28 @@ service cloud.firestore {
       ));
     }
 
-    // Check if caller is currently struck (view-only) – used to block writes
+    // Check if caller is currently struck (view-only) – used to block writes.
+    // Also respects strikeExpiresAt so expired temporary strikes don't permanently block.
     function isStruck() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isStruck == true;
+      let userData = exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+      let struck = userData.get('isStruck', false) == true;
+      let expiresAt = userData.get('strikeExpiresAt', null);
+      // Still blocked if struck AND (permanent OR not yet expired)
+      return isSignedIn() && struck && (expiresAt == null || request.time < expiresAt);
     }
 
-    // Check if caller is banned
+    // Check if caller is banned.
+    // Also respects banExpiresAt so expired temporary bans don't permanently block.
     function isBanned() {
-      return isSignedIn() &&
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isBanned == true;
+      let userData = exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+      let banned = userData.get('isBanned', false) == true;
+      let expiresAt = userData.get('banExpiresAt', null);
+      // Still blocked if banned AND (permanent OR not yet expired)
+      return isSignedIn() && banned && (expiresAt == null || request.time < expiresAt);
     }
 
     // Block all writes from struck or banned users
@@ -159,6 +171,31 @@ service cloud.firestore {
         allow create: if isSignedIn();
         allow update: if isSignedIn() && isOwner(userId);
         allow delete: if isSignedIn() && isOwner(userId);
+      }
+
+      // Daily Rewards subcollection — own user only
+      match /dailyRewards/{rewardId} {
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn() && isOwner(userId);
+        allow update: if isSignedIn() && isOwner(userId);
+      }
+
+      // Streak Data subcollection — own user only
+      match /streakData/{docId} {
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn() && isOwner(userId);
+        allow update: if isSignedIn() && isOwner(userId);
+      }
+
+      // Friend Invites subcollection — owner can read/write;
+      // invited user can update status (accept/reject)
+      match /invites/{inviteId} {
+        allow read: if isSignedIn() && isOwner(userId);
+        allow create: if isSignedIn() && isOwner(userId);
+        allow update: if isSignedIn() && (
+          isOwner(userId) ||
+          resource.data.invitedUserId == request.auth.uid
+        );
       }
     }
     
@@ -343,10 +380,21 @@ service cloud.firestore {
     // MARKETPLACE COLLECTIONS
     // =============================================================================
     
-    // Wallets - users can read their own, only Cloud Functions can write
+    // Wallets - users can read their own.
+    // Cloud Functions handle most writes; the check-in service also needs
+    // client-side wallet access (creates wallet on first check-in, increments coins).
     match /wallets/{userId} {
       allow read: if isSignedIn();
-      allow write: if false; // Only Cloud Functions can modify wallets
+
+      // Client may INITIALISE a wallet (first check-in path)
+      allow create: if isSignedIn() && isOwner(userId);
+
+      // Client may update coins + timestamp only (check-in reward path).
+      // Covers both direct field updates and increment() operations.
+      // All other financial mutations remain Cloud-Function-only.
+      allow update: if isSignedIn() && isOwner(userId)
+                      && request.resource.data.diff(resource.data).affectedKeys()
+                           .hasOnly(['coins', 'updatedAt']);
     }
     
     // Transactions - users can only read their own
@@ -554,6 +602,25 @@ service cloud.firestore {
         allow create: if canWrite();
         allow update: if isSignedIn();
         allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
+      }
+
+      // ── Check-ins subcollection (community leaderboard & streak system) ──
+      // Any signed-in user may READ check-in docs (needed to render leaderboard).
+      // Only the owning user may CREATE or UPDATE their own doc.
+      // History sub-docs are immutable once written.
+      match /checkIns/{checkInUserId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn() && request.auth.uid == checkInUserId;
+        allow update: if isSignedIn() && request.auth.uid == checkInUserId;
+        allow delete: if false;
+
+        // Daily history entries – write-once, readable by owner
+        match /history/{dateId} {
+          allow read: if isSignedIn();
+          allow create: if isSignedIn() && request.auth.uid == checkInUserId;
+          allow update: if false;  // immutable
+          allow delete: if false;
+        }
       }
     }
     
@@ -918,11 +985,20 @@ service cloud.firestore {
     
     // Products - Read-only for clients, managed by Cloud Functions
     match /products/{productId} {
-      // Anyone can read active products
-      allow read: if resource.data.status == 'active';
+      // Any signed-in user can read/list products (client filters by status)
+      allow read: if isSignedIn();
       
-      // Only Cloud Functions can create/update/delete products
-      allow create, update, delete: if false;
+      // Sellers can create/update their own products; admins can manage all
+      allow create: if isSignedIn() &&
+                      request.resource.data.sellerId == request.auth.uid;
+      allow update: if isSignedIn() && (
+                      resource.data.sellerId == request.auth.uid ||
+                      isAdmin()
+                    );
+      allow delete: if isSignedIn() && (
+                      resource.data.sellerId == request.auth.uid ||
+                      isAdmin()
+                    );
     }
     
     // Orders - Users can read their own orders, Cloud Functions create them
@@ -937,10 +1013,11 @@ service cloud.firestore {
     // Libraries - Users can read their own library, Cloud Functions modify it
     match /libraries/{userId} {
       // Users can only read their own library
-      allow read: if isOwner(userId);
+      allow read: if isSignedIn() && isOwner(userId);
       
-      // Libraries can only be modified by Cloud Functions
-      allow create, update, delete: if false;
+      // Allow Cloud Functions and client to write library (purchases update it)
+      allow create, update: if isSignedIn() && isOwner(userId);
+      allow delete: if isAdmin();
     }
     
     // IAP Transactions - Cloud Functions only

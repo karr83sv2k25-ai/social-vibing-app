@@ -737,7 +737,15 @@ export default function ProfileScreen() {
                 >
                   <Feather name="edit-2" size={16} color={C.text} />
                 </TouchableOpacity>
-                
+
+                {/* Daily Check-In */}
+                <TouchableOpacity
+                  style={[styles.iconBtn, { backgroundColor: 'rgba(255, 201, 60, 0.15)', borderColor: 'rgba(255, 201, 60, 0.4)' }]}
+                  onPress={() => navigation.navigate("DailyReward")}
+                >
+                  <Ionicons name="calendar-outline" size={16} color={C.gold} />
+                </TouchableOpacity>
+
                 {/* Admin Panel Button - Only show for admins */}
                 {(userData?.isAdmin || userData?.role === 'admin') && (
                   <TouchableOpacity
@@ -902,6 +910,8 @@ export default function ProfileScreen() {
             <View style={styles.listCard}>
               {/* ✅ Only My Store navigates */}
               <ListRow title="My Store" onPress={() => navigation.navigate("MyStore")} />
+              <View style={styles.divider} />
+              <ListRow title="Daily Check-In" onPress={() => navigation.navigate("DailyReward")} />
               <View style={styles.divider} />
               <ListRow title="Membership" onPress={() => navigation.navigate("Membership")} />
               <View style={styles.divider} />

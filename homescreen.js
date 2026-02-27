@@ -51,6 +51,7 @@ import StatusBadge from './components/StatusBadge';
 import StatusSelector from './components/StatusSelector';
 import VerifiedBadge from './components/VerifiedBadge';
 import { useFocusEffect } from '@react-navigation/native';
+import StoriesRow from './components/StoriesRow';
 
 const { width } = Dimensions.get('window');
 const IMAGE_WIDTH = 267;
@@ -994,71 +995,71 @@ const HomeScreen = React.memo(({ navigation }) => {
         ]);
       };
 
-      // Fetch with 15-second timeout per collection
-      console.log('📥 Fetching posts...');
-      globalPostsSnapshot = await fetchWithTimeout(
-        getDocs(query(collection(db, 'posts'), limit(10))),
-        15000,
-        'Posts'
-      ).then(snapshot => {
-        console.log('✅ Posts fetched:', snapshot.docs.length, 'documents');
-        return snapshot;
-      }).catch(err => {
-        console.log('❌ Posts fetch error:', err.message, err.code || '');
-        return { docs: [] };
-      });
-
-      console.log('📥 Fetching polls...');
-      pollsSnapshot = await fetchWithTimeout(
-        getDocs(query(collection(db, 'polls'), limit(5))),
-        15000,
-        'Polls'
-      ).then(snapshot => {
-        console.log('✅ Polls fetched:', snapshot.docs.length, 'documents');
-        return snapshot;
-      }).catch(err => {
-        console.log('❌ Polls fetch error:', err.message, err.code || '');
-        return { docs: [] };
-      });
-
-      console.log('📥 Fetching quizzes...');
-      quizzesSnapshot = await fetchWithTimeout(
-        getDocs(query(collection(db, 'quizzes'), limit(5))),
-        15000,
-        'Quizzes'
-      ).then(snapshot => {
-        console.log('✅ Quizzes fetched:', snapshot.docs.length, 'documents');
-        return snapshot;
-      }).catch(err => {
-        console.log('❌ Quizzes fetch error:', err.message, err.code || '');
-        return { docs: [] };
-      });
-
-      console.log('📥 Fetching questions...');
-      questionsSnapshot = await fetchWithTimeout(
-        getDocs(query(collection(db, 'questions'), limit(5))),
-        15000,
-        'Questions'
-      ).then(snapshot => {
-        console.log('✅ Questions fetched:', snapshot.docs.length, 'documents');
-        return snapshot;
-      }).catch(err => {
-        console.log('❌ Questions fetch error:', err.message, err.code || '');
-        return { docs: [] };
-      });
-
-      console.log('📥 Fetching communities...');
-      communitiesSnapshot = await fetchWithTimeout(
-        getDocs(query(collection(db, 'communities'), limit(3))),
-        15000,
-        'Communities'
-      ).then(snapshot => {
-        console.log('✅ Communities fetched:', snapshot.docs.length, 'documents');
-        return snapshot;
-      }).catch(err => {
-        console.log('❌ Communities fetch error:', err.message, err.code || '');
-        return { docs: [] };
-      });
+      // Fetch all collections in parallel to avoid sequential timeout stacking
+      console.log('📥 Fetching posts, polls, quizzes, questions, communities in parallel...');
+      [
+        globalPostsSnapshot,
+        pollsSnapshot,
+        quizzesSnapshot,
+        questionsSnapshot,
+        communitiesSnapshot,
+      ] = await Promise.all([
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'posts'), limit(10))),
+          15000,
+          'Posts'
+        ).then(snapshot => {
+          console.log('✅ Posts fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Posts fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'polls'), limit(5))),
+          15000,
+          'Polls'
+        ).then(snapshot => {
+          console.log('✅ Polls fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Polls fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'quizzes'), limit(5))),
+          15000,
+          'Quizzes'
+        ).then(snapshot => {
+          console.log('✅ Quizzes fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Quizzes fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'questions'), limit(5))),
+          15000,
+          'Questions'
+        ).then(snapshot => {
+          console.log('✅ Questions fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Questions fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'communities'), limit(3))),
+          15000,
+          'Communities'
+        ).then(snapshot => {
+          console.log('✅ Communities fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Communities fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+      ]);
 
       console.log('✅ All collections fetched', {
         posts: globalPostsSnapshot.docs?.length || 0,
@@ -2327,8 +2328,22 @@ const HomeScreen = React.memo(({ navigation }) => {
             >
               <Ionicons name="notifications" size={24} color="#fff" />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => navigation.navigate('GlobalLeaderboard')}
+            >
+              <Ionicons name="trophy-outline" size={24} color="#FFD700" />
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* Stories Row */}
+        <StoriesRow
+          currentUserId={currentUser?.id ?? currentUser?.uid ?? null}
+          currentUserName={userName || 'My Story'}
+          currentUserAvatar={profileImage || null}
+          followingUserIds={followingUserIds}
+        />
 
         {/* Carousel - Top Communities */}
         <FlatList
