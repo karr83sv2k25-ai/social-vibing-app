@@ -8,28 +8,26 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
-  Image,
-  FlatList,
   ActivityIndicator,
   Animated,
   Dimensions,
   Platform,
   RefreshControl,
-  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { getAuth } from 'firebase/auth';
 import { db } from '../firebaseConfig';
 import ErrorBoundary from '../components/ErrorBoundary';
+import CachedImage from '../components/CachedImage';
 import {
   getCommunityLeaderboard,
   getUserRank,
   getUserBadge,
+  getLiveStreak,
   BADGES,
 } from '../shared/services/communityCheckInService';
 
@@ -119,6 +117,15 @@ const getCommunityRankColor = (rank) => {
   return '#8B9099';
 };
 
+/** Format large numbers with K/M suffix for compact display */
+const formatNumber = (num) => {
+  if (num == null) return '0';
+  if (num >= 1000000) return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (num >= 10000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  if (num >= 1000) return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(num);
+};
+
 function CommunityLeaderboardScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -171,9 +178,19 @@ function CommunityLeaderboardScreen() {
     }
   }, []);
 
+  // Navigate to a user's profile
+  const navigateToProfile = useCallback((userId) => {
+    if (!userId) return;
+    navigation.navigate('Profile', { userId });
+  }, [navigation]);
+
   // Fetch leaderboard data
   const fetchData = useCallback(async (forceRefresh = false) => {
-    if (!communityId) return;
+    if (!communityId) {
+      setError('Community not found.');
+      setLoading(false);
+      return;
+    }
 
     setError(null);
 
@@ -189,17 +206,30 @@ function CommunityLeaderboardScreen() {
     }
 
     try {
-      const [leaderboardData, userRank] = await Promise.all([
-        getCommunityLeaderboard(db, communityId, activeFilter, 50),
-        currentUser?.id ? getUserRank(db, communityId, currentUser.id, activeFilter) : null,
-      ]);
+      // Fetch leaderboard first
+      const leaderboardData = await getCommunityLeaderboard(db, communityId, activeFilter, 50);
+
+      // Fetch user rank – pass leaderboard data to avoid redundant server reads
+      let userRank = null;
+      if (currentUser?.id) {
+        try {
+          userRank = await getUserRank(db, communityId, currentUser.id, activeFilter, leaderboardData);
+        } catch (rankErr) {
+          console.log('Could not fetch user rank:', rankErr.message);
+        }
+      }
 
       setLeaderboard(leaderboardData || []);
       setUserRankData(userRank);
       leaderboardCache.current[activeFilter] = { leaderboard: leaderboardData || [], userRankData: userRank };
     } catch (err) {
       console.error('Error fetching leaderboard:', err);
-      setError('Failed to load leaderboard. Please try again.');
+      const isIndex = err?.message?.includes?.('index');
+      setError(
+        isIndex
+          ? 'Leaderboard index is building. Please try again in a few minutes.'
+          : 'Failed to load leaderboard. Please try again.'
+      );
       setLeaderboard([]);
     } finally {
       setLoading(false);
@@ -294,42 +324,45 @@ function CommunityLeaderboardScreen() {
 
     const { rank, totalUsers, points, userData } = userRankData;
     const badge = userData?.badge || getUserBadge(points || 0);
+    const streak = userData?.currentStreak ?? 0;
 
     return (
-      <LinearGradient
-        colors={['#7C3AED25', '#E91E8C10', '#2A2F3A']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.userRankCard}>
-        <View style={styles.userRankHeader}>
-          <Text style={styles.userRankTitle}>Your Ranking</Text>
-          <View style={styles.userRankBadge}>
-            <Text style={styles.badgeIcon}>{badge?.icon || '🌱'}</Text>
-            <Text style={styles.badgeName}>{badge?.name || 'Newbie'}</Text>
+      <TouchableOpacity activeOpacity={0.85} onPress={() => navigateToProfile(currentUser?.id)}>
+        <LinearGradient
+          colors={['#7C3AED25', '#E91E8C10', '#2A2F3A']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.userRankCard}>
+          <View style={styles.userRankHeader}>
+            <Text style={styles.userRankTitle}>Your Ranking</Text>
+            <View style={styles.userRankBadge}>
+              <Text style={styles.badgeIcon}>{badge?.icon || '🌱'}</Text>
+              <Text style={styles.badgeName}>{badge?.name || 'Newbie'}</Text>
+            </View>
           </View>
-        </View>
-        <View style={styles.userRankStats}>
-          <View style={styles.userRankStat}>
-            <Text style={styles.userRankValue}>#{rank}</Text>
-            <Text style={styles.userRankLabel}>Rank</Text>
+          <View style={styles.userRankStats}>
+            <View style={styles.userRankStat}>
+              <Text style={styles.userRankValue}>#{rank}</Text>
+              <Text style={styles.userRankLabel}>Rank</Text>
+            </View>
+            <View style={styles.userRankDivider} />
+            <View style={styles.userRankStat}>
+              <Text style={styles.userRankValue}>{formatNumber(points || 0)}</Text>
+              <Text style={styles.userRankLabel}>Points</Text>
+            </View>
+            <View style={styles.userRankDivider} />
+            <View style={styles.userRankStat}>
+              <Text style={styles.userRankValue}>{streak}</Text>
+              <Text style={styles.userRankLabel}>Streak 🔥</Text>
+            </View>
+            <View style={styles.userRankDivider} />
+            <View style={styles.userRankStat}>
+              <Text style={styles.userRankValue}>{totalUsers}</Text>
+              <Text style={styles.userRankLabel}>Total</Text>
+            </View>
           </View>
-          <View style={styles.userRankDivider} />
-          <View style={styles.userRankStat}>
-            <Text style={styles.userRankValue}>{points || 0}</Text>
-            <Text style={styles.userRankLabel}>Points</Text>
-          </View>
-          <View style={styles.userRankDivider} />
-          <View style={styles.userRankStat}>
-            <Text style={styles.userRankValue}>{userData?.currentStreak || 0}</Text>
-            <Text style={styles.userRankLabel}>Streak 🔥</Text>
-          </View>
-          <View style={styles.userRankDivider} />
-          <View style={styles.userRankStat}>
-            <Text style={styles.userRankValue}>{totalUsers}</Text>
-            <Text style={styles.userRankLabel}>Total</Text>
-          </View>
-        </View>
-      </LinearGradient>
+        </LinearGradient>
+      </TouchableOpacity>
     );
   };
 
@@ -342,7 +375,7 @@ function CommunityLeaderboardScreen() {
     const second = leaderboard[1] || null;
     const third = leaderboard[2] || null;
     
-    const renderPodiumUser = (user, rank, size = 'medium') => {
+    const renderPodiumUser = (user, rank) => {
       if (!user) {
         // Empty placeholder for missing podium positions
         return (
@@ -357,11 +390,15 @@ function CommunityLeaderboardScreen() {
       
       const avatarSize = rank === 1 ? 100 : 75;
       const ringSize = avatarSize + 8;
-      const medalSize = rank === 1 ? 28 : 24;
       const isFirst = rank === 1;
+      const streak = user?.currentStreak || 0;
       
       return (
-        <View style={[styles.podiumUserContainer, isFirst && styles.podiumFirstContainer]}>
+        <TouchableOpacity
+          activeOpacity={0.75}
+          onPress={() => navigateToProfile(user.userId)}
+          style={[styles.podiumUserContainer, isFirst && styles.podiumFirstContainer]}
+        >
           {/* Crown for #1 */}
           {isFirst && (
             <View style={styles.crownContainer}>
@@ -376,7 +413,7 @@ function CommunityLeaderboardScreen() {
             isFirst && styles.avatarRingFirst,
           ]}>
             {user?.photoURL ? (
-              <Image
+              <CachedImage
                 source={{ uri: user.photoURL }}
                 style={[styles.podiumAvatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}
               />
@@ -400,12 +437,19 @@ function CommunityLeaderboardScreen() {
           <Text style={styles.podiumName} numberOfLines={1}>
             {user?.displayName || 'User'}
           </Text>
+
+          {/* Points (primary metric) */}
+          <Text style={[styles.podiumPoints, isFirst && styles.podiumPointsFirst]}>
+            {formatNumber(user?.points || 0)} pts
+          </Text>
           
           {/* Streak days */}
-          <Text style={[styles.podiumStreak, isFirst && styles.podiumStreakFirst]}>
-            {user?.currentStreak || 0} days
-          </Text>
-        </View>
+          {streak > 0 ? (
+            <Text style={[styles.podiumStreak, isFirst && styles.podiumStreakFirst]}>
+              🔥 {streak}d
+            </Text>
+          ) : null}
+        </TouchableOpacity>
       );
     };
     
@@ -430,20 +474,25 @@ function CommunityLeaderboardScreen() {
   };
 
   // Render leaderboard item - redesigned for #4 and below
-  const renderLeaderboardItem = ({ item, index }) => {
+  const renderLeaderboardItem = useCallback(({ item, index }) => {
     if (index < 3) return null; // Top 3 shown in podium
 
     const isCurrentUser = currentUser?.id === item.userId;
     const badge = item.badge || getUserBadge(item.points || 0);
     const rank = item.rank || index + 1;
     const rankColor = getCommunityRankColor(rank);
+    const streak = item.currentStreak || 0;
 
     return (
       <Animated.View style={{ opacity: listFadeAnim }}>
-      <View style={[
-        styles.leaderboardItem,
-        isCurrentUser && styles.leaderboardItemCurrentUser,
-      ]}>
+      <TouchableOpacity
+        activeOpacity={0.7}
+        onPress={() => navigateToProfile(item.userId)}
+        style={[
+          styles.leaderboardItem,
+          isCurrentUser && styles.leaderboardItemCurrentUser,
+        ]}
+      >
         {/* Rank Number */}
         <View style={styles.rankContainer}>
           <Text style={[styles.rankHash, { color: rankColor }]}>#</Text>
@@ -452,7 +501,7 @@ function CommunityLeaderboardScreen() {
 
         {/* Avatar */}
         {item.photoURL ? (
-          <Image
+          <CachedImage
             source={{ uri: item.photoURL }}
             style={styles.listAvatar}
           />
@@ -471,19 +520,25 @@ function CommunityLeaderboardScreen() {
             <Ionicons name="star-outline" size={12} color={COLORS.dim} />
             <Text style={styles.levelText}>Lvl {badge.tier + 1}</Text>
             <Ionicons name="trending-up" size={12} color={COLORS.dim} style={{ marginLeft: 8 }} />
-            <Text style={styles.pointsSmallText}>{item.points || 0} pts</Text>
+            <Text style={styles.pointsSmallText}>{formatNumber(item.points || 0)} pts</Text>
           </View>
         </View>
 
         {/* Streak Fire Badge */}
-        <View style={styles.streakBadge}>
-          <Text style={styles.fireEmoji}>🔥</Text>
-          <Text style={styles.streakNumber}>{item.currentStreak || 0}</Text>
-        </View>
-      </View>
+        {streak > 0 ? (
+          <View style={styles.streakBadge}>
+            <Text style={styles.fireEmoji}>🔥</Text>
+            <Text style={styles.streakNumber}>{streak}</Text>
+          </View>
+        ) : (
+          <View style={[styles.streakBadge, { backgroundColor: COLORS.card2 }]}>
+            <Text style={[styles.streakNumber, { color: COLORS.dim }]}>-</Text>
+          </View>
+        )}
+      </TouchableOpacity>
       </Animated.View>
     );
-  };
+  }, [currentUser?.id, navigateToProfile, listFadeAnim]);
 
   if (loading && !refreshing) {
     return (
@@ -889,13 +944,23 @@ const styles = StyleSheet.create({
     maxWidth: 100,
     textAlign: 'center',
   },
+  podiumPoints: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.blue,
+    marginTop: 4,
+  },
+  podiumPointsFirst: {
+    fontSize: 16,
+    color: COLORS.magenta,
+  },
   podiumStreak: {
-    fontSize: 13,
+    fontSize: 12,
     color: COLORS.dim,
     marginTop: 2,
   },
   podiumStreakFirst: {
-    color: COLORS.magenta,
+    color: COLORS.orange,
     fontWeight: '600',
   },
   

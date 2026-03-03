@@ -67,6 +67,7 @@ import { normalizeBlobUri, normalizeImageUri } from './utils/normalizeUri';
 import { Audio, Video } from 'expo-av';
 import ReportUserModal from './components/ReportUserModal';
 import PostOptionsModal from './components/PostOptionsModal';
+import CommunitySidebar from './components/CommunitySidebar';
 import { canCheckInToday, getUserCheckInData, checkInToCommunity, COINS_CONFIG, POINTS_CONFIG } from './shared/services/communityCheckInService';
 import { useWallet } from './context/WalletContext';
 
@@ -734,7 +735,7 @@ export default function GroupInfoScreen() {
   }, [communityId, currentUser]);
   const navigation = useNavigation();
   const route = useRoute();
-  const { communityId, groupTitle, openCharacterSelector, roleplaySessionId, returnToRoleplay } = route.params || {};
+  const { communityId, groupTitle, openCharacterSelector, roleplaySessionId, returnToRoleplay, initialTab } = route.params || {};
   const auth = getAuth(firebaseApp);
   const [selectedButton, setSelectedButton] = useState('Explore');
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -810,8 +811,16 @@ export default function GroupInfoScreen() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('community');
+  const [activeTab, setActiveTab] = useState(initialTab || 'community');
   const [showAddModal, setShowAddModal] = useState(false);
+
+  // Respond to initialTab param changes (e.g. sidebar navigation from CommunityDetail)
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab]);
+
   const [communitySection, setCommunitySection] = useState('all');
   const [communityGroups, setCommunityGroups] = useState([]);
   const [joinedGroupIds, setJoinedGroupIds] = useState([]);
@@ -843,6 +852,7 @@ export default function GroupInfoScreen() {
   const [checkInStreak, setCheckInStreak] = useState(0);
   const [checkInPoints, setCheckInPoints] = useState(0);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const walletContext = useWallet();
   const { wallet: walletData } = walletContext;
   const [inviteLink, setInviteLink] = useState('');
@@ -5494,10 +5504,15 @@ export default function GroupInfoScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Top Bar */}
       <View style={styles.topBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <Text style={styles.topBarTitle}>{community?.name || groupTitle || 'Community'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+            <Ionicons name="menu" size={24} color="#fff" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+        <Text style={styles.topBarTitle} numberOfLines={1}>{community?.name || groupTitle || 'Community'}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           {isAdmin && (
             <TouchableOpacity onPress={() => setShowAdminPanel(true)}>
@@ -6689,86 +6704,96 @@ export default function GroupInfoScreen() {
             {/* Tab 5: Account */}
             {activeTab === 'account' && (
               <View style={styles.accountSection}>
-                <View style={styles.accountCard}>
+                {/* Avatar + Name header area */}
+                <View style={styles.accountHeaderArea}>
                   <View style={styles.accountAvatarContainer}>
-                    {currentUser?.profileImage ? (
-                      <Image
-                        source={{ uri: currentUser.profileImage }}
-                        style={styles.accountAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.accountAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
-                        <Ionicons name="person" size={60} color="#657786" />
-                      </View>
-                    )}
+                    <LinearGradient
+                      colors={['#08FFE2', '#8B2EF0']}
+                      style={styles.accountAvatarRing}
+                    >
+                      {currentUser?.profileImage ? (
+                        <Image
+                          source={{ uri: currentUser.profileImage }}
+                          style={styles.accountAvatar}
+                        />
+                      ) : (
+                        <View style={[styles.accountAvatar, styles.accountAvatarFallback]}>
+                          <Ionicons name="person" size={42} color="#657786" />
+                        </View>
+                      )}
+                    </LinearGradient>
                     <View style={styles.accountBadge}>
-                      <Ionicons name="checkmark-circle" size={24} color="#00FF47" />
+                      <Ionicons name="checkmark-circle" size={22} color="#00FF47" />
                     </View>
                   </View>
 
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  <View style={styles.accountNameRow}>
                     <Text style={styles.accountName}>{currentUser?.communityNickname || communityNickname || currentUser?.name || 'User'}</Text>
                     <TouchableOpacity
                       onPress={() => {
                         setNicknameInput(communityNickname || '');
                         setShowNicknameModal(true);
                       }}
-                      style={{ padding: 4 }}
+                      style={styles.accountEditNameBtn}
                     >
-                      <MaterialIcons name="edit" size={18} color="#8B2EF0" />
+                      <MaterialIcons name="edit" size={15} color="#A2A8B3" />
                     </TouchableOpacity>
                   </View>
 
-                  <View style={styles.accountEmailContainer}>
-                    <Ionicons name="mail-outline" size={16} color="#8B2EF0" />
-                    <Text style={styles.accountEmail}>{currentUser?.email || 'user@example.com'}</Text>
-                  </View>
+                  {currentUser?.email ? (
+                    <Text style={styles.accountEmailText}>{currentUser.email}</Text>
+                  ) : null}
+                </View>
 
-                  {/* Stats Grid */}
+                {/* Stats Row */}
+                <View style={styles.accountStatsCard}>
                   <View style={styles.accountStatsGrid}>
-                    <View style={styles.accountStatItem}>
-                      <Text style={styles.accountStatValue}>{userStats.following}</Text>
-                      <Text style={styles.accountStatLabel}>Following</Text>
-                    </View>
                     <View style={styles.accountStatItem}>
                       <Text style={styles.accountStatValue}>{userStats.followers}</Text>
                       <Text style={styles.accountStatLabel}>Followers</Text>
                     </View>
+                    <View style={styles.accountStatsDivider} />
+                    <View style={styles.accountStatItem}>
+                      <Text style={styles.accountStatValue}>{userStats.following}</Text>
+                      <Text style={styles.accountStatLabel}>Following</Text>
+                    </View>
+                    <View style={styles.accountStatsDivider} />
                     <View style={styles.accountStatItem}>
                       <Text style={styles.accountStatValue}>{userStats.totalLikes}</Text>
                       <Text style={styles.accountStatLabel}>Likes</Text>
                     </View>
                   </View>
+                </View>
 
-                  {/* Content Stats */}
-                  <View style={styles.accountContentStats}>
-                    <View style={styles.accountContentStatItem}>
-                      <Ionicons name="document-text" size={20} color="#40DFFC" />
-                      <View style={styles.accountContentStatText}>
-                        <Text style={styles.accountContentStatValue}>{userStats.totalBlogs}</Text>
-                        <Text style={styles.accountContentStatLabel}>Blogs</Text>
-                      </View>
-                    </View>
-                    <View style={styles.accountContentStatItem}>
-                      <Ionicons name="image" size={20} color="#FF4A4A" />
-                      <View style={styles.accountContentStatText}>
-                        <Text style={styles.accountContentStatValue}>{userStats.totalPosts}</Text>
-                        <Text style={styles.accountContentStatLabel}>Posts</Text>
-                      </View>
-                    </View>
+                {/* Content Stats */}
+                <View style={styles.accountContentStatsRow}>
+                  <View style={styles.accountContentStatChip}>
+                    <Ionicons name="document-text" size={18} color="#08FFE2" />
+                    <Text style={styles.accountContentStatValue}>{userStats.totalBlogs}</Text>
+                    <Text style={styles.accountContentStatLabel}>Blogs</Text>
                   </View>
+                  <View style={styles.accountContentStatChip}>
+                    <Ionicons name="image" size={18} color="#FF6B6B" />
+                    <Text style={styles.accountContentStatValue}>{userStats.totalPosts}</Text>
+                    <Text style={styles.accountContentStatLabel}>Posts</Text>
+                  </View>
+                </View>
 
-                  {/* Ranking/Leaderboard */}
-                  <View style={styles.accountRankingContainer}>
-                    <View style={styles.accountRankingHeader}>
-                      <Ionicons name="trophy" size={24} color="#FFD700" />
-                      <Text style={styles.accountRankingTitle}>Your Ranking</Text>
-                    </View>
-                    <View style={styles.accountRankingBadge}>
-                      <Text style={styles.accountRankingNumber}>#{userStats.ranking || 'N/A'}</Text>
-                      <Text style={styles.accountRankingSubtext}>Based on total likes</Text>
-                    </View>
+                {/* Ranking */}
+                <View style={styles.accountRankingCard}>
+                  <View style={styles.accountRankingHeader}>
+                    <Ionicons name="trophy" size={20} color="#FFD700" />
+                    <Text style={styles.accountRankingTitle}>Your Ranking</Text>
                   </View>
+                  <View style={styles.accountRankingBadge}>
+                    <Text style={styles.accountRankingNumber}>
+                      {userStats.ranking ? `#${userStats.ranking}` : '—'}
+                    </Text>
+                    <Text style={styles.accountRankingSubtext}>
+                      {userStats.ranking ? 'Based on total likes' : 'Keep engaging to get ranked!'}
+                    </Text>
+                  </View>
+                </View>
 
                   {/* Daily Check-in Card */}
                   <View style={styles.checkInCard}>
@@ -6866,7 +6891,6 @@ export default function GroupInfoScreen() {
                       </LinearGradient>
                     </TouchableOpacity>
                   </View>
-                </View>
               </View>
             )}
           </ScrollView>
@@ -10058,6 +10082,28 @@ export default function GroupInfoScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <CommunitySidebar
+        visible={sidebarVisible}
+        onClose={() => setSidebarVisible(false)}
+        communityId={communityId}
+        communityData={community}
+        currentUser={currentUser}
+        isAdmin={isAdmin}
+        isModerator={isModerator}
+        userPoints={checkInPoints}
+        userStreak={checkInStreak}
+        navigation={navigation}
+        onItemPress={(item) => {
+          // Handle tab switches directly when already on GroupInfo
+          const tabMap = { Members: 'online', Chat: 'chat', Posts: 'community', Events: 'community' };
+          if (tabMap[item.screen]) {
+            setActiveTab(tabMap[item.screen]);
+            return true; // handled — skip default navigation
+          }
+          return false;
+        }}
+      />
+
     </SafeAreaView>
   );
 }
@@ -11588,165 +11634,173 @@ const styles = StyleSheet.create({
 
   accountSection: {
     paddingHorizontal: 16,
-    paddingVertical: 32,
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingTop: 24,
+    paddingBottom: 12,
   },
-  accountCard: {
-    width: '100%',
+  accountHeaderArea: {
     alignItems: 'center',
-    backgroundColor: '#1e1e1e',
-    borderRadius: 20,
-    paddingVertical: 40,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: '#8B2EF0',
+    marginBottom: 20,
   },
   accountAvatarContainer: {
     position: 'relative',
-    marginBottom: 24,
+    marginBottom: 16,
+  },
+  accountAvatarRing: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   accountAvatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 3,
-    borderColor: '#8B2EF0',
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+  },
+  accountAvatarFallback: {
+    backgroundColor: '#1A1F27',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   accountBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    backgroundColor: '#121212',
-    borderRadius: 20,
-    padding: 4,
-    borderWidth: 2,
-    borderColor: '#00FF47',
+    bottom: 2,
+    right: 2,
+    backgroundColor: '#0B0B10',
+    borderRadius: 14,
+    padding: 3,
   },
-  accountName: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  accountEmailContainer: {
+  accountNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0a0a0a',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginBottom: 20,
-    width: '100%',
+    gap: 8,
+    marginBottom: 4,
   },
-  accountEmail: {
-    color: '#ccc',
-    fontSize: 14,
-    marginLeft: 10,
-    flex: 1,
+  accountEditNameBtn: {
+    padding: 6,
+    borderRadius: 14,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  accountName: {
+    color: '#EAEAF0',
+    fontSize: 22,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  accountEmailText: {
+    color: '#A2A8B3',
+    fontSize: 13,
+    marginTop: 2,
+  },
+  accountStatsCard: {
+    backgroundColor: '#14171C',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#242A33',
+    paddingVertical: 16,
+    marginBottom: 12,
   },
   accountStatsGrid: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    width: '100%',
-    marginTop: 24,
-    marginBottom: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#222',
-  },
-  accountStatItem: {
     alignItems: 'center',
   },
+  accountStatItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  accountStatsDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: '#242A33',
+  },
   accountStatValue: {
-    color: '#fff',
-    fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
+    color: '#EAEAF0',
+    fontSize: 20,
+    fontWeight: '800',
+    marginBottom: 2,
   },
   accountStatLabel: {
-    color: '#888',
+    color: '#A2A8B3',
     fontSize: 12,
     fontWeight: '500',
   },
-  accountContentStats: {
+  accountContentStatsRow: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#222',
+    gap: 10,
+    marginBottom: 12,
   },
-  accountContentStatItem: {
+  accountContentStatChip: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0a0a0a',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    minWidth: 120,
-  },
-  accountContentStatText: {
-    marginLeft: 12,
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#14171C',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#242A33',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
   },
   accountContentStatValue: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
+    color: '#EAEAF0',
+    fontSize: 17,
+    fontWeight: '800',
   },
   accountContentStatLabel: {
-    color: '#888',
+    color: '#A2A8B3',
     fontSize: 12,
-    marginTop: 2,
+    fontWeight: '500',
   },
-  accountRankingContainer: {
-    marginTop: 20,
-    paddingTop: 20,
-    borderTopWidth: 1,
-    borderTopColor: '#222',
+  accountRankingCard: {
+    backgroundColor: '#14171C',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#242A33',
+    padding: 16,
     alignItems: 'center',
+    marginBottom: 12,
   },
   accountRankingHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
+    gap: 8,
   },
   accountRankingTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '700',
-    marginLeft: 8,
+    color: '#EAEAF0',
+    fontSize: 16,
+    fontWeight: '800',
   },
   accountRankingBadge: {
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    borderRadius: 16,
-    paddingVertical: 20,
-    paddingHorizontal: 32,
-    borderWidth: 2,
-    borderColor: '#FFD700',
+    backgroundColor: 'rgba(255, 201, 60, 0.08)',
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 201, 60, 0.3)',
     alignItems: 'center',
-    minWidth: 150,
+    minWidth: 140,
   },
   accountRankingNumber: {
-    color: '#FFD700',
-    fontSize: 32,
-    fontWeight: 'bold',
+    color: '#FFC93C',
+    fontSize: 28,
+    fontWeight: '800',
     marginBottom: 4,
   },
   accountRankingSubtext: {
-    color: '#888',
-    fontSize: 12,
+    color: '#A2A8B3',
+    fontSize: 11,
     textAlign: 'center',
   },
   /* Check-in Card */
   checkInCard: {
-    marginTop: 16,
-    backgroundColor: '#111',
-    borderRadius: 18,
+    marginTop: 0,
+    backgroundColor: '#14171C',
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#222',
+    borderColor: '#242A33',
     padding: 14,
   },
   checkInCardHeader: {

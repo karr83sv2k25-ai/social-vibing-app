@@ -124,8 +124,10 @@ const CommunitySidebar = ({
   }, [visible]);
 
   const handleItemPress = (item) => {
-    if (onItemPress) {
-      onItemPress(item);
+    // If onItemPress handles the item (returns true), skip default navigation
+    if (onItemPress && onItemPress(item)) {
+      onClose();
+      return;
     }
     
     // Handle navigation based on screen
@@ -145,25 +147,16 @@ const CommunitySidebar = ({
           navigation.navigate('CommunityLeaderboard', { communityId, communityData });
           break;
         case 'Members':
-          // Navigate back to community info with members tab selected
-          onClose();
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          }
+          navigation.navigate('GroupInfo', { communityId, initialTab: 'online' });
           break;
         case 'Chat':
-          // Navigate back to community chat tab
-          onClose();
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          }
+          navigation.navigate('GroupInfo', { communityId, initialTab: 'chat' });
           break;
         case 'Posts':
-          // Navigate back to community posts/feed tab
-          onClose();
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          }
+          navigation.navigate('GroupInfo', { communityId, initialTab: 'community' });
+          break;
+        case 'Events':
+          navigation.navigate('GroupInfo', { communityId, initialTab: 'community' });
           break;
         case 'VoiceRooms':
           navigation.navigate('GroupAudioCall', { communityId, community: communityData });
@@ -184,15 +177,17 @@ const CommunitySidebar = ({
           navigation.navigate('ModeratorsManagement', { communityId });
           break;
         case 'Invite':
-          onClose();
-          Share.share({
-            message: `Join ${communityData?.name || 'my community'} on Social Vibing!\nhttps://socialvibingapp.karr83anime.com/community/${communityId}`,
-            title: `Join ${communityData?.name || 'Community'}`,
-          }).catch((err) => {
-            if (err?.message !== 'The user did not share') {
-              console.log('Share error:', err?.message);
-            }
-          });
+          // Share needs a small delay after modal closes to work reliably
+          setTimeout(() => {
+            Share.share({
+              message: `Join ${communityData?.name || communityData?.title || 'my community'} on Social Vibing!\nhttps://socialvibingapp.karr83anime.com/community/${communityId}`,
+              title: `Join ${communityData?.name || communityData?.title || 'Community'}`,
+            }).catch((err) => {
+              if (err?.message !== 'The user did not share') {
+                console.log('Share error:', err?.message);
+              }
+            });
+          }, 350);
           break;
         default:
           break;

@@ -19,6 +19,7 @@ import {
   writeBatch,
   runTransaction,
 } from 'firebase/firestore';
+import { getDocsWithRetry, getDocWithRetry } from '../../utils/firestoreHelpers';
 
 // ============================================
 // CONFIGURATION
@@ -54,16 +55,17 @@ export const BADGES = [
  * Validate required parameters
  * @param {Object} db - Firestore instance
  * @param {string} communityId - Community ID
- * @param {string} userId - User ID
+ * @param {string} userId - User ID (optional when requireUserId is false)
+ * @param {boolean} requireUserId - Whether userId is required (default: true)
  */
-const validateParams = (db, communityId, userId) => {
+const validateParams = (db, communityId, userId, requireUserId = true) => {
   if (!db) {
     throw new Error('Firestore database instance is required');
   }
   if (!communityId || typeof communityId !== 'string') {
     throw new Error('Valid community ID is required');
   }
-  if (!userId || typeof userId !== 'string') {
+  if (requireUserId && (!userId || typeof userId !== 'string')) {
     throw new Error('Valid user ID is required');
   }
 };
@@ -184,6 +186,22 @@ export const getNextBadge = (totalPoints) => {
 };
 
 /**
+ * Compute the live (real-time) streak for a check-in record.
+ * If lastCheckInDate is today or yesterday the streak is still alive;
+ * otherwise it has expired and the effective streak is 0.
+ * @param {Object} checkInData - The raw check-in document data
+ * @returns {number} Live streak value
+ */
+export const getLiveStreak = (checkInData) => {
+  if (!checkInData || !checkInData.lastCheckInDate) return 0;
+  const last = checkInData.lastCheckInDate;
+  if (last === getTodayDate() || last === getYesterdayDate()) {
+    return checkInData.currentStreak || 0;
+  }
+  return 0; // streak expired
+};
+
+/**
  * Get start of current week (Monday) in UTC – consistent with getTodayDate()
  */
 const getWeekStart = () => {
@@ -271,10 +289,17 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
     
     // Use transaction to prevent race conditions
     const result = await runTransaction(db, async (transaction) => {
-      // IMPORTANT: All reads must happen before any writes in Firestore transactions
+      // ========================================================
+      // PHASE 1: ALL READS — must complete before any writes
+      // ========================================================
       const checkInSnap = await transaction.get(checkInRef);
       const walletRef = doc(db, 'wallets', userId);
       const walletSnap = await transaction.get(walletRef);
+      const userProfileRef = doc(db, 'users', userId);
+      const userProfileSnap = await transaction.get(userProfileRef);
+      // ========================================================
+      // END OF READS — no more transaction.get() calls below
+      // ========================================================
       
       let currentData = checkInSnap.exists() ? checkInSnap.data() : null;
       
@@ -336,17 +361,27 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
         updateData.createdAt = serverTimestamp();
       }
       
-      // Update check-in document in transaction
+      // Denormalize displayName & photoURL for leaderboard (from the read above)
+      if (userProfileSnap.exists()) {
+        const userProfile = userProfileSnap.data();
+        updateData.displayName = sanitizeDisplayName(userProfile.displayName || userProfile.username);
+        updateData.photoURL = userProfile.photoURL || userProfile.profileImage || null;
+      }
+
+      // ========================================================
+      // PHASE 2: ALL WRITES
+      // ========================================================
+
+      // Update check-in document
       transaction.set(checkInRef, updateData, { merge: true });
       
-      // Update wallet in transaction (wallet reference already created above)
+      // Update wallet
       if (walletSnap.exists()) {
         transaction.update(walletRef, {
           coins: increment(coinsEarned),
           updatedAt: serverTimestamp(),
         });
       } else {
-        // Create wallet if it doesn't exist
         transaction.set(walletRef, {
           userId,
           coins: coinsEarned,
@@ -361,7 +396,7 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
         });
       }
       
-      // Add to history in transaction
+      // Add to history
       const historyRef = doc(db, 'communities', communityId, 'checkIns', userId, 'history', today);
       transaction.set(historyRef, {
         date: today,
@@ -419,7 +454,7 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
  * @returns {Array} Leaderboard entries
  */
 export const getCommunityLeaderboard = async (db, communityId, filter = 'all', limitCount = 50) => {
-  validateParams(db, communityId, 'temp');
+  validateParams(db, communityId, null, false);
   
   try {
     const checkInsRef = collection(db, 'communities', communityId, 'checkIns');
@@ -451,66 +486,92 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
           limit(limitCount)
         );
     
-    const snapshot = await getDocs(q);
+    const snapshot = await getDocsWithRetry(q, { timeout: 10000, retries: 2 });
+    if (!snapshot) return [];
+
     const leaderboard = [];
     
-    // Collect all user IDs first
+    // Collect all check-in docs
     const checkInData = snapshot.docs.map(docSnap => ({
       id: docSnap.id,
       data: docSnap.data(),
     }));
     
-    const userIds = checkInData.map(item => item.data.userId).filter(Boolean);
+    // Determine which user IDs are missing denormalized profile data
+    const missingUserIds = checkInData
+      .filter(item => !item.data.displayName)
+      .map(item => item.data.userId)
+      .filter(Boolean);
     
-    // Batch fetch user data in PARALLEL (Promise.all instead of sequential awaits)
+    // Batch-fetch only the users whose profile is NOT already in the checkIn doc
     const userDataMap = {};
-    const batchSize = 10;
-    const userBatches = [];
-    for (let i = 0; i < userIds.length; i += batchSize) {
-      userBatches.push(userIds.slice(i, i + batchSize));
-    }
+    if (missingUserIds.length > 0) {
+      const batchSize = 10;
+      const userBatches = [];
+      for (let i = 0; i < missingUserIds.length; i += batchSize) {
+        userBatches.push(missingUserIds.slice(i, i + batchSize));
+      }
 
-    const userBatchResults = await Promise.all(
-      userBatches.map(batch =>
-        getDocs(query(collection(db, 'users'), where('__name__', 'in', batch)))
-          .catch(e => { console.log('Could not fetch user batch:', e.message); return null; })
-      )
-    );
-    userBatchResults.forEach(userSnapshot => {
-      if (!userSnapshot) return;
-      userSnapshot.docs.forEach(userDoc => {
-        const ud = userDoc.data();
-        userDataMap[userDoc.id] = {
-          displayName: sanitizeDisplayName(ud.displayName || ud.username),
-          photoURL: ud.photoURL || ud.profileImage || null,
-        };
+      const userBatchResults = await Promise.all(
+        userBatches.map(batch =>
+          getDocsWithRetry(
+            query(collection(db, 'users'), where('__name__', 'in', batch)),
+            { timeout: 8000, retries: 1, silentFail: true }
+          ).catch(e => { console.log('Could not fetch user batch:', e.message); return null; })
+        )
+      );
+      userBatchResults.forEach(userSnapshot => {
+        if (!userSnapshot) return;
+        userSnapshot.docs.forEach(userDoc => {
+          const ud = userDoc.data();
+          userDataMap[userDoc.id] = {
+            displayName: sanitizeDisplayName(ud.displayName || ud.username),
+            photoURL: ud.photoURL || ud.profileImage || null,
+          };
+        });
       });
-    });
+    }
     
-    // Build leaderboard with cached user data
+    // Build leaderboard entries using denormalized data first, then fallback to fetched data
+    const todayDate = getTodayDate();
+    const yesterdayDate = getYesterdayDate();
+
     checkInData.forEach((item, index) => {
       const data = item.data;
-      const userData = userDataMap[data.userId] || {
-        displayName: 'Unknown User',
-        photoURL: null,
-      };
+      const userId = data.userId;
+
+      // Prefer denormalized displayName/photoURL from checkIn doc; fall back to fetched batch
+      const displayName = data.displayName
+        ? sanitizeDisplayName(data.displayName)
+        : (userDataMap[userId]?.displayName || 'Unknown User');
+      const photoURL = data.photoURL != null
+        ? data.photoURL
+        : (userDataMap[userId]?.photoURL || null);
       
       const points = filter === 'weekly' 
         ? (data.weeklyPoints || 0)
         : filter === 'monthly'
           ? (data.monthlyPoints || 0)
           : (data.totalPoints || 0);
+
+      // Compute live streak: only show streak when user checked in today or yesterday
+      const lastDate = data.lastCheckInDate;
+      const liveStreak = (lastDate === todayDate || lastDate === yesterdayDate)
+        ? (data.currentStreak || 0)
+        : 0;
       
       leaderboard.push({
         id: item.id,
         rank: index + 1,
-        userId: data.userId,
-        displayName: userData.displayName,
-        photoURL: userData.photoURL,
+        userId,
+        displayName,
+        photoURL,
         points,
         totalCheckIns: data.totalCheckIns || 0,
-        currentStreak: data.currentStreak || 0,
+        currentStreak: liveStreak,
+        storedStreak: data.currentStreak || 0,
         longestStreak: data.longestStreak || 0,
+        lastCheckInDate: lastDate || null,
         badge: getUserBadge(data.totalPoints || 0),
       });
     });
@@ -523,21 +584,43 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
 };
 
 /**
- * Get user's rank in community
+ * Get user's rank in community.
+ * When the leaderboard data has already been fetched, pass it as `prefetchedLeaderboard`
+ * to avoid redundant Firestore reads.
  * @param {Object} db - Firestore instance
  * @param {string} communityId - Community ID
  * @param {string} userId - User ID
  * @param {string} filter - 'all', 'weekly', 'monthly'
+ * @param {Array|null} prefetchedLeaderboard - Optional pre-fetched leaderboard array
  * @returns {Object} User rank and stats
  */
-export const getUserRank = async (db, communityId, userId, filter = 'all') => {
+export const getUserRank = async (db, communityId, userId, filter = 'all', prefetchedLeaderboard = null) => {
   try {
-    // Get user's check-in data
+    // If we already have the leaderboard data, try to find the user in it first
+    if (prefetchedLeaderboard && prefetchedLeaderboard.length > 0) {
+      const entry = prefetchedLeaderboard.find(e => e.userId === userId);
+      if (entry) {
+        return {
+          rank: entry.rank,
+          totalUsers: prefetchedLeaderboard.length,
+          points: entry.points,
+          userData: {
+            currentStreak: entry.currentStreak,
+            longestStreak: entry.longestStreak,
+            totalCheckIns: entry.totalCheckIns,
+            badge: entry.badge || getUserBadge(entry.points || 0),
+            nextBadge: getNextBadge(entry.points || 0),
+          },
+        };
+      }
+    }
+
+    // Fall back to server query when user is not in the fetched page
     const checkInRef = doc(db, 'communities', communityId, 'checkIns', userId);
-    const checkInSnap = await getDoc(checkInRef);
+    const checkInSnap = await getDocWithRetry(checkInRef, { timeout: 8000, retries: 2 });
     
-    if (!checkInSnap.exists()) {
-      return { rank: null, totalUsers: 0, userData: null };
+    if (!checkInSnap || !checkInSnap.exists()) {
+      return { rank: null, totalUsers: 0, points: 0, userData: null };
     }
     
     const userData = checkInSnap.data();
@@ -553,7 +636,7 @@ export const getUserRank = async (db, communityId, userId, filter = 'all') => {
       sortField = 'monthlyPoints';
     }
     
-    // Count users with MORE points (= rank - 1) using server-side count (O(1))
+    // Count users with MORE points (= rank - 1) using server-side count
     const checkInsRef = collection(db, 'communities', communityId, 'checkIns');
     const higherQuery = query(
       checkInsRef,
@@ -566,6 +649,9 @@ export const getUserRank = async (db, communityId, userId, filter = 'all') => {
     ]);
     const rank = higherCount.data().count + 1;
     const totalUsers = totalCount.data().count;
+
+    // Compute live streak
+    const liveStreak = getLiveStreak(userData);
     
     return {
       rank,
@@ -573,6 +659,8 @@ export const getUserRank = async (db, communityId, userId, filter = 'all') => {
       points: userPoints,
       userData: {
         ...userData,
+        currentStreak: liveStreak,
+        storedStreak: userData.currentStreak || 0,
         badge: getUserBadge(userData.totalPoints || 0),
         nextBadge: getNextBadge(userData.totalPoints || 0),
       },
@@ -673,5 +761,6 @@ export default {
   canCheckInToday,
   getUserBadge,
   getNextBadge,
+  getLiveStreak,
   formatTimeRemaining,
 };

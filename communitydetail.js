@@ -24,6 +24,8 @@ import { app, db } from './firebaseConfig';
 import ReportUserModal from './components/ReportUserModal';
 import ModeratorBadge from './components/ModeratorBadge';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import CommunitySidebar from './components/CommunitySidebar';
+import { getUserCheckInData, getLiveStreak } from './shared/services/communityCheckInService';
 import * as CommunityService from './shared/services/communityService';
 import * as ModerationService from './shared/services/moderationService';
 
@@ -34,8 +36,11 @@ export default function CommunityDetail({ route, navigation }) {
   const [community, setCommunity] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showReportModal, setShowReportModal] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
+  const [userPoints, setUserPoints] = useState(0);
+  const [userStreak, setUserStreak] = useState(0);
   const auth = getAuth(app);
 
   // Derived booleans for backward compat
@@ -76,6 +81,17 @@ export default function CommunityDetail({ route, navigation }) {
               setMyRole(ROLES.ADMIN);
             } else {
               setMyRole(role || ROLES.MEMBER);
+            }
+
+            // Fetch check-in data for sidebar stats
+            try {
+              const checkInData = await getUserCheckInData(db, communityId, currentUserId);
+              if (checkInData) {
+                setUserPoints(checkInData.totalPoints || 0);
+                setUserStreak(getLiveStreak(checkInData));
+              }
+            } catch (e) {
+              console.log('Check-in data not available:', e?.message);
             }
           }
         } else if (mounted) {
@@ -225,6 +241,15 @@ export default function CommunityDetail({ route, navigation }) {
             end={{ x: 1, y: 1 }}
           />
         )}
+
+        {/* Menu button */}
+        <TouchableOpacity
+          style={styles.menuButton}
+          onPress={() => setSidebarVisible(true)}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Ionicons name="menu" size={22} color="#fff" />
+        </TouchableOpacity>
 
         {/* Back button */}
         <TouchableOpacity
@@ -411,6 +436,19 @@ export default function CommunityDetail({ route, navigation }) {
         contentPreview={description || name || 'Community content'}
         communityId={communityId}
       />
+
+      <CommunitySidebar
+        visible={sidebarVisible}
+        onClose={() => setSidebarVisible(false)}
+        communityId={communityId}
+        communityData={community}
+        currentUser={auth.currentUser}
+        isAdmin={isCreator || myRole === ROLES.ADMIN}
+        isModerator={isStaff}
+        userPoints={userPoints}
+        userStreak={userStreak}
+        navigation={navigation}
+      />
     </ScrollView>
   );
 }
@@ -422,10 +460,22 @@ const styles = StyleSheet.create({
   /* Hero / cover */
   heroContainer: { position: 'relative' },
   hero: { width: '100%', height: 200 },
-  backButton: {
+  menuButton: {
     position: 'absolute',
     top: Platform.OS === 'ios' ? 54 : 16,
     left: 16,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  backButton: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 54 : 16,
+    left: 58,
     width: 34,
     height: 34,
     borderRadius: 17,
