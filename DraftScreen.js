@@ -13,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAuth } from 'firebase/auth';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { db } from './firebaseConfig';
+import { uploadImageToHostinger } from './hostingerConfig';
 
 export default function DraftScreen({ navigation }) {
   const [drafts, setDrafts] = useState([]);
@@ -89,7 +90,26 @@ export default function DraftScreen({ navigation }) {
                 console.log('⚠️  Could not load extended profile for draft author:', profileError.message);
               }
 
-              const images = Array.isArray(draft.images) ? draft.images : [];
+              // Upload any local/file:// images to Hostinger before saving
+              const rawImages = Array.isArray(draft.images) ? draft.images : [];
+              const images = [];
+              for (const imgUri of rawImages) {
+                if (/^https?:\/\//i.test(imgUri) && !imgUri.includes('blob:')) {
+                  // Already a valid remote URL
+                  images.push(imgUri);
+                } else if (imgUri && !imgUri.startsWith('blob:')) {
+                  // Local file:// or content:// URI — upload first
+                  try {
+                    const uploadedUrl = await uploadImageToHostinger(imgUri, 'posts');
+                    if (uploadedUrl && /^https?:\/\//i.test(uploadedUrl)) {
+                      images.push(uploadedUrl);
+                    }
+                  } catch (upErr) {
+                    console.error('❌ Draft image upload failed:', upErr);
+                  }
+                }
+                // Skip blob: URIs entirely
+              }
 
               const postData = {
                 authorId: currentUser.uid,

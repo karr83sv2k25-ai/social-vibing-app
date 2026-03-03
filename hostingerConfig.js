@@ -12,40 +12,9 @@ try {
   console.log('expo-image-manipulator not available, image compression disabled');
 }
 
-// Optional import for blob URI conversion
-let FileSystem = null;
-try {
-  FileSystem = require('expo-file-system');
-} catch (error) {
-  console.log('expo-file-system not available');
-}
-
-/**
- * Convert a blob: URI to a local file URI so native modules can handle it.
- * No-op for normal file:// or ph:// URIs.
- */
-const normalizeBlobUri = async (uri) => {
-  if (!uri || !uri.startsWith('blob:') || !FileSystem) return uri;
-  try {
-    console.log('⚠️  Hostinger: blob URI detected, converting…');
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result.split(',')[1]);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    const fileUri = `${FileSystem.cacheDirectory}hst_img_${Date.now()}.jpg`;
-    await FileSystem.writeAsStringAsync(fileUri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    return fileUri;
-  } catch (err) {
-    console.error('❌ Hostinger: blob conversion failed, using original:', err);
-    return uri;
-  }
-};
+// Shared blob URI → file URI converter (uses XHR instead of fetch to avoid
+// "No suitable URL request handler" errors on iOS)
+import { normalizeBlobUri } from './utils/normalizeUri';
 
 // ⚠️ IMPORTANT: Update these values with your actual Hostinger details
 export const hostingerConfig = {
@@ -71,9 +40,11 @@ export const hostingerConfig = {
  * @returns {Promise<string>} - Compressed image URI
  */
 const compressImage = async (uri) => {
+  // Declare outside try so the catch block can always access the normalized value.
+  let safeUri = uri;
   try {
     // Normalize blob: URIs before passing to native modules
-    const safeUri = await normalizeBlobUri(uri);
+    safeUri = await normalizeBlobUri(uri);
 
     // Check if ImageManipulator is available
     if (!ImageManipulator || !ImageManipulator.manipulateAsync) {
@@ -95,7 +66,9 @@ const compressImage = async (uri) => {
     return manipResult.uri;
   } catch (error) {
     console.log('Image compression failed, using original:', error);
-    return uri; // Return original if compression fails
+    // safeUri is either the normalized file:// URI or the original uri if
+    // normalization failed. uploadImageToHostinger will guard against blob: URIs.
+    return safeUri;
   }
 };
 
@@ -129,6 +102,13 @@ export const uploadImageToHostinger = async (uri, folder = 'general') => {
   try {
     // Compress image before upload for faster transmission
     const compressedUri = await compressImage(uri);
+
+    // Safety guard: if the URI is still a blob: after normalization, abort before
+    // passing it to the native FormData / fetch layer which would crash with
+    // "No suitable URL request handler found for blob:…" on iOS.
+    if (compressedUri && compressedUri.startsWith('blob:')) {
+      throw new Error('Unable to process image. Please try again or choose a different photo.');
+    }
     
     // Create form data
     const formData = new FormData();
@@ -186,14 +166,22 @@ export const uploadImageToHostinger = async (uri, folder = 'general') => {
  */
 export const uploadVideoToHostinger = async (uri, folder = 'general') => {
   try {
+    // Normalize blob: URIs before passing to native networking
+    const safeUri = await normalizeBlobUri(uri);
+
+    // Safety guard: abort if blob: URI normalization failed
+    if (safeUri && safeUri.startsWith('blob:')) {
+      throw new Error('Unable to process video. Please try again or choose a different file.');
+    }
+
     const formData = new FormData();
     
-    const filename = uri.split('/').pop();
+    const filename = safeUri.split('/').pop();
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `video/${match[1]}` : 'video/mp4';
     
     formData.append('file', {
-      uri,
+      uri: safeUri,
       type,
       name: filename || 'video.mp4',
     });
@@ -239,14 +227,22 @@ export const uploadVideoToHostinger = async (uri, folder = 'general') => {
  */
 export const uploadAudioToHostinger = async (uri, folder = 'general') => {
   try {
+    // Normalize blob: URIs before passing to native networking
+    const safeUri = await normalizeBlobUri(uri);
+
+    // Safety guard: abort if blob: URI normalization failed
+    if (safeUri && safeUri.startsWith('blob:')) {
+      throw new Error('Unable to process audio. Please try again.');
+    }
+
     const formData = new FormData();
     
-    const filename = uri.split('/').pop();
+    const filename = safeUri.split('/').pop();
     const match = /\.(\w+)$/.exec(filename);
     const type = match ? `audio/${match[1]}` : 'audio/m4a';
     
     formData.append('file', {
-      uri,
+      uri: safeUri,
       type,
       name: filename || 'audio.m4a',
     });
@@ -292,7 +288,9 @@ export const uploadAudioToHostinger = async (uri, folder = 'general') => {
  */
 export const checkFileSize = async (uri, type = 'image') => {
   try {
-    const response = await fetch(uri);
+    // Normalize blob: URIs before passing to native fetch
+    const safeUri = await normalizeBlobUri(uri);
+    const response = await fetch(safeUri);
     const blob = await response.blob();
     const size = blob.size;
     

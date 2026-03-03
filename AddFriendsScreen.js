@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { db, auth } from './firebaseConfig';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 import {
   sendFriendRequest,
   getFriendRequests,
@@ -128,24 +129,13 @@ export default function AddFriendsScreen({ navigation }) {
       if (!snapshot.empty) {
         const userData = snapshot.docs[0].data();
         
-        let displayName = 'User';
-        if ((userData.username || userData.user_name) && (userData.username || userData.user_name).trim()) {
-          displayName = userData.username || userData.user_name;
-        } else if (userData.firstName || userData.user_firstname || userData.lastName || userData.user_lastname) {
-          const first = userData.firstName || userData.user_firstname || '';
-          const last = userData.lastName || userData.user_lastname || '';
-          displayName = `${first} ${last}`.trim();
-        } else if (userData.displayName && userData.displayName.trim()) {
-          displayName = userData.displayName;
-        } else if (userData.email || userData.user_email) {
-          displayName = userData.email.split('@')[0];
-        }
+        const displayName = getDisplayName(userData);
         
         return {
           id: userId,
           name: displayName,
           email: userData.email || '',
-          avatar: userData.profilePicture || userData.profileImage || userData.avatar || userData.photoURL || null,
+          avatar: getUserAvatar(userData),
         };
       }
       return {
@@ -185,18 +175,7 @@ export default function AddFriendsScreen({ navigation }) {
         const userData = doc.data();
         
         // Build display name
-        let userDisplayName = 'User';
-        if (userData.username && userData.username.trim()) {
-          userDisplayName = userData.username;
-        } else if (userData.firstName || userData.lastName) {
-          const first = userData.firstName || '';
-          const last = userData.lastName || '';
-          userDisplayName = `${first} ${last}`.trim();
-        } else if (userData.displayName && userData.displayName.trim()) {
-          userDisplayName = userData.displayName;
-        } else if (userData.email) {
-          userDisplayName = userData.email.split('@')[0];
-        }
+        let userDisplayName = getDisplayName(userData);
         
         results.push({
           id: doc.id,

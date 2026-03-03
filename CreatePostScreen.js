@@ -15,7 +15,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
 import { getAuth } from 'firebase/auth';
 import { compressPostImage } from './utils/imageCompression';
+import { normalizeBlobUri } from './utils/normalizeUri';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { checkBlockedContent } from './shared/services/blockedContentService';
 import { db } from './firebaseConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { uploadImageToHostinger, uploadVideoToHostinger } from './hostingerConfig';
@@ -70,8 +72,11 @@ export default function CreatePostScreen({ navigation }) {
     });
 
     if (!result.canceled && result.assets) {
-      const videoUris = result.assets.map(asset => asset.uri);
-      setSelectedVideos([...selectedVideos, ...videoUris]);
+      // Normalize blob: URIs to file:// URIs for native compatibility
+      const videoUris = await Promise.all(
+        result.assets.map(asset => normalizeBlobUri(asset.uri))
+      );
+      setSelectedVideos([...selectedVideos, ...videoUris.filter(Boolean)]);
     }
   };
 
@@ -141,8 +146,13 @@ export default function CreatePostScreen({ navigation }) {
       for (const imageUri of selectedImages) {
         try {
           const uploadedUrl = await uploadImageToHostinger(imageUri, 'posts');
-          uploadedImageUrls.push(uploadedUrl);
-          console.log('✅ Image uploaded:', uploadedUrl);
+          // Only accept valid https URLs — reject blob:/file:/ or undefined
+          if (uploadedUrl && /^https?:\/\//i.test(uploadedUrl) && !uploadedUrl.includes('blob:')) {
+            uploadedImageUrls.push(uploadedUrl);
+            console.log('✅ Image uploaded:', uploadedUrl);
+          } else {
+            console.error('❌ Upload returned invalid URL:', uploadedUrl);
+          }
         } catch (uploadError) {
           console.error('❌ Error uploading image:', uploadError);
           // Continue with other images even if one fails
@@ -152,8 +162,12 @@ export default function CreatePostScreen({ navigation }) {
       for (const videoUri of selectedVideos) {
         try {
           const uploadedUrl = await uploadVideoToHostinger(videoUri, 'posts');
-          uploadedVideoUrls.push(uploadedUrl);
-          console.log('✅ Video uploaded:', uploadedUrl);
+          if (uploadedUrl && /^https?:\/\//i.test(uploadedUrl) && !uploadedUrl.includes('blob:')) {
+            uploadedVideoUrls.push(uploadedUrl);
+            console.log('✅ Video uploaded:', uploadedUrl);
+          } else {
+            console.error('❌ Upload returned invalid URL:', uploadedUrl);
+          }
         } catch (uploadError) {
           console.error('❌ Error uploading video:', uploadError);
           // Continue with other videos even if one fails
@@ -179,11 +193,21 @@ export default function CreatePostScreen({ navigation }) {
         likedBy: [],
         comments: 0,
         shares: 0,
+        isDeleted: false,
+        isRemoved: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         type: 'post',
         scope: 'global',
       };
+
+      // Check for admin-blocked content before publishing
+      const blockCheck = await checkBlockedContent(trimmedText, postData.communityId || null);
+      if (blockCheck.blocked) {
+        Alert.alert('Content Blocked', `Your post contains content that is not allowed: "${blockCheck.matchedKeyword}". Please edit and try again.`);
+        setIsPosting(false);
+        return;
+      }
 
       await addDoc(collection(db, 'posts'), postData);
 

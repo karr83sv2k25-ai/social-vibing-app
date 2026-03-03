@@ -40,8 +40,18 @@ hostinger-backend/       # PHP/backend for Hostinger media hosting
 | In-App Purchases | react-native-iap — see [services/iapService.js](../services/iapService.js) |
 | Push Notifications | Firebase Cloud Messaging via [notification.js](../notification.js) |
 | Icons | @expo/vector-icons (Ionicons, MaterialCommunityIcons, FontAwesome5) |
+| Image Caching | expo-image via [components/CachedImage.js](../components/CachedImage.js) |
 
 ## Key Conventions
+
+### Performance & UX
+- **Lists**: Use `FlatList` with optimization props (`initialNumToRender`, `maxToRenderPerBatch`, `windowSize`, `removeClippedSubviews`) — never `.map()` inside `ScrollView` for large datasets.
+- **Memoization**: Wrap list item components with `React.memo`. Use `useCallback` for event handlers and `useMemo` for computed values.
+- **Images**: Use `CachedImage` from [components/CachedImage.js](../components/CachedImage.js) (wraps expo-image) for automatic caching and smooth fade-in transitions. Avoid raw `<Image>` for network images.
+- **Loading States**: Use skeleton loaders from [components/SkeletonLoaders.js](../components/SkeletonLoaders.js) — `ConversationSkeleton`, `ProfileSkeleton`, `ProductGridSkeleton`, `CommunitySkeleton`, `ChatSkeleton`.
+- **Error Boundaries**: The root navigator is wrapped with `ErrorBoundary` from [components/ErrorBoundary.js](../components/ErrorBoundary.js). Wrap major screens with it as needed.
+- **Console.log**: Automatically stripped in production builds via `babel-plugin-transform-remove-console` in [babel.config.js](../babel.config.js). Safe to use in dev.
+- **Splash Screen**: `expo-splash-screen` `preventAutoHideAsync()` is called at module level in App.js. Hides after auth resolves.
 
 ### Firestore Access
 Always use the retry/cache helpers from [utils/firestoreHelpers.js](../utils/firestoreHelpers.js) instead of raw Firestore calls:
@@ -92,6 +102,29 @@ npm run build:ios:dev
 - **Hostinger Upload Endpoint**: `https://socialvibingapp.karr83anime.com/upload.php` — API key in [hostingerConfig.js](../hostingerConfig.js)
 - **Agora App ID**: [agoraConfig.js](../agoraConfig.js)
 - **Firestore Security Rules**: [firestore.rules](../firestore.rules) — role hierarchy: `admin > creator > community owner > leader > curator > member`
+
+## Admin App Awareness
+
+**There is a companion admin app** at `/Users/ameerhamza/StudioProjects/social-vibing-admin` (also React Native + Expo SDK 54). Both apps share the **same Firebase project** (`social-vibing-karr`) and the **same Firestore database**.
+
+### DO NOT change these shared Firestore schemas:
+- **`users/{uid}` moderation fields**: `role`, `isAdmin`, `isVerified`, `verificationStatus`, `isBanned`, `banType`, `banReason`, `bannedAt`, `banExpiresAt`, `bannedBy`, `isSuspended`, `suspendedReason`, `warnings`, `warningsCount`, `accountStatus`, `reportsReceived`
+- **`reports` collection**: The admin app's entire moderation pipeline depends on this schema
+- **`admin_actions` collection**: Immutable audit log — rules block updates/deletes
+- **`communities` document fields**: `creatorId`, `moderators`, `members`, `memberCount`, `isDisabled`, `disabledAt`, `disabledBy`, `disabledReason`
+- **Content soft-delete convention**: `isDeleted`, `deletedAt`, `deletedBy`, `deletionReason` on posts, products, comments
+- **Admin-only collections**: `advertisements`, `blocked_content`, `blocked_members`, `join_requests`, `management_records`
+- **Firestore rules helper functions**: `isAdmin()` checks `users/{uid}.role == 'admin'` — never change admin role storage
+
+### Key Differences:
+| Aspect | Main App | Admin App |
+|--------|----------|-----------|
+| Media Uploads | Hostinger | Cloudinary |
+| UI Library | Custom components | react-native-paper |
+| Navigation | Stack + Bottom Tabs | Drawer + Bottom Tabs + Native Stack |
+| State | Context (Wallet, Status) | Local useState only |
+
+See full admin app skill file: `.agents/skills/admin-app-skills.md`
 
 ## Security Notes
 - Firebase API keys in `app.json` are client-side keys — Firestore rules are the actual security layer.

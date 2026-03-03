@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { collection, addDoc, setDoc, doc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { db, auth } from '../firebaseConfig';
 import { uploadImageToHostinger } from '../hostingerConfig';
+import { normalizeBlobUri } from '../utils/normalizeUri';
 
 const ACCENT = '#7C3AED';
 const CYAN = '#08FFE2';
@@ -69,7 +70,9 @@ export default function CreateGroupScreen({ navigation, route }) {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setGroupImage(result.assets[0]);
+        const asset = result.assets[0];
+        const safeUri = await normalizeBlobUri(asset.uri);
+        setGroupImage({ ...asset, uri: safeUri });
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -93,7 +96,9 @@ export default function CreateGroupScreen({ navigation, route }) {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setGroupImage(result.assets[0]);
+        const asset = result.assets[0];
+        const safeUri = await normalizeBlobUri(asset.uri);
+        setGroupImage({ ...asset, uri: safeUri });
       }
     } catch (error) {
       console.error('Error taking photo:', error);

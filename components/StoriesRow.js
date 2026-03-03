@@ -86,8 +86,9 @@ export default function StoriesRow({
             const createdAt = data.createdAt?.toDate ? data.createdAt.toDate() : data.createdAt ? new Date(data.createdAt) : null;
             const expiresAt = data.expiresAt?.toDate ? data.expiresAt.toDate() : data.expiresAt ? new Date(data.expiresAt) : null;
 
-            // Filter expired stories client-side
+            // Filter expired or admin-removed stories client-side
             if (expiresAt && expiresAt < now) return;
+            if (data.isRemoved || data.isDeleted) return;
 
             byUser[uid].push({
               id: docSnap.id,

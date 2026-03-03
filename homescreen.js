@@ -17,9 +17,12 @@ import {
   Share,
   RefreshControl,
   ActionSheetIOS,
+  Animated,
+  Pressable,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
 import ReportUserModal from './components/ReportUserModal';
+import PostOptionsModal from './components/PostOptionsModal';
 import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getAuth } from 'firebase/auth';
@@ -41,17 +44,21 @@ import {
   serverTimestamp,
   increment,
   arrayUnion,
+  arrayRemove,
 } from 'firebase/firestore';
 import { app, db } from './firebaseConfig';
 import NetInfo from '@react-native-community/netinfo';
 import CacheManager from './cacheManager';
 import { getDocWithRetry, getDocsWithRetry, fetchUserWithCache } from './utils/firestoreHelpers';
+import { normalizeImageUri, normalizeImageUris } from './utils/normalizeUri';
+import * as Haptics from 'expo-haptics';
 import { InlineStatus } from './components/StatusBadge';
 import StatusBadge from './components/StatusBadge';
 import StatusSelector from './components/StatusSelector';
 import VerifiedBadge from './components/VerifiedBadge';
 import { useFocusEffect } from '@react-navigation/native';
 import StoriesRow from './components/StoriesRow';
+import AdvertisementBanner from './components/AdvertisementBanner';
 
 const { width } = Dimensions.get('window');
 const IMAGE_WIDTH = 267;
@@ -62,6 +69,54 @@ const SPACING = 10;
 
 
 const buttons = ['Discovery', 'Following', 'Communities', 'Streaming'];
+const BUTTON_ICONS = ['compass-outline', 'people-outline', 'grid-outline', 'radio-outline'];
+
+// Animated skeleton placeholder for feed posts
+const SkeletonPostCard = () => {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={[feedSkeletonStyles.card, { opacity: pulse }]}>
+      <View style={feedSkeletonStyles.header}>
+        <View style={feedSkeletonStyles.avatar} />
+        <View style={feedSkeletonStyles.headerLines}>
+          <View style={feedSkeletonStyles.nameLine} />
+          <View style={feedSkeletonStyles.dateLine} />
+        </View>
+      </View>
+      <View style={feedSkeletonStyles.bodyLine1} />
+      <View style={feedSkeletonStyles.bodyLine2} />
+      <View style={feedSkeletonStyles.bodyLine3} />
+      <View style={feedSkeletonStyles.imagePlaceholder} />
+    </Animated.View>
+  );
+};
+
+const SkeletonFeed = () => (
+  <View style={{ paddingHorizontal: 16, paddingTop: 12 }}>
+    {[...Array(4)].map((_, i) => <SkeletonPostCard key={i} />)}
+  </View>
+);
+
+const feedSkeletonStyles = StyleSheet.create({
+  card: { backgroundColor: '#1e1e1e', borderRadius: 12, padding: 16, marginBottom: 20 },
+  header: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  avatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#2a2a2a', marginRight: 12 },
+  headerLines: { flex: 1, gap: 8 },
+  nameLine: { height: 13, borderRadius: 6, backgroundColor: '#2a2a2a', width: '50%' },
+  dateLine: { height: 10, borderRadius: 6, backgroundColor: '#2a2a2a', width: '30%' },
+  bodyLine1: { height: 12, borderRadius: 6, backgroundColor: '#2a2a2a', marginBottom: 8 },
+  bodyLine2: { height: 12, borderRadius: 6, backgroundColor: '#2a2a2a', marginBottom: 8, width: '85%' },
+  bodyLine3: { height: 12, borderRadius: 6, backgroundColor: '#2a2a2a', marginBottom: 14, width: '60%' },
+  imagePlaceholder: { height: 160, borderRadius: 10, backgroundColor: '#2a2a2a' },
+});
 
 const posts = [
   {
@@ -146,7 +201,7 @@ const getPostDocInfo = (post) => {
   };
 };
 
-const Post = ({
+const Post = React.memo(({
   post,
   onLike,
   onComment,
@@ -159,6 +214,7 @@ const Post = ({
   onStartQuiz,
   onImagePress,
   onProfilePress,
+  onLongPress,
   isLiked,
   isFollowing,
   likeBusy,
@@ -167,6 +223,30 @@ const Post = ({
   imageLoadErrors,
   setImageLoadErrors,
 }) => {
+  // Animated heart scale for instant feedback
+  const heartScale = useRef(new Animated.Value(1)).current;
+
+  const animateHeart = useCallback(() => {
+    Animated.sequence([
+      Animated.spring(heartScale, {
+        toValue: 1.35,
+        friction: 3,
+        tension: 200,
+        useNativeDriver: true,
+      }),
+      Animated.spring(heartScale, {
+        toValue: 1,
+        friction: 4,
+        tension: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [heartScale]);
+
+  const handleLikePress = useCallback(() => {
+    animateHeart();
+    onLike && onLike(post);
+  }, [animateHeart, onLike, post]);
   // Don't show follow button if post is by current logged-in user
   const showFollowButton = post.authorId && onFollow && currentUser?.id && post.authorId !== currentUser.id;
   const canDelete = post.authorId && currentUser?.id && post.authorId === currentUser.id;
@@ -205,8 +285,17 @@ const Post = ({
       ? post.totalVotes
       : 0;
 
+  const handleLongPress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    onLongPress && onLongPress(post);
+  }, [onLongPress, post]);
+
   return (
-    <View style={styles.postContainer}>
+    <Pressable
+      style={styles.postContainer}
+      onLongPress={handleLongPress}
+      delayLongPress={400}
+    >
       {/* Author Info */}
       <View style={styles.postHeader}>
         <TouchableOpacity
@@ -314,7 +403,7 @@ const Post = ({
       {/* Image Post - Show Image and Caption */}
       {post.type === 'image' && (
         <>
-          {post.imageUri ? (
+          {post.imageUri && !imageLoadErrors[`${post.id}-main`] ? (
             <TouchableOpacity
               activeOpacity={0.9}
               onPress={() => onImagePress && onImagePress(post.imageUri, [post.imageUri], 0)}
@@ -324,7 +413,8 @@ const Post = ({
                 style={styles.postImageFull}
                 resizeMode="cover"
                 onError={(error) => {
-                  console.log('Image load error for post:', post.id, error.nativeEvent.error);
+                  console.log('Image load error for post:', post.id, error.nativeEvent?.error);
+                  setImageLoadErrors(prev => ({ ...prev, [`${post.id}-main`]: true }));
                 }}
               />
             </TouchableOpacity>
@@ -611,14 +701,16 @@ const Post = ({
       <View style={styles.postFooter}>
         <TouchableOpacity
           style={{ flexDirection: 'row', alignItems: 'center' }}
-          onPress={() => onLike && onLike(post)}
-          disabled={likeBusy}
+          onPress={handleLikePress}
+          activeOpacity={0.7}
         >
-          <Ionicons
-            name={isLiked ? 'heart' : 'heart-outline'}
-            size={24}
-            color={isLiked ? '#ff4b6e' : '#fff'}
-          />
+          <Animated.View style={{ transform: [{ scale: heartScale }] }}>
+            <Ionicons
+              name={isLiked ? 'heart' : 'heart-outline'}
+              size={24}
+              color={isLiked ? '#ff4b6e' : '#fff'}
+            />
+          </Animated.View>
           <Text style={{ color: isLiked ? '#ff4b6e' : '#fff', marginLeft: 5 }}>
             {post.likes || 0}
           </Text>
@@ -637,9 +729,11 @@ const Post = ({
           <Ionicons name="share-social-outline" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
-    </View>
+    </Pressable>
   );
-};
+});
+
+Post.displayName = 'Post';
 
 // OPTIMIZATION: Export memoized component to prevent unnecessary re-renders
 const HomeScreen = React.memo(({ navigation }) => {
@@ -651,6 +745,7 @@ const HomeScreen = React.memo(({ navigation }) => {
   const [allPosts, setAllPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [likeProcessingIds, setLikeProcessingIds] = useState([]);
+  const likeDebounceRef = useRef(new Set());
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [commentSaving, setCommentSaving] = useState(false);
@@ -680,12 +775,23 @@ const HomeScreen = React.memo(({ navigation }) => {
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportTargetPost, setReportTargetPost] = useState(null);
   const [reportTargetComment, setReportTargetComment] = useState(null);
+  // Post options modal state (long-press)
+  const [postOptionsVisible, setPostOptionsVisible] = useState(false);
+  const [postOptionsTarget, setPostOptionsTarget] = useState(null);
 
   // Refs for tracking data loading
   const hasFetchedPosts = useRef(false);
   const lastLoadTimeRef = useRef(0);
   const shouldRefreshOnFocus = useRef(false);
   const isFetchingPosts = useRef(false);
+
+  // Animation: sliding filter indicator + post list fade-in
+  const filterIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const listFadeAnim = useRef(new Animated.Value(1)).current;
+
+  // Fade the post list in whenever filtered posts change
+  const filteredPostsRef = useRef([]);
+  const prevLoadingRef = useRef(true);
 
   // Fetch current user - always from Firestore for real-time data
   useEffect(() => {
@@ -781,6 +887,8 @@ const HomeScreen = React.memo(({ navigation }) => {
           const communitiesList = [];
           communitiesSnapshot.forEach((doc) => {
             const data = doc.data();
+            // Skip admin-disabled or deleted communities
+            if (data.isDisabled || data.isDeleted) return;
             const memberCount = data.members_count ||
               (Array.isArray(data.members) ? data.members.length : 0) ||
               (Array.isArray(data.community_members) ? data.community_members.length :
@@ -1089,7 +1197,8 @@ const HomeScreen = React.memo(({ navigation }) => {
           postData.authorUsername || postData.username
         );
 
-        const images = Array.isArray(postData.images) ? postData.images : [];
+        const rawImages = Array.isArray(postData.images) ? postData.images : [];
+        const images = normalizeImageUris(rawImages, 'posts');
 
         const type = postData.type || 'post';
         const commentCount = type === 'question'
@@ -1111,7 +1220,7 @@ const HomeScreen = React.memo(({ navigation }) => {
           authorImage,
           username,
           images,
-          imageUri: postData.imageUri || (images.length > 0 ? images[0] : null),
+          imageUri: normalizeImageUri(postData.imageUri, 'posts') || (images.length > 0 ? images[0] : null),
           likes: typeof postData.likes === 'number' ? postData.likes : Array.isArray(postData.likedBy) ? postData.likedBy.length : 0,
           likedBy: Array.isArray(postData.likedBy) ? postData.likedBy : [],
           comments: commentCount,
@@ -1278,7 +1387,8 @@ const HomeScreen = React.memo(({ navigation }) => {
               postData.username
             );
 
-            const images = Array.isArray(postData.images) ? postData.images : [];
+            const rawImages = Array.isArray(postData.images) ? postData.images : [];
+            const images = normalizeImageUris(rawImages, 'posts');
 
             combinedPosts.push({
               id: postDoc.id,
@@ -1291,7 +1401,7 @@ const HomeScreen = React.memo(({ navigation }) => {
               authorImage,
               username,
               images,
-              imageUri: postData.imageUri || postData.imageUrl || postData.mediaUrl || postData.image || (images.length > 0 ? images[0] : null),
+              imageUri: normalizeImageUri(postData.imageUri || postData.imageUrl || postData.mediaUrl || postData.image, 'posts') || (images.length > 0 ? images[0] : null),
               likes: typeof postData.likes === 'number' ? postData.likes : 0,
               comments: typeof postData.comments === 'number' ? postData.comments : 0,
               commentCount: typeof postData.comments === 'number' ? postData.comments : 0,
@@ -1566,8 +1676,8 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   }, [activeButton, allPosts, followingUserIds]);
 
-  // Handler functions
-  const handleToggleLike = async (post) => {
+  // Handler functions — Optimistic like (Facebook-style: instant UI, background Firestore)
+  const handleToggleLike = useCallback((post) => {
     if (!currentUser?.id) {
       Alert.alert('Login Required', 'Please log in to like posts.');
       return;
@@ -1575,64 +1685,54 @@ const HomeScreen = React.memo(({ navigation }) => {
     if (!post?.id) return;
 
     const likeKey = `${post.scope || 'global'}-${post.type}-${post.id}-${post.communityId || 'global'}`;
-    if (likeProcessingIds.includes(likeKey)) return;
-    setLikeProcessingIds((prev) => [...prev, likeKey]);
+    // Ref-based debounce — no re-render, instant check
+    if (likeDebounceRef.current.has(likeKey)) return;
+    likeDebounceRef.current.add(likeKey);
 
-    try {
-      const postInfo = getPostDocInfo(post);
-      if (!postInfo?.docRef) {
-        return;
-      }
+    // Compute optimistic state from current local data
+    const likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+    const alreadyLiked = likedBy.includes(currentUser.id);
+    const newLikedBy = alreadyLiked
+      ? likedBy.filter((id) => id !== currentUser.id)
+      : [...likedBy, currentUser.id];
+    const currentLikeCount = typeof post.likes === 'number' ? post.likes : likedBy.length;
+    const newLikes = alreadyLiked ? Math.max(0, currentLikeCount - 1) : currentLikeCount + 1;
 
-      const postRef = postInfo.docRef;
-      let result = null;
+    // 1. Instant UI update — no waiting for Firestore
+    setAllPosts((prev) =>
+      prev.map((p) =>
+        p.id === post.id && p.communityId === post.communityId && p.scope === post.scope
+          ? { ...p, likedBy: newLikedBy, likes: newLikes }
+          : p
+      )
+    );
 
-      await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(postRef);
-        if (!snapshot.exists()) {
-          return;
-        }
-        const data = snapshot.data();
-        const likedBy = Array.isArray(data.likedBy) ? [...data.likedBy] : [];
-        const alreadyLiked = likedBy.includes(currentUser.id);
+    // 2. Haptic feedback
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
 
-        let newLikedBy;
-        if (alreadyLiked) {
-          newLikedBy = likedBy.filter((id) => id !== currentUser.id);
-        } else {
-          newLikedBy = [...likedBy, currentUser.id];
-        }
-
-        const currentLikeCount =
-          typeof data.likes === 'number' ? data.likes : likedBy.length;
-        const newLikes = alreadyLiked
-          ? Math.max(0, currentLikeCount - 1)
-          : currentLikeCount + 1;
-
-        transaction.update(postRef, {
-          likedBy: newLikedBy,
-          likes: newLikes,
-        });
-
-        result = { likedBy: newLikedBy, likes: newLikes };
-      });
-
-      if (result) {
+    // 3. Background Firestore write — fire and forget
+    const postInfo = getPostDocInfo(post);
+    if (postInfo?.docRef) {
+      updateDoc(postInfo.docRef, {
+        likedBy: alreadyLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id),
+        likes: increment(alreadyLiked ? -1 : 1),
+      }).catch((err) => {
+        // Silent rollback on failure
+        console.log('Like sync failed, rolling back:', err);
         setAllPosts((prev) =>
           prev.map((p) =>
             p.id === post.id && p.communityId === post.communityId && p.scope === post.scope
-              ? { ...p, ...result }
+              ? { ...p, likedBy, likes: currentLikeCount }
               : p
           )
         );
-      }
-    } catch (e) {
-      console.log('Error toggling like:', e);
-      Alert.alert('Error', 'Unable to update like right now.');
-    } finally {
-      setLikeProcessingIds((prev) => prev.filter((key) => key !== likeKey));
+      }).finally(() => {
+        likeDebounceRef.current.delete(likeKey);
+      });
+    } else {
+      likeDebounceRef.current.delete(likeKey);
     }
-  };
+  }, [currentUser]);
 
   const handlePollVote = async (post, optionIndex) => {
     if (!currentUser?.id) {
@@ -2181,6 +2281,12 @@ const HomeScreen = React.memo(({ navigation }) => {
     }
   };
 
+  // Handler for long-pressing a post – opens PostOptionsModal
+  const handlePostLongPress = useCallback((post) => {
+    setPostOptionsTarget(post);
+    setPostOptionsVisible(true);
+  }, []);
+
   // Handler for reporting a post
   const handleReportPost = (post) => {
     setReportTargetPost(post);
@@ -2247,6 +2353,18 @@ const HomeScreen = React.memo(({ navigation }) => {
       console.log('⏭️ Skipping refresh: User not authenticated.');
     }
   }, [fetchAllPosts, currentUser]);
+
+  // Animate tab indicator when activeButton changes
+  useEffect(() => {
+    if (activeButton !== null) {
+      Animated.spring(filterIndicatorAnim, {
+        toValue: activeButton,
+        useNativeDriver: true,
+        tension: 68,
+        friction: 10,
+      }).start();
+    }
+  }, [activeButton]);
 
   return (
     <>
@@ -2345,6 +2463,9 @@ const HomeScreen = React.memo(({ navigation }) => {
           followingUserIds={followingUserIds}
         />
 
+        {/* Advertisement Banner */}
+        <AdvertisementBanner position="home" />
+
         {/* Carousel - Top Communities */}
         <FlatList
           data={topCommunities}
@@ -2398,17 +2519,49 @@ const HomeScreen = React.memo(({ navigation }) => {
 
      
 
-        {/* Toggle Buttons */}
+        {/* Toggle Buttons – animated sliding indicator */}
         <View style={styles.buttonsContainer}>
+          {/* Sliding underline indicator */}
+          <Animated.View
+            style={[
+              styles.filterSlider,
+              {
+                width: (width - 32) / buttons.length,
+                transform: [{
+                  translateX: filterIndicatorAnim.interpolate({
+                    inputRange: buttons.map((_, i) => i),
+                    outputRange: buttons.map((_, i) => i * ((width - 32) / buttons.length)),
+                  }),
+                }],
+              },
+            ]}
+          />
           {buttons.map((btn, index) => {
             const isActive = activeButton === index;
             return (
               <TouchableOpacity
                 key={index}
-                style={[styles.textButton, isActive && styles.activeButtonBorder]}
-                onPress={() => setActiveButton(index)}
+                style={styles.textButton}
+                onPress={() => {
+                  listFadeAnim.setValue(0);
+                  Animated.spring(filterIndicatorAnim, {
+                    toValue: index,
+                    useNativeDriver: true,
+                    tension: 68,
+                    friction: 10,
+                  }).start();
+                  Animated.timing(listFadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+                  setActiveButton(index);
+                }}
+                activeOpacity={0.75}
               >
-                <Text style={styles.buttonText}>{btn}</Text>
+                <Ionicons
+                  name={BUTTON_ICONS[index]}
+                  size={15}
+                  color={isActive ? '#08FFE2' : '#666'}
+                  style={{ marginBottom: 2 }}
+                />
+                <Text style={[styles.buttonText, isActive && styles.buttonTextActive]}>{btn}</Text>
               </TouchableOpacity>
             );
           })}
@@ -2416,19 +2569,8 @@ const HomeScreen = React.memo(({ navigation }) => {
 
         {/* Posts */}
         {loading ? (
-          <View style={{ minHeight: 200, justifyContent: 'center', alignItems: 'center' }}>
-            <ActivityIndicator size="large" color="#08FFE2" />
-            <Text style={{ color: '#fff', marginTop: 10 }}>Loading posts...</Text>
-          </View>
-        ) : (() => {
-          console.log('🎨 Rendering posts section - filteredPosts.length:', filteredPosts.length);
-          if (filteredPosts.length === 0) {
-            console.log('⚠️ No posts to display - showing empty state');
-          } else {
-            console.log('✅ Displaying', filteredPosts.length, 'posts');
-          }
-
-          return filteredPosts.length === 0 ? (
+          <SkeletonFeed />
+        ) : filteredPosts.length === 0 ? (
             <View style={{ padding: 20, alignItems: 'center' }}>
               <Ionicons name="document-text-outline" size={40} color="#666" />
               <Text style={{ color: '#888', marginTop: 10 }}>
@@ -2441,46 +2583,57 @@ const HomeScreen = React.memo(({ navigation }) => {
               )}
             </View>
           ) : (
-            filteredPosts.map((post) => {
-              const isLiked = Array.isArray(post.likedBy) && currentUser?.id
-                ? post.likedBy.includes(currentUser.id)
-                : false;
-              const isFollowing = post.authorId && currentUser?.id
-                ? followingUserIds.includes(post.authorId)
-                : false;
-              const likeKey = `${post.scope || 'community'}-${post.type}-${post.id}`;
-              const likeBusy = likeProcessingIds.includes(likeKey);
-              const followBusy = followLoadingIds.includes(post.authorId);
-              const pollKey = `${post.scope || 'global'}-poll-${post.id}-${post.communityId || 'global'}`;
-              const pollBusy = pollVoteBusyIds.includes(pollKey);
+            <Animated.View style={{ opacity: listFadeAnim }}>
+              <FlatList
+                data={filteredPosts}
+                keyExtractor={(post) => `${post.scope || post.communityId || 'global'}-${post.type}-${post.id}`}
+                renderItem={({ item: post }) => {
+                  const isLiked = Array.isArray(post.likedBy) && currentUser?.id
+                    ? post.likedBy.includes(currentUser.id)
+                    : false;
+                  const isFollowing = post.authorId && currentUser?.id
+                    ? followingUserIds.includes(post.authorId)
+                    : false;
+                  const likeKey = `${post.scope || 'community'}-${post.type}-${post.id}`;
+                  const likeBusy = likeProcessingIds.includes(likeKey);
+                  const followBusy = followLoadingIds.includes(post.authorId);
+                  const pollKey = `${post.scope || 'global'}-poll-${post.id}-${post.communityId || 'global'}`;
+                  const pollBusy = pollVoteBusyIds.includes(pollKey);
 
-              return (
-                <Post
-                  key={`${post.scope || post.communityId || 'global'}-${post.type}-${post.id}`}
-                  post={post}
-                  onLike={handleToggleLike}
-                  onComment={handleCommentPress}
-                  onShare={handleSharePost}
-                  onFollow={handleToggleFollow}
-                  onDelete={handleDeletePost}
-                  onReport={handleReportPost}
-                  onPollVote={post.type === 'poll' ? handlePollVote : undefined}
-                  pollVoteBusy={post.type === 'poll' ? pollBusy : false}
-                  onStartQuiz={post.type === 'quiz' ? handleStartQuiz : undefined}
-                  onImagePress={handleImagePress}
-                  onProfilePress={handleProfilePress}
-                  isLiked={isLiked}
-                  isFollowing={isFollowing}
-                  likeBusy={likeBusy}
-                  followBusy={followBusy}
-                  currentUser={currentUser}
-                  imageLoadErrors={imageLoadErrors}
-                  setImageLoadErrors={setImageLoadErrors}
-                />
-              );
-            })
-          );
-        })()}
+                  return (
+                    <Post
+                      post={post}
+                      onLike={handleToggleLike}
+                      onComment={handleCommentPress}
+                      onShare={handleSharePost}
+                      onFollow={handleToggleFollow}
+                      onDelete={handleDeletePost}
+                      onReport={handleReportPost}
+                      onLongPress={handlePostLongPress}
+                      onPollVote={post.type === 'poll' ? handlePollVote : undefined}
+                      pollVoteBusy={post.type === 'poll' ? pollBusy : false}
+                      onStartQuiz={post.type === 'quiz' ? handleStartQuiz : undefined}
+                      onImagePress={handleImagePress}
+                      onProfilePress={handleProfilePress}
+                      isLiked={isLiked}
+                      isFollowing={isFollowing}
+                      likeBusy={likeBusy}
+                      followBusy={followBusy}
+                      currentUser={currentUser}
+                      imageLoadErrors={imageLoadErrors}
+                      setImageLoadErrors={setImageLoadErrors}
+                    />
+                  );
+                }}
+                scrollEnabled={false}
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={7}
+                removeClippedSubviews={true}
+                updateCellsBatchingPeriod={50}
+              />
+            </Animated.View>
+          )}
       </ScrollView>
 
       {/* Bottom Navigation Bar */}
@@ -2885,6 +3038,24 @@ const HomeScreen = React.memo(({ navigation }) => {
         </View>
       </Modal>
 
+      {/* Post Options Modal (long-press) */}
+      <PostOptionsModal
+        visible={postOptionsVisible}
+        post={postOptionsTarget}
+        currentUserId={currentUser?.id}
+        onClose={() => {
+          setPostOptionsVisible(false);
+          setPostOptionsTarget(null);
+        }}
+        onDelete={(p) => handleDeletePost(p)}
+        onReport={(p) => handleReportPost(p)}
+        onShare={(p) => handleSharePost(p)}
+        onCopyLink={(p) => {
+          const title = p.title || p.caption || p.text || 'Post';
+          Share.share({ message: `Check out "${title}" on Social Vibing!` });
+        }}
+      />
+
       {/* Report User Modal for Posts */}
       <ReportUserModal
         visible={showReportModal}
@@ -2902,6 +3073,7 @@ const HomeScreen = React.memo(({ navigation }) => {
         contentType={reportTargetComment ? 'comment' : 'post'}
         contentPreview={reportTargetComment?.text || reportTargetPost?.title || reportTargetPost?.caption || reportTargetPost?.text || reportTargetPost?.question || 'Content'}
         communityId={reportTargetPost?.communityId || reportTargetComment?.communityId || null}
+        parentId={reportTargetComment?.postId || null}
       />
 
       {/* Status Selector Modal */}
@@ -3011,10 +3183,30 @@ const styles = StyleSheet.create({
   boxText: { color: '#fff', fontSize: 14, textAlign: 'center', marginBottom: 5 },
   boxImage: { width: 40, height: 40, resizeMode: 'contain' },
 
-  buttonsContainer: { flexDirection: 'row', justifyContent: 'space-around', marginVertical: 20 },
-  textButton: { paddingVertical: 5, paddingHorizontal: 10 },
-  activeButtonBorder: { borderBottomWidth: 2, borderColor: '#08FFE2' },
-  buttonText: { color: '#fff', fontSize: 16 },
+  buttonsContainer: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginVertical: 16,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    padding: 4,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  filterSlider: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: 10,
+    backgroundColor: '#08FFE215',
+    borderBottomWidth: 2,
+    borderBottomColor: '#08FFE2',
+  },
+  textButton: { flex: 1, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  activeButtonBorder: {}, // kept for compatibility
+  buttonText: { color: '#666', fontSize: 12, fontWeight: '600' },
+  buttonTextActive: { color: '#08FFE2' },
 
   postContainer: {
     marginBottom: 20,

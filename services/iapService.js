@@ -1,19 +1,30 @@
 // services/iapService.js - In-App Purchase Service
 import {useEffect, useState} from 'react';
 import {Platform, Alert} from 'react-native';
-import {
-  initConnection,
-  endConnection,
-  getProducts,
-  requestPurchase,
-  finishTransaction,
-  purchaseUpdatedListener,
-  purchaseErrorListener,
-  Purchase,
-} from 'react-native-iap';
 import {httpsCallable} from 'firebase/functions';
 import {getAllProductIds, getProductById, isCoinProduct} from '../config/iapConfig';
 import {functions} from '../firebaseConfig';
+import { isExpoGo } from '../utils/platformCheck';
+
+// Conditionally load react-native-iap (crashes in Expo Go due to NitroModules)
+let iapModule = null;
+try {
+  if (!isExpoGo()) {
+    iapModule = require('react-native-iap');
+  }
+} catch (e) {
+  console.warn('react-native-iap not available:', e.message);
+}
+
+const {
+  initConnection = () => Promise.resolve(),
+  endConnection = () => {},
+  getProducts = () => Promise.resolve([]),
+  requestPurchase = () => Promise.reject(new Error('IAP not available')),
+  finishTransaction = () => Promise.resolve(),
+  purchaseUpdatedListener = () => ({ remove: () => {} }),
+  purchaseErrorListener = () => ({ remove: () => {} }),
+} = iapModule || {};
 
 /**
  * IAP Service Hook
@@ -24,9 +35,16 @@ export const useIAP = () => {
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [connected, setConnected] = useState(false);
+  const iapAvailable = !!iapModule;
 
   // Initialize IAP connection
   useEffect(() => {
+    if (!iapAvailable) {
+      console.log('IAP not available (Expo Go) — skipping init');
+      setLoading(false);
+      return;
+    }
+
     let purchaseUpdateSubscription;
     let purchaseErrorSubscription;
 
@@ -183,6 +201,7 @@ export const useIAP = () => {
     loading,
     purchasing,
     connected,
+    iapAvailable,
     purchaseProduct,
     getProduct,
   };

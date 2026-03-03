@@ -1,45 +1,5 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import * as FileSystem from 'expo-file-system';
-
-/**
- * Convert a blob: URI (returned by expo-image-picker/manipulator in some builds)
- * into a local file URI that native modules can handle.
- * On non-blob URIs this is a no-op.
- * @param {string} uri
- * @returns {Promise<string>} - A safe file:// URI
- */
-const normalizeBlobUri = async (uri) => {
-  if (!uri || !uri.startsWith('blob:')) return uri;
-
-  try {
-    console.log('⚠️  Detected blob URI, converting to file URI…');
-    const response = await fetch(uri);
-    const blob = await response.blob();
-
-    // Convert blob → base64 via FileReader (available in React Native's JS engine)
-    const base64 = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        // result is "data:<type>;base64,<data>"
-        const b64 = reader.result.split(',')[1];
-        resolve(b64);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-
-    const fileUri = `${FileSystem.cacheDirectory}blob_img_${Date.now()}.jpg`;
-    await FileSystem.writeAsStringAsync(fileUri, base64, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    console.log('✅ Blob URI converted to file URI:', fileUri);
-    return fileUri;
-  } catch (err) {
-    console.error('❌ Failed to convert blob URI, using original:', err);
-    return uri;
-  }
-};
+import { normalizeBlobUri } from './normalizeUri';
 
 /**
  * Compress and resize image for faster upload and loading
@@ -80,8 +40,8 @@ export const compressImage = async (uri, options = {}) => {
     return manipulatedImage.uri;
   } catch (error) {
     console.error('Error compressing image:', error);
-    // Return original URI if compression fails
-    return uri;
+    // Return the already-normalised safeUri (not the raw uri which may be blob:)
+    return safeUri || uri;
   }
 };
 
@@ -109,7 +69,9 @@ export const compressMultipleImages = async (uris, options = {}) => {
  */
 export const getImageInfo = async (uri) => {
   try {
-    const response = await fetch(uri);
+    // Normalize blob: URIs before passing to native fetch
+    const safeUri = await normalizeBlobUri(uri);
+    const response = await fetch(safeUri);
     const blob = await response.blob();
     return {
       size: blob.size,

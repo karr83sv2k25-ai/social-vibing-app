@@ -15,6 +15,8 @@ import { useWallet } from "./context/WalletContext";
 import { db, auth } from "./firebaseConfig";
 import { collection, query, where, orderBy, limit, getDocs, doc, getDoc } from "firebase/firestore";
 import { LinearGradient } from "expo-linear-gradient";
+import { ProductGridSkeleton } from './components/SkeletonLoaders';
+import { getDisplayName } from './utils/userNameHelpers';
 
 const BG = "#0B0B0E";
 const CARD = "#17171C";
@@ -117,7 +119,12 @@ export default function MarketPlaceScreen({ navigation }) {
       const snapshot = await getDocs(q);
       console.log(`✅ Found ${snapshot.size} products in Firestore`);
       
-      const fetchedProducts = snapshot.docs.map(doc => {
+      const fetchedProducts = snapshot.docs
+        .filter(doc => {
+          const d = doc.data();
+          return !d.isDeleted && !d.isRemoved;
+        })
+        .map(doc => {
         const data = doc.data();
         console.log(`  📌 ${data.title} - ${data.type} - ${data.price} ${data.currency}`);
         return {
@@ -400,7 +407,7 @@ export default function MarketPlaceScreen({ navigation }) {
                     style={styles.storeAvatar}
                   />
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {seller.username || seller.displayName || 'Creator'}
+                    {getDisplayName(seller, 'Creator')}
                   </Text>
                   <Text style={styles.storeProducts}>
                     {seller.productCount} product{seller.productCount !== 1 ? 's' : ''}
@@ -474,10 +481,7 @@ export default function MarketPlaceScreen({ navigation }) {
         <FilterTabs active={activeTab} onChange={setActiveTab} />
 
         {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={ACCENT} />
-            <Text style={styles.loadingText}>Loading products...</Text>
-          </View>
+          <ProductGridSkeleton count={6} />
         ) : products.length === 0 ? (
           <View style={styles.emptyContainer}>
             <MaterialCommunityIcons name="package-variant" size={60} color={TEXT_DIM} />

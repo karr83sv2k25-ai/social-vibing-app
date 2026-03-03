@@ -44,6 +44,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { app as firebaseApp, db } from './firebaseConfig';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 
 export default function ScreenSharingRoom() {
   const navigation = useNavigation();
@@ -140,8 +141,8 @@ export default function ScreenSharingRoom() {
           sharingUserId: null,
           participants: [{
             userId: userId,
-            userName: userData.displayName || userData.name || 'User',
-            profileImage: userData.profileImage || userData.avatar || null,
+            userName: getDisplayName(userData),
+            profileImage: getUserAvatar(userData),
             isCreator: true,
             joinedAt: new Date().toISOString(),
           }],
@@ -158,8 +159,8 @@ export default function ScreenSharingRoom() {
           await updateDoc(screenRoomRef, {
             participants: arrayUnion({
               userId: userId,
-              userName: userData.displayName || userData.name || 'User',
-              profileImage: userData.profileImage || userData.avatar || null,
+              userName: getDisplayName(userData),
+              profileImage: getUserAvatar(userData),
               isCreator: false,
               joinedAt: new Date().toISOString(),
             }),

@@ -15,6 +15,7 @@ import { getProductTypeConfig } from '../../config/productTypeConfig';
 import { db, auth, storage } from '../../firebaseConfig';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { normalizeBlobUri } from '../../utils/normalizeUri';
 
 const BG = '#0B0B0E';
 const CARD = '#17171C';
@@ -37,7 +38,9 @@ export default function ProductPublishScreen({ route, navigation }) {
   
   const uploadFile = async (uri, folder) => {
     try {
-      const response = await fetch(uri);
+      // Normalize blob: URIs before passing to native fetch
+      const safeUri = await normalizeBlobUri(uri);
+      const response = await fetch(safeUri);
       const blob = await response.blob();
       const filename = `${folder}/${Date.now()}_${Math.random().toString(36).substring(7)}`;
       const storageRef = ref(storage, filename);

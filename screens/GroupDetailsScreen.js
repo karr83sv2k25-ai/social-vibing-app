@@ -7,10 +7,11 @@ import {
   TouchableOpacity,
   Image,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { collection, query, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc, getDoc, deleteDoc, updateDoc, increment } from 'firebase/firestore';
 import { db, auth } from '../firebaseConfig';
 
 const ACCENT = '#8B2EF0';
@@ -24,6 +25,49 @@ export default function GroupDetailsScreen({ navigation, route }) {
   const [groupData, setGroupData] = useState(null);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [leaving, setLeaving] = useState(false);
+
+  const isMember = members.some(m => m.userId === currentUser?.uid);
+  const isCreator = groupData?.createdBy === currentUser?.uid;
+
+  const handleLeaveGroup = () => {
+    if (isCreator) {
+      Alert.alert('Cannot Leave', 'You are the creator of this group. You cannot leave it.');
+      return;
+    }
+
+    Alert.alert(
+      'Leave Group',
+      `Are you sure you want to leave "${groupData?.name || groupName}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Leave',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLeaving(true);
+              const memberRef = doc(db, 'communities', communityId, 'groups', groupId, 'members', currentUser.uid);
+              await deleteDoc(memberRef);
+
+              // Decrement member count
+              const groupRef = doc(db, 'communities', communityId, 'groups', groupId);
+              await updateDoc(groupRef, { memberCount: increment(-1) });
+
+              Alert.alert('Left Group', 'You have left the group.', [
+                { text: 'OK', onPress: () => navigation.pop(2) },
+              ]);
+            } catch (error) {
+              console.error('Error leaving group:', error);
+              Alert.alert('Error', 'Failed to leave the group. Please try again.');
+            } finally {
+              setLeaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
 
   // Fetch group data
   useEffect(() => {
@@ -197,6 +241,27 @@ export default function GroupDetailsScreen({ navigation, route }) {
           )}
         </View>
 
+        {/* Leave Group Button */}
+        {isMember && !isCreator && (
+          <View style={styles.leaveSection}>
+            <TouchableOpacity
+              style={styles.leaveButton}
+              onPress={handleLeaveGroup}
+              disabled={leaving}
+              activeOpacity={0.7}
+            >
+              {leaving ? (
+                <ActivityIndicator size="small" color="#FF4444" />
+              ) : (
+                <>
+                  <Ionicons name="exit-outline" size={22} color="#FF4444" />
+                  <Text style={styles.leaveButtonText}>Leave Group</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
@@ -369,5 +434,25 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 14,
     marginTop: 12,
+  },
+  leaveSection: {
+    paddingHorizontal: 16,
+    marginBottom: 24,
+  },
+  leaveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: CARD,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF4444',
+    gap: 10,
+  },
+  leaveButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FF4444',
   },
 });

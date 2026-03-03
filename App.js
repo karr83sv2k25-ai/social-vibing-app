@@ -2,16 +2,21 @@ import * as React from 'react';
 import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { View, ActivityIndicator, Text, LogBox, AppState } from 'react-native';
+import { View, ActivityIndicator, Text, LogBox, AppState, Alert } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ExpoSplashScreen from 'expo-splash-screen';
 import { app as firebaseApp, db } from './firebaseConfig';
-import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, updateDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { StatusProvider } from './contexts/StatusContext';
 import { WalletProvider } from './context/WalletContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import { isExpoGo } from './utils/platformCheck';
 // import './testFirebaseREST';
 // import './diagnoseFirestore';
+
+// Prevent the native splash screen from auto-hiding before app is ready
+ExpoSplashScreen.preventAutoHideAsync().catch(() => {});
 
 // Core screens (always loaded)
 import LoginScreen from './loginscreen';
@@ -23,6 +28,7 @@ import TabBarScreen from './tabbarview';
 import MessageOptionsScreen from './MessageOptionsScreen';
 import ChatActionsScreen from './ChatActionsScreen';
 import BlockedUsersScreen from './BlockedUsersScreen';
+import AccountSettingsScreen from './AccountSettingsScreen';
 import CreatePostScreen from './CreatePostScreen';
 import CreateStoryScreen from './CreateStoryScreen';
 import CreatePollScreen from './CreatePollScreen';
@@ -78,6 +84,7 @@ LogBox.ignoreLogs([
   'Error fetching all posts',
   '[Firestore] Error in',
   'Could not fetch user from Firestore',
+  'No suitable URL request handler found for blob:',
 ]);
 
 // Add global error handler for uncaught errors
@@ -247,6 +254,68 @@ export default function App() {
       console.log('🔐 Auth state changed:', user ? `✅ User logged in: ${user.email}` : '❌ No user logged in');
 
       if (user) {
+        // Enforce admin moderation flags from users/{uid}
+        try {
+          const userRef = doc(db, 'users', user.uid);
+          const userSnapshot = await getDoc(userRef);
+
+          if (userSnapshot.exists()) {
+            const userData = userSnapshot.data();
+
+            // Auto-lift expired temporary bans
+            if (userData?.isBanned && userData?.banExpiresAt) {
+              const banExpiry = userData.banExpiresAt.toDate
+                ? userData.banExpiresAt.toDate()
+                : new Date(userData.banExpiresAt);
+
+              if (banExpiry <= new Date()) {
+                await updateDoc(userRef, {
+                  isBanned: false,
+                  banType: null,
+                  banReason: null,
+                  banExpiresAt: null,
+                  updatedAt: serverTimestamp(),
+                });
+              }
+            }
+
+            const hasActiveBan = Boolean(
+              userData?.isBanned &&
+              (!userData?.banExpiresAt ||
+                (userData.banExpiresAt.toDate
+                  ? userData.banExpiresAt.toDate()
+                  : new Date(userData.banExpiresAt)) > new Date())
+            );
+
+            const hasSuspension = Boolean(userData?.isSuspended);
+            const hasRestrictedStatus = userData?.accountStatus === 'banned' || userData?.accountStatus === 'suspended';
+
+            if (hasActiveBan || hasSuspension || hasRestrictedStatus) {
+              const statusMessage = hasActiveBan
+                ? (userData?.banReason || 'Your account has been restricted by an administrator.')
+                : hasSuspension
+                  ? (userData?.suspendedReason || userData?.suspensionReason || 'Your account is currently suspended by an administrator.')
+                  : `Your account status is: ${userData?.accountStatus}. Please contact support.`;
+
+              await auth.signOut();
+              setUser(null);
+
+              Alert.alert(
+                'Account Restricted',
+                statusMessage
+              );
+
+              if (initializing) {
+                setInitializing(false);
+              }
+
+              return;
+            }
+          }
+        } catch (moderationCheckError) {
+          console.warn('⚠️ Moderation status check failed, continuing login flow:', moderationCheckError?.message);
+        }
+
         // User is signed in - update AsyncStorage and Firestore
         console.log('✅ User authenticated, restoring session...');
 
@@ -286,8 +355,9 @@ export default function App() {
 
       setUser(user);
       if (initializing) {
-        console.log('✅ Initialization complete, showing app...');
         setInitializing(false);
+        // Hide splash screen once auth state is resolved
+        ExpoSplashScreen.hideAsync().catch(() => {});
       }
     });
 
@@ -329,16 +399,13 @@ export default function App() {
   }, []);
 
   if (initializing) {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
-        <ActivityIndicator size="large" color="#8B2EF0" />
-        <Text style={{ color: '#8B2EF0', marginTop: 10, fontSize: 16 }}>Loading...</Text>
-      </View>
-    );
+    // Keep splash screen visible — return null to avoid white flash
+    return null;
   }
 
   return (
     <SafeAreaProvider>
+    <ErrorBoundary>
     <WalletProvider>
       <StatusProvider>
         <NavigationContainer>
@@ -443,6 +510,8 @@ export default function App() {
                 <Stack.Screen name="MessageOptions" component={MessageOptionsScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="ChatActions" component={ChatActionsScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="AgeVerification" component={AgeVerificationScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="StoryViewer" component={StoryViewerScreen} options={{ headerShown: false, presentation: 'transparentModal', cardStyle: { backgroundColor: 'transparent' } }} />
@@ -474,6 +543,7 @@ export default function App() {
         </NavigationContainer>
       </StatusProvider>
     </WalletProvider>
+    </ErrorBoundary>
     </SafeAreaProvider>
   );
 }

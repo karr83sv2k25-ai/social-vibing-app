@@ -88,10 +88,22 @@ export const MOD_ACTIONS = {
   // User actions
   BAN_USER:           'ban_user',
   UNBAN_USER:         'unban_user',
+  KICK_USER:          'kick_user',
+  WARN_USER:          'warn_user',
   STRIKE_USER:        'strike_user',
   UNSTRIKE_USER:      'unstrike_user',
   DISABLE_MESSAGES:   'disable_messages',
   ENABLE_MESSAGES:    'enable_messages',
+  MUTE_USER_IN_CHAT:  'mute_user_in_chat',
+  UNMUTE_USER_IN_CHAT:'unmute_user_in_chat',
+  // Message actions (Discord-like)
+  DELETE_MESSAGE:     'delete_message',
+  PIN_MESSAGE:        'pin_message',
+  UNPIN_MESSAGE:      'unpin_message',
+  // Channel/Group actions
+  SET_SLOWMODE:       'set_slowmode',
+  LOCK_CHAT:          'lock_chat',
+  UNLOCK_CHAT:        'unlock_chat',
   // Title actions
   GRANT_TITLE:        'grant_title',
   REVOKE_TITLE:       'revoke_title',
@@ -145,10 +157,20 @@ const LEADER_PERMISSIONS = new Set([
   MOD_ACTIONS.ENABLE_ROOM,
   MOD_ACTIONS.BAN_USER,
   MOD_ACTIONS.UNBAN_USER,
+  MOD_ACTIONS.KICK_USER,
+  MOD_ACTIONS.WARN_USER,
   MOD_ACTIONS.STRIKE_USER,
   MOD_ACTIONS.UNSTRIKE_USER,
   MOD_ACTIONS.DISABLE_MESSAGES,
   MOD_ACTIONS.ENABLE_MESSAGES,
+  MOD_ACTIONS.MUTE_USER_IN_CHAT,
+  MOD_ACTIONS.UNMUTE_USER_IN_CHAT,
+  MOD_ACTIONS.DELETE_MESSAGE,
+  MOD_ACTIONS.PIN_MESSAGE,
+  MOD_ACTIONS.UNPIN_MESSAGE,
+  MOD_ACTIONS.SET_SLOWMODE,
+  MOD_ACTIONS.LOCK_CHAT,
+  MOD_ACTIONS.UNLOCK_CHAT,
   MOD_ACTIONS.GRANT_TITLE,
   MOD_ACTIONS.REVOKE_TITLE,
   MOD_ACTIONS.CHANGE_TITLE_COLOR,
@@ -167,6 +189,12 @@ const CURATOR_PERMISSIONS = new Set([
   MOD_ACTIONS.FEATURE_POST,
   MOD_ACTIONS.FEATURE_ROOM,
   MOD_ACTIONS.DISABLE_ROOM,
+  MOD_ACTIONS.KICK_USER,
+  MOD_ACTIONS.WARN_USER,
+  MOD_ACTIONS.DELETE_MESSAGE,
+  MOD_ACTIONS.MUTE_USER_IN_CHAT,
+  MOD_ACTIONS.UNMUTE_USER_IN_CHAT,
+  MOD_ACTIONS.PIN_MESSAGE,
 ]);
 
 export const hasPermission = (role, action) => {
@@ -687,6 +715,298 @@ export const changeTitleColor = async (db, actorId, communityId, targetUserId, n
 };
 
 // ─────────────────────────────────────────
+// KICK USER (Discord-like — remove without ban)
+// ─────────────────────────────────────────
+
+/**
+ * Kick a user from a community (remove them without adding to bannedUsers).
+ * They can rejoin unless the community is set to invite-only.
+ */
+export const kickUser = async (db, actorId, communityId, targetUserId, reason = '') => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.KICK_USER);
+
+  // Prevent kicking someone of equal or higher role
+  const targetRole = await getCommunityRole(db, communityId, targetUserId);
+  const hierarchy = { [ROLES.OWNER]: 5, [ROLES.ADMIN]: 4, [ROLES.LEADER]: 3, [ROLES.CURATOR]: 2, [ROLES.MEMBER]: 1 };
+  if ((hierarchy[targetRole] || 0) >= (hierarchy[role] || 0)) {
+    throw new Error('Cannot kick a user of equal or higher role');
+  }
+
+  await updateDoc(doc(db, 'communities', communityId), {
+    members: arrayRemove(targetUserId),
+    leaders: arrayRemove(targetUserId),
+    curators: arrayRemove(targetUserId),
+    memberCount: increment(-1),
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.KICK_USER,
+    communityId,
+    targetUserId,
+    performedBy: actorId,
+    performedByRole: role,
+    reason,
+  });
+
+  return { success: true };
+};
+
+// ─────────────────────────────────────────
+// WARN USER (Discord-like verbal/formal warning)
+// ─────────────────────────────────────────
+
+/**
+ * Issue a formal warning to a user. Warnings accumulate.
+ * Compatible with admin app's warningsCount schema.
+ */
+export const warnUser = async (db, actorId, communityId, targetUserId, reason = '') => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.WARN_USER);
+
+  // Prevent warning someone of equal or higher role
+  const targetRole = await getCommunityRole(db, communityId, targetUserId);
+  const hierarchy = { [ROLES.OWNER]: 5, [ROLES.ADMIN]: 4, [ROLES.LEADER]: 3, [ROLES.CURATOR]: 2, [ROLES.MEMBER]: 1 };
+  if ((hierarchy[targetRole] || 0) >= (hierarchy[role] || 0)) {
+    throw new Error('Cannot warn a user of equal or higher role');
+  }
+
+  // Update user doc with warning (compatible with admin app schema)
+  await updateDoc(doc(db, 'users', targetUserId), {
+    warningsCount: increment(1),
+    lastWarning: reason,
+    lastWarningDate: serverTimestamp(),
+    warnedAt: serverTimestamp(),
+    warnedBy: actorId,
+    updatedAt: serverTimestamp(),
+  });
+
+  // Store community-specific warning
+  await addDoc(collection(db, 'communities', communityId, 'warnings'), {
+    userId: targetUserId,
+    reason,
+    warnedBy: actorId,
+    createdAt: serverTimestamp(),
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.WARN_USER,
+    communityId,
+    targetUserId,
+    performedBy: actorId,
+    performedByRole: role,
+    reason,
+  });
+
+  return { success: true };
+};
+
+// ─────────────────────────────────────────
+// DELETE MESSAGE (Staff can remove any message)
+// ─────────────────────────────────────────
+
+/**
+ * Soft-delete a message in a community group chat.
+ */
+export const deleteMessage = async (db, actorId, communityId, groupId, messageId, reason = '') => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DELETE_MESSAGE);
+
+  const msgRef = doc(db, 'communities', communityId, 'groups', groupId, 'messages', messageId);
+  await updateDoc(msgRef, {
+    isDeleted: true,
+    deletedAt: serverTimestamp(),
+    deletedBy: actorId,
+    deletionReason: reason,
+    originalText: null, // clear content but leave a tombstone
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.DELETE_MESSAGE,
+    communityId,
+    performedBy: actorId,
+    performedByRole: role,
+    reason,
+    metadata: { groupId, messageId },
+  });
+
+  return { success: true };
+};
+
+// ─────────────────────────────────────────
+// MUTE USER IN CHAT (temporary chat-level mute)
+// ─────────────────────────────────────────
+
+/**
+ * Mute a user in a specific group chat. They can still read but not send.
+ * @param {number|null} durationMs - Duration in ms (null = until manually unmuted)
+ */
+export const muteUserInChat = async (db, actorId, communityId, groupId, targetUserId, durationMs = null, reason = '') => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.MUTE_USER_IN_CHAT);
+
+  const muteExpiresAt = durationMs
+    ? Timestamp.fromDate(new Date(Date.now() + durationMs))
+    : null;
+
+  const memberRef = doc(db, 'communities', communityId, 'groups', groupId, 'members', targetUserId);
+  await updateDoc(memberRef, {
+    isMuted: true,
+    mutedAt: serverTimestamp(),
+    mutedBy: actorId,
+    muteReason: reason,
+    muteExpiresAt,
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.MUTE_USER_IN_CHAT,
+    communityId,
+    targetUserId,
+    performedBy: actorId,
+    performedByRole: role,
+    reason,
+    metadata: { groupId, durationMs, muteExpiresAt },
+  });
+
+  return { success: true };
+};
+
+/**
+ * Unmute a user in a specific group chat.
+ */
+export const unmuteUserInChat = async (db, actorId, communityId, groupId, targetUserId) => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNMUTE_USER_IN_CHAT);
+
+  const memberRef = doc(db, 'communities', communityId, 'groups', groupId, 'members', targetUserId);
+  await updateDoc(memberRef, {
+    isMuted: false,
+    mutedAt: null,
+    mutedBy: null,
+    muteReason: null,
+    muteExpiresAt: null,
+    unmutedAt: serverTimestamp(),
+    unmutedBy: actorId,
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.UNMUTE_USER_IN_CHAT,
+    communityId,
+    targetUserId,
+    performedBy: actorId,
+    performedByRole: role,
+    metadata: { groupId },
+  });
+
+  return { success: true };
+};
+
+// ─────────────────────────────────────────
+// SLOWMODE (Discord-like per-channel slowmode)
+// ─────────────────────────────────────────
+
+/**
+ * Set slowmode on a group chat (seconds between messages per user).
+ * @param {number} intervalSeconds - 0 = disabled, otherwise 5/10/15/30/60/120/300/600
+ */
+export const setSlowmode = async (db, actorId, communityId, groupId, intervalSeconds = 0) => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.SET_SLOWMODE);
+
+  const groupRef = doc(db, 'communities', communityId, 'groups', groupId);
+  await updateDoc(groupRef, {
+    slowmodeInterval: intervalSeconds,
+    slowmodeSetBy: actorId,
+    slowmodeSetAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.SET_SLOWMODE,
+    communityId,
+    performedBy: actorId,
+    performedByRole: role,
+    metadata: { groupId, intervalSeconds },
+  });
+
+  return { success: true };
+};
+
+// ─────────────────────────────────────────
+// LOCK / UNLOCK CHAT
+// ─────────────────────────────────────────
+
+/**
+ * Lock a group chat — only staff can send messages.
+ */
+export const lockChat = async (db, actorId, communityId, groupId, reason = '') => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.LOCK_CHAT);
+
+  const groupRef = doc(db, 'communities', communityId, 'groups', groupId);
+  await updateDoc(groupRef, {
+    isLocked: true,
+    lockedAt: serverTimestamp(),
+    lockedBy: actorId,
+    lockReason: reason,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.LOCK_CHAT,
+    communityId,
+    performedBy: actorId,
+    performedByRole: role,
+    reason,
+    metadata: { groupId },
+  });
+
+  return { success: true };
+};
+
+/**
+ * Unlock a group chat — everyone can send again.
+ */
+export const unlockChat = async (db, actorId, communityId, groupId) => {
+  const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNLOCK_CHAT);
+
+  const groupRef = doc(db, 'communities', communityId, 'groups', groupId);
+  await updateDoc(groupRef, {
+    isLocked: false,
+    lockedAt: null,
+    lockedBy: null,
+    lockReason: null,
+    updatedAt: serverTimestamp(),
+  });
+
+  await logAction(db, {
+    action: MOD_ACTIONS.UNLOCK_CHAT,
+    communityId,
+    performedBy: actorId,
+    performedByRole: role,
+    metadata: { groupId },
+  });
+
+  return { success: true };
+};
+
+/**
+ * Get the role hierarchy level (higher = more powerful). Useful for UI comparisons.
+ */
+export const getRoleLevel = (role) => {
+  const levels = { [ROLES.OWNER]: 5, [ROLES.ADMIN]: 4, [ROLES.LEADER]: 3, [ROLES.CURATOR]: 2, [ROLES.MEMBER]: 1 };
+  return levels[role] || 0;
+};
+
+/**
+ * Get role display info (label, color, icon) for UI badges.
+ */
+export const getRoleDisplayInfo = (role) => {
+  const info = {
+    [ROLES.OWNER]:   { label: 'Owner',   color: '#FFD700', icon: 'crown',       iconLib: 'MaterialCommunityIcons' },
+    [ROLES.ADMIN]:   { label: 'Admin',   color: '#FF5555', icon: 'shield-star', iconLib: 'MaterialCommunityIcons' },
+    [ROLES.LEADER]:  { label: 'Leader',  color: '#3B82F6', icon: 'shield-half-full', iconLib: 'MaterialCommunityIcons' },
+    [ROLES.CURATOR]: { label: 'Curator', color: '#10B981', icon: 'palette',     iconLib: 'MaterialCommunityIcons' },
+    [ROLES.MEMBER]:  { label: 'Member',  color: '#888888', icon: 'account',     iconLib: 'MaterialCommunityIcons' },
+  };
+  return info[role] || info[ROLES.MEMBER];
+};
+
+// ─────────────────────────────────────────
 // FLAG / REPORT RESOLUTION
 // ─────────────────────────────────────────
 
@@ -737,10 +1057,14 @@ export const flagMessage = async (db, reporterId, {
   messageId,
   messageText = '',
   reportedUserId,
+  reporterUsername = '',
+  reportedUsername = '',
   conversationId,
   chatType = 'private',
   reason,
   details = '',
+  communityId = null,
+  groupId = null,
 }) => {
   if (!reporterId) throw new Error('Must be logged in to report a message');
   if (!messageId || !reportedUserId || !conversationId || !reason) {
@@ -751,30 +1075,65 @@ export const flagMessage = async (db, reporterId, {
   }
 
   // Deduplicate: prevent the same user from reporting the same message twice
-  const existing = await getDocs(
-    query(
-      collection(db, 'reports'),
-      where('messageId', '==', messageId),
-      where('reportedBy', '==', reporterId),
-      limit(1)
-    )
-  );
-  if (!existing.empty) {
-    return { success: false, error: 'You have already reported this message' };
+  // Wrapped in try-catch: if the composite index is missing, we skip the check
+  // rather than blocking the entire report submission.
+  try {
+    const existing = await getDocs(
+      query(
+        collection(db, 'reports'),
+        where('messageId', '==', messageId),
+        where('reporterId', '==', reporterId),
+        limit(1)
+      )
+    );
+    if (!existing.empty) {
+      return { success: false, error: 'You have already reported this message' };
+    }
+  } catch (dedupError) {
+    // Index may not be deployed yet — continue with submission
+    console.warn('[flagMessage] Dedup check skipped:', dedupError.message);
   }
 
+  // Build reason label from MESSAGE_REPORT_REASONS
+  const reasonObj = MESSAGE_REPORT_REASONS.find(r => r.key === reason);
+  const reasonLabel = reasonObj ? reasonObj.label : reason;
+
+  // Calculate priority based on reason
+  const highPriority = ['threats', 'explicit'];
+  const mediumPriority = ['harassment', 'hate_speech'];
+  const priority = highPriority.includes(reason) ? 'high'
+    : mediumPriority.includes(reason) ? 'medium' : 'low';
+
   await addDoc(collection(db, 'reports'), {
-    type: 'message',
+    reportType: 'message',
+    reporterId,
+    reporterUsername: String(reporterUsername || 'Unknown User').substring(0, 100),
+    reportedId: reportedUserId,
+    reportedUsername: String(reportedUsername || 'Unknown User').substring(0, 100),
+    reason,
+    reasonLabel,
+    reasonCategory: 'chat',
+    priority,
     chatType,
     conversationId,
+    communityId: communityId || null,
+    groupId: groupId || null,
     messageId,
-    messageText,
-    reportedUserId,
-    reportedBy: reporterId,
-    reason,
-    details,
+    messageText: (messageText || '').substring(0, 500),
+    contentId: messageId,
+    contentType: 'message',
+    contentPreview: (messageText || '').substring(0, 200),
+    description: details ? String(details).substring(0, 500) : '',
+    evidence: [],
     status: 'pending',
+    isResolved: false,
+    reviewedBy: null,
+    reviewedAt: null,
+    actionTaken: null,
+    actionDetails: null,
+    adminNotes: null,
     createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   });
 
   return { success: true };

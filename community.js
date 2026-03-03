@@ -11,11 +11,14 @@ import {
   ActivityIndicator,
   Modal,
   FlatList,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect } from '@react-navigation/native';
+import { CommunitySkeleton } from './components/SkeletonLoaders';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 import {
   collection,
   query,
@@ -27,15 +30,19 @@ import {
   onSnapshot,
   doc,
   setDoc,
+  addDoc,
   updateDoc,
   arrayUnion,
-  increment
+  increment,
+  serverTimestamp
 } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { app as firebaseApp, db } from './firebaseConfig';
 import CacheManager from './cacheManager';
 import StatusBadge from './components/StatusBadge';
 import StatusSelector from './components/StatusSelector';
+import { getDailyRewardsData, claimTaskReward, DAILY_TASKS, getTimeUntilMidnight, formatTimeRemaining } from './shared/services/dailyRewardsService';
+import { useWallet } from './context/WalletContext';
 
 // Memoized community card component for better rendering performance
 const CommunityCard = React.memo(({ item, idx, onPress, showFollowedBadge, isJoined }) => (
@@ -137,14 +144,54 @@ export default function TopBar({ navigation, route }) {
       const finish = async () => {
         try {
           if (auth.currentUser && comm) {
-            const membershipId = `${auth.currentUser.uid}_${comm.community_id || comm.id}`;
+            const communityId = comm.community_id || comm.id;
+
+            // Check if community is private — if so, submit a join request instead of auto-joining
+            if (comm.privacy === 'private') {
+              try {
+                // Check for existing pending request
+                const existingQuery = query(
+                  collection(db, 'join_requests'),
+                  where('communityId', '==', communityId),
+                  where('userId', '==', auth.currentUser.uid),
+                  where('status', '==', 'pending')
+                );
+                const existingSnap = await getDocs(existingQuery);
+                if (!existingSnap.empty) {
+                  Alert.alert('Request Pending', 'You already have a pending join request for this community.');
+                  closeValidation();
+                  return;
+                }
+
+                await addDoc(collection(db, 'join_requests'), {
+                  communityId,
+                  userId: auth.currentUser.uid,
+                  status: 'pending',
+                  message: '',
+                  createdAt: serverTimestamp(),
+                  requestedAt: serverTimestamp(),
+                });
+
+                Alert.alert('Request Sent', 'Your join request has been sent to the community admins for approval.');
+                closeValidation();
+                return;
+              } catch (joinReqError) {
+                console.error('Failed to submit join request:', joinReqError);
+                Alert.alert('Error', 'Failed to send join request. Please try again.');
+                closeValidation();
+                return;
+              }
+            }
+
+            const membershipId = `${auth.currentUser.uid}_${communityId}`;
             const membershipRef = doc(db, 'communities_members', membershipId);
             await setDoc(membershipRef, {
               user_id: auth.currentUser.uid,
               community_id: comm.community_id || comm.id,
               joinedAt: new Date().toISOString(),
               validated: true,
-              role: 'member'
+              role: 'member',
+              communityNickname: null,
             });
 
             // optimistic update: add to joinedCommunities local state
@@ -205,6 +252,15 @@ export default function TopBar({ navigation, route }) {
   const [unsubscribers, setUnsubscribers] = useState([]);
   const [communityEvents, setCommunityEvents] = useState([]);
 
+  // Global check-in state
+  const [globalCheckInDone, setGlobalCheckInDone] = useState(false);
+  const [globalStreak, setGlobalStreak] = useState(0);
+  const [globalCoinsToday, setGlobalCoinsToday] = useState(0);
+  const [globalCheckingIn, setGlobalCheckingIn] = useState(false);
+  const [globalCountdown, setGlobalCountdown] = useState('');
+  const walletContext = useWallet();
+  const { wallet: walletData } = walletContext || {};
+
   const buttons = ['Explored', 'Joined', 'Managed by you'];
 
   // db is now imported globally
@@ -239,12 +295,7 @@ export default function TopBar({ navigation, route }) {
 
   // Helper to get a display name for the user
   const getUserName = useCallback((u) => {
-    if (!u) return 'Guest User';
-    if (u.displayName) return u.displayName;
-    if (u.name) return u.name;
-    if (u.username) return u.username;
-    if (u.firstName || u.lastName) return `${u.firstName || ''}${u.firstName && u.lastName ? ' ' : ''}${u.lastName || ''}`.trim();
-    return 'Guest User';
+    return getDisplayName(u, 'Guest User');
   }, []);
 
   // Helper function to filter communities by category
@@ -433,7 +484,9 @@ export default function TopBar({ navigation, route }) {
           const possibleFields = ['profileImage', 'coverImage', 'backgroundImage', 'community_picture', 'imageUrl', 'banner', 'photo', 'picture'];
 
           // Process communities without fetching admin images (lazy load later)
-          const communities = snapshot.docs.map(d => {
+          const communities = snapshot.docs
+            .filter(d => !d.data().isDisabled && !d.data().isDeleted)
+            .map(d => {
             const data = d.data();
             let img = null;
 
@@ -589,6 +642,64 @@ export default function TopBar({ navigation, route }) {
     return () => { mounted = false; unsubscribe(); };
   }, []);
 
+  // Load global check-in data
+  useEffect(() => {
+    const userId = auth.currentUser?.uid;
+    if (!userId) return;
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await getDailyRewardsData(db, userId);
+        if (!mounted) return;
+        const checkInTask = data?.tasks?.[DAILY_TASKS.CHECK_IN.id];
+        setGlobalCheckInDone(checkInTask?.status === 'claimed');
+        setGlobalStreak(data?.streak || 0);
+        setGlobalCoinsToday(data?.coinsEarnedToday || 0);
+      } catch (e) {
+        console.log('Error loading global check-in:', e.message);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [auth.currentUser?.uid]);
+
+  // Global countdown timer
+  useEffect(() => {
+    if (!globalCheckInDone) { setGlobalCountdown(''); return; }
+    const tick = () => setGlobalCountdown(formatTimeRemaining(getTimeUntilMidnight()));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [globalCheckInDone]);
+
+  // Global check-in handler
+  const handleGlobalCheckIn = useCallback(async () => {
+    if (globalCheckInDone || globalCheckingIn) {
+      navigation.navigate('DailyReward');
+      return;
+    }
+    setGlobalCheckingIn(true);
+    try {
+      const userId = auth.currentUser?.uid;
+      if (!userId) return;
+      const result = await claimTaskReward(db, userId, DAILY_TASKS.CHECK_IN.id, walletContext);
+      if (result.success) {
+        setGlobalCheckInDone(true);
+        setGlobalCoinsToday(prev => prev + (result.reward || 0));
+        Alert.alert(
+          '🎉 Daily Check-in Complete!',
+          `+${result.reward} Coins earned!\n🔥 Streak: ${globalStreak} days`,
+          [{ text: 'Awesome!' }]
+        );
+      } else if (result.alreadyClaimed) {
+        setGlobalCheckInDone(true);
+      }
+    } catch (e) {
+      Alert.alert('Error', e.message || 'Check-in failed');
+    } finally {
+      setGlobalCheckingIn(false);
+    }
+  }, [globalCheckInDone, globalCheckingIn, globalStreak, walletContext]);
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -648,7 +759,7 @@ export default function TopBar({ navigation, route }) {
               <Text style={styles.profileName}>
                 {getUserName(userProfile)}
               </Text>
-              {userProfile?.verified && (
+              {userProfile?.isVerified && (
                 <Image
                   source={require('./assets/starimage.png')}
                   style={{ width: 18, height: 18, marginLeft: 5 }}
@@ -684,6 +795,55 @@ export default function TopBar({ navigation, route }) {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* 🌐 Global Daily Check-in */}
+      <TouchableOpacity
+        style={styles.globalCheckInCard}
+        onPress={handleGlobalCheckIn}
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={globalCheckInDone ? ['#1A2A1A', '#152015'] : ['#1A0B2E', '#261248']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.globalCheckInGradient}
+        >
+          <View style={styles.globalCheckInLeft}>
+            <View style={styles.globalCheckInIconWrap}>
+              <Ionicons
+                name={globalCheckInDone ? 'checkmark-circle' : 'gift'}
+                size={22}
+                color={globalCheckInDone ? '#00FF73' : '#BF2EF0'}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.globalCheckInTitle}>
+                {globalCheckInDone ? 'Checked In Today ✓' : 'Daily Check-in'}
+              </Text>
+              <Text style={styles.globalCheckInSub}>
+                {globalCheckInDone
+                  ? `Resets in ${globalCountdown || '...'}`
+                  : `Tap to earn +${DAILY_TASKS.CHECK_IN.reward} coins`}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.globalCheckInRight}>
+            <View style={styles.globalCheckInStatPill}>
+              <Ionicons name="flame" size={14} color="#FF6B6B" />
+              <Text style={styles.globalCheckInStatText}>{globalStreak}</Text>
+            </View>
+            {globalCheckingIn ? (
+              <ActivityIndicator size="small" color="#BF2EF0" />
+            ) : (
+              <Ionicons
+                name={globalCheckInDone ? 'chevron-forward' : 'arrow-forward-circle'}
+                size={22}
+                color={globalCheckInDone ? '#666' : '#BF2EF0'}
+              />
+            )}
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
 
       {/* 🔘 Tabs */}
       <View style={styles.buttonContainer}>
@@ -723,10 +883,7 @@ export default function TopBar({ navigation, route }) {
 
       {/* 📸 Sections */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#08FFE2" />
-          <Text style={styles.loadingText}>Loading communities...</Text>
-        </View>
+        <CommunitySkeleton count={6} />
       ) : (
         <ScrollView contentContainerStyle={styles.cardContainer}>
           {/* === EXPLORED TAB === */}
@@ -1055,5 +1212,66 @@ export default function TopBar({ navigation, route }) {
   followedBadge: { position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   followedBadgeSmall: { position: 'absolute', top: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   followedBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+
+  // Global Check-in styles
+  globalCheckInCard: {
+    marginHorizontal: 15,
+    marginTop: 6,
+    marginBottom: 4,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  globalCheckInGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  globalCheckInLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 10,
+  },
+  globalCheckInIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(191,46,240,0.15)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  globalCheckInTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  globalCheckInSub: {
+    color: '#999',
+    fontSize: 11,
+    marginTop: 2,
+  },
+  globalCheckInRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  globalCheckInStatPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(255,107,107,0.12)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  globalCheckInStatText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
 });
 

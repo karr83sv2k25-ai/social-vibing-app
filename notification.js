@@ -190,6 +190,18 @@ export default function NotificationScreen({ navigation }) {
           return 'commented on your post';
         case 'mention':
           return 'mentioned you';
+        case 'moderation_action':
+          return item.message || 'An action has been taken on your account';
+        case 'warning':
+          return item.message || 'You have received a warning from moderation';
+        case 'content_removed':
+          return item.message || 'Your content has been removed for violating guidelines';
+        case 'ban':
+          return item.message || 'Your account has been restricted';
+        case 'suspension':
+          return item.message || 'Your account has been suspended';
+        case 'unban':
+          return item.message || 'Your account restriction has been lifted';
         default:
           return item.message || item.action || 'interacted with your content';
       }

@@ -23,6 +23,7 @@ import {
 import { getAuth, signInWithEmailAndPassword } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { generateUniqueUsername } from './utils/userNameHelpers';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -106,6 +107,8 @@ export default function LoginScreen({ navigation }) {
 
         if (!userSnap.exists()) {
           console.log('📝 User document not found, creating complete user profile for migrated user...');
+          // Generate a unique username for migrated users
+          const uniqueUsername = await generateUniqueUsername(user.email, user.uid);
           // Create complete user document with all required fields for old/migrated users
           await setDoc(userRef, {
             email: user.email,
@@ -123,13 +126,22 @@ export default function LoginScreen({ navigation }) {
             visits: 0,
             // Profile defaults
             bio: '',
-            username: email.split('@')[0],
+            username: uniqueUsername,
             characterCollection: [],
             interests: [],
             // Migration flag to track old users
             migratedFromWeb: true,
             migrationDate: new Date().toISOString(),
           });
+          // Reserve the username in the usernames collection
+          try {
+            await setDoc(doc(db, 'usernames', uniqueUsername), {
+              ownerId: user.uid,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (usernameReserveErr) {
+            console.warn('⚠️  Could not reserve username:', usernameReserveErr);
+          }
           console.log('✅ Complete user document created for migrated user');
         } else {
           console.log('✅ User document exists, preserving existing data and adding only missing fields...');
@@ -145,7 +157,17 @@ export default function LoginScreen({ navigation }) {
             updates.lastName = user.displayName?.split(' ')[1] || '';
           }
           if (userData.username === undefined || userData.username === null || userData.username === '') {
-            updates.username = email.split('@')[0];
+            const uniqueUsername = await generateUniqueUsername(email, user.uid);
+            updates.username = uniqueUsername;
+            // Reserve the generated username
+            try {
+              await setDoc(doc(db, 'usernames', uniqueUsername), {
+                ownerId: user.uid,
+                createdAt: new Date().toISOString(),
+              });
+            } catch (usernameReserveErr) {
+              console.warn('⚠️  Could not reserve username:', usernameReserveErr);
+            }
           }
           if (userData.followers === undefined || userData.followers === null) {
             updates.followers = 0;

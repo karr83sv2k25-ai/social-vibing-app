@@ -10,10 +10,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
-  Clipboard,
   ActivityIndicator,
   Keyboard
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Ionicons } from '@expo/vector-icons';
 import {
   collection,
@@ -37,6 +37,7 @@ import { SimpleInlineStatus } from '../components/StatusBadge';
 import EmojiSelector from 'react-native-emoji-selector';
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger, uploadVideoToHostinger } from '../hostingerConfig';
+import { normalizeBlobUri } from '../utils/normalizeUri';
 import {
   editMessage,
   deleteMessageForMe,
@@ -312,7 +313,7 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
   };
 
   const handleCopy = (message) => {
-    Clipboard.setString(message.text);
+    Clipboard.setStringAsync(message.text);
     Alert.alert('Copied', 'Message copied to clipboard');
   };
 
@@ -352,11 +353,12 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
                 setUploadProgress('Uploading...');
 
                 try {
+                  const safeUri = await normalizeBlobUri(asset.uri);
                   let uploadedUrl;
                   if (asset.type === 'video') {
-                    uploadedUrl = await uploadVideoToHostinger(asset.uri, 'chat_videos');
+                    uploadedUrl = await uploadVideoToHostinger(safeUri, 'chat_videos');
                   } else {
-                    uploadedUrl = await uploadImageToHostinger(asset.uri, 'chat_images');
+                    uploadedUrl = await uploadImageToHostinger(safeUri, 'chat_images');
                   }
 
                   // Send message with attachment
@@ -432,7 +434,8 @@ export default function EnhancedChatScreenV2({ route, navigation }) {
                 setUploadProgress('Uploading...');
 
                 try {
-                  const uploadedUrl = await uploadImageToHostinger(asset.uri, 'chat_images');
+                  const safeUri = await normalizeBlobUri(asset.uri);
+                  const uploadedUrl = await uploadImageToHostinger(safeUri, 'chat_images');
 
                   // Send message with attachment
                   const messageData = {

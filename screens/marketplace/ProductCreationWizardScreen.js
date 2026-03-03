@@ -15,6 +15,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { productAPI } from '../../api/productAPI';
+import { normalizeBlobUri, normalizeBlobUris } from '../../utils/normalizeUri';
 
 const BG = '#0B0B0E';
 const CARD = '#17171C';
@@ -75,7 +76,8 @@ export default function ProductCreationWizardScreen({ route, navigation }) {
         });
 
         if (!result.canceled) {
-            setCoverImage(result.assets[0].uri);
+            const safeUri = await normalizeBlobUri(result.assets[0].uri);
+            setCoverImage(safeUri);
         }
     };
 
@@ -87,7 +89,9 @@ export default function ProductCreationWizardScreen({ route, navigation }) {
         });
 
         if (!result.canceled) {
-            setPreviewImages([...previewImages, ...result.assets.map(a => a.uri)]);
+            const rawUris = result.assets.map(a => a.uri);
+            const safeUris = await normalizeBlobUris(rawUris);
+            setPreviewImages([...previewImages, ...safeUris]);
         }
     };
 

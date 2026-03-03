@@ -92,6 +92,19 @@ export const updateCommunity = async (db, communityId, updates) => {
   }
 };
 
+// ==================== STAFF CHECK HELPER ====================
+// Synchronous helper — works on already-fetched community data
+const isCommunityStaff = (communityData, userId) => {
+  if (!communityData || !userId) return false;
+  return (
+    communityData.creatorId === userId ||
+    communityData.adminIds?.includes(userId) ||
+    communityData.leaders?.includes(userId) ||
+    communityData.curators?.includes(userId) ||
+    communityData.moderators?.includes(userId) // legacy
+  );
+};
+
 // ==================== PIN POST AS ANNOUNCEMENT ====================
 export const pinPostAsAnnouncement = async (db, communityId, postId, userId) => {
   try {
@@ -103,9 +116,10 @@ export const pinPostAsAnnouncement = async (db, communityId, postId, userId) => 
 
     const communityData = communityDoc.data();
     
-    // Check if user is creator or moderator
-    if (communityData.creatorId !== userId && !communityData.moderators?.includes(userId)) {
-      return { success: false, error: 'Only moderators can pin announcements' };
+    // Check if user is creator, admin, moderator, leader, or curator
+    const isStaff = isCommunityStaff(communityData, userId);
+    if (!isStaff) {
+      return { success: false, error: 'Only community staff can pin announcements' };
     }
 
     const currentAnnouncements = communityData.announcements || [];
@@ -126,12 +140,26 @@ export const pinPostAsAnnouncement = async (db, communityId, postId, userId) => 
       updatedAt: serverTimestamp()
     });
 
-    // Update post to mark as announcement
-    await updateDoc(doc(db, 'posts', postId), {
-      isPinned: true,
-      pinnedAt: serverTimestamp(),
-      pinnedBy: userId
-    });
+    // Update post in the community subcollection (correct path)
+    try {
+      await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+        isPinned: true,
+        pinnedAt: serverTimestamp(),
+        pinnedBy: userId
+      });
+    } catch {
+      // Post may be a blog — try blog subcollection
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+          isPinned: true,
+          pinnedAt: serverTimestamp(),
+          pinnedBy: userId
+        });
+      } catch {
+        // Post doc update is non-critical — the announcements array is the source of truth
+        console.warn('Could not mark post/blog doc as pinned');
+      }
+    }
 
     console.log('✅ Post pinned as announcement');
     return { success: true };
@@ -152,9 +180,10 @@ export const unpinAnnouncement = async (db, communityId, postId, userId) => {
 
     const communityData = communityDoc.data();
     
-    // Check if user is creator or moderator
-    if (communityData.creatorId !== userId && !communityData.moderators?.includes(userId)) {
-      return { success: false, error: 'Only moderators can unpin announcements' };
+    // Check if user is creator, admin, moderator, leader, or curator
+    const isStaff = isCommunityStaff(communityData, userId);
+    if (!isStaff) {
+      return { success: false, error: 'Only community staff can unpin announcements' };
     }
 
     // Remove from announcements array
@@ -163,12 +192,24 @@ export const unpinAnnouncement = async (db, communityId, postId, userId) => {
       updatedAt: serverTimestamp()
     });
 
-    // Update post to unmark as announcement
-    await updateDoc(doc(db, 'posts', postId), {
-      isPinned: false,
-      pinnedAt: null,
-      pinnedBy: null
-    });
+    // Update post in subcollection to remove pinned flag
+    try {
+      await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+        isPinned: false,
+        pinnedAt: null,
+        pinnedBy: null
+      });
+    } catch {
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+          isPinned: false,
+          pinnedAt: null,
+          pinnedBy: null
+        });
+      } catch {
+        console.warn('Could not unmark post/blog doc as pinned');
+      }
+    }
 
     console.log('✅ Announcement unpinned');
     return { success: true };
@@ -193,10 +234,16 @@ export const getAnnouncements = async (db, communityId) => {
       return { success: true, data: [] };
     }
 
-    // Fetch announcement posts
+    // Fetch announcement posts from the community subcollection (correct path)
     const announcements = await Promise.all(
       announcementIds.map(async (postId) => {
-        const postDoc = await getDoc(doc(db, 'posts', postId));
+        // Try posts subcollection first
+        let postDoc = await getDoc(doc(db, 'communities', communityId, 'posts', postId));
+        if (postDoc.exists()) {
+          return { id: postId, ...postDoc.data() };
+        }
+        // Fall back to blogs subcollection
+        postDoc = await getDoc(doc(db, 'communities', communityId, 'blogs', postId));
         if (postDoc.exists()) {
           return { id: postId, ...postDoc.data() };
         }

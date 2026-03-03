@@ -462,30 +462,30 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
     
     const userIds = checkInData.map(item => item.data.userId).filter(Boolean);
     
-    // Batch fetch user data (max 10 per query due to Firestore limits)
+    // Batch fetch user data in PARALLEL (Promise.all instead of sequential awaits)
     const userDataMap = {};
     const batchSize = 10;
-    
+    const userBatches = [];
     for (let i = 0; i < userIds.length; i += batchSize) {
-      const batch = userIds.slice(i, i + batchSize);
-      try {
-        const userQuery = query(
-          collection(db, 'users'),
-          where('__name__', 'in', batch)
-        );
-        const userSnapshot = await getDocs(userQuery);
-        
-        userSnapshot.docs.forEach(userDoc => {
-          const ud = userDoc.data();
-          userDataMap[userDoc.id] = {
-            displayName: sanitizeDisplayName(ud.displayName || ud.username),
-            photoURL: ud.photoURL || ud.profileImage || null,
-          };
-        });
-      } catch (e) {
-        console.log('Could not fetch user batch:', e.message);
-      }
+      userBatches.push(userIds.slice(i, i + batchSize));
     }
+
+    const userBatchResults = await Promise.all(
+      userBatches.map(batch =>
+        getDocs(query(collection(db, 'users'), where('__name__', 'in', batch)))
+          .catch(e => { console.log('Could not fetch user batch:', e.message); return null; })
+      )
+    );
+    userBatchResults.forEach(userSnapshot => {
+      if (!userSnapshot) return;
+      userSnapshot.docs.forEach(userDoc => {
+        const ud = userDoc.data();
+        userDataMap[userDoc.id] = {
+          displayName: sanitizeDisplayName(ud.displayName || ud.username),
+          photoURL: ud.photoURL || ud.profileImage || null,
+        };
+      });
+    });
     
     // Build leaderboard with cached user data
     checkInData.forEach((item, index) => {

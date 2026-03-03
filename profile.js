@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -12,24 +12,31 @@ import {
   Modal,
   ActionSheetIOS,
   Platform,
+  StatusBar,
 } from "react-native";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons, Feather } from "@expo/vector-icons";
+import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import { getAuth, signOut } from "firebase/auth";
 import { doc, onSnapshot, updateDoc, increment, collection, getDocs, query, where, getDoc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
+import * as ImagePicker from 'expo-image-picker';
 import { app, db } from "./firebaseConfig";
+import { uploadImageToHostinger } from './hostingerConfig';
 import CacheManager from "./cacheManager";
 import StatusBadge from "./components/StatusBadge";
 import StatusSelector from "./components/StatusSelector";
-import { useStatus } from "./contexts/StatusContext";
 import VerifiedBadge from './components/VerifiedBadge';
 import ReportUserModal from './components/ReportUserModal';
+import { getDisplayName, getUserHandle } from './utils/userNameHelpers';
+import { ProfileSkeleton } from './components/SkeletonLoaders';
 import { REPORT_TYPES } from './shared/services/reportService';
+import { useWallet } from './context/WalletContext';
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 const PADDING_H = 18;
+const COVER_H = 210;
+const AVATAR_SIZE = 88;
 
 /* --------- THEME --------- */
 const C = {
@@ -46,23 +53,37 @@ const C = {
 };
 
 /* --------- REUSABLES --------- */
-const Pill = ({ label }) => (
-  <View style={styles.pill}>
-    <Text style={styles.pillText}>{label}</Text>
+const TagPill = ({ label }) => (
+  <View style={styles.tagPill}>
+    <Text style={styles.tagPillText}>{label.startsWith('#') ? label : `#${label}`}</Text>
   </View>
 );
 
 const Stat = ({ value, label, onPress }) => (
-  <TouchableOpacity onPress={onPress} style={{ alignItems: "center", width: 68 }} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}>
-    <Text style={{ color: C.text, fontWeight: "700", fontSize: 16 }}>{value}</Text>
-    <Text style={{ color: C.dim, fontSize: 12 }}>{label}</Text>
+  <TouchableOpacity onPress={onPress} style={styles.statBox} activeOpacity={onPress ? 0.7 : 1} disabled={!onPress}>
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
   </TouchableOpacity>
 );
 
-const ListRow = ({ title, onPress }) => (
-  <TouchableOpacity onPress={onPress} style={styles.row}>
+const SectionHeader = ({ title, onAdd }) => (
+  <View style={styles.sectionHeader}>
+    <Text style={styles.sectionTitle}>{title}</Text>
+    {onAdd && (
+      <TouchableOpacity onPress={onAdd} style={styles.sectionAddBtn}>
+        <Ionicons name="add" size={22} color={C.text} />
+      </TouchableOpacity>
+    )}
+  </View>
+);
+
+const ListRow = ({ title, onPress, icon, iconColor }) => (
+  <TouchableOpacity onPress={onPress} style={styles.row} disabled={!onPress}>
     <Text style={styles.rowTitle}>{title}</Text>
-    <Feather name="chevron-right" size={20} color={C.dim} />
+    {onPress
+      ? <Feather name="chevron-right" size={20} color={C.dim} />
+      : <Text style={{ color: C.dim, fontSize: 12 }}>Coming soon</Text>
+    }
   </TouchableOpacity>
 );
 
@@ -71,6 +92,7 @@ export default function ProfileScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { userId } = route.params || {};
+  const { wallet: walletData, fetchWallet } = useWallet();
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
@@ -87,6 +109,10 @@ export default function ProfileScreen() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showOptionsMenu, setShowOptionsMenu] = useState(false);
+  const [joinedCommunities, setJoinedCommunities] = useState([]);
+  const [communityLoading, setCommunityLoading] = useState(false);
+  const [coverUploading, setCoverUploading] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const lastFocusTimeRef = React.useRef(Date.now());
 
   // Check if updated data was passed from edit profile
@@ -126,11 +152,120 @@ export default function ProfileScreen() {
       if (timeSinceLastFocus > 2000) {
         console.log('🔄 Profile screen focused - checking for updates');
         setRefreshKey(prev => prev + 1);
+        // Refresh wallet data when returning to profile
+        fetchWallet();
       }
 
       lastFocusTimeRef.current = now;
     }, [])
   );
+
+  // ——— Fetch communities the user has joined ———
+  const fetchJoinedCommunities = useCallback(async (uid) => {
+    if (!uid) return;
+    setCommunityLoading(true);
+    try {
+      const membershipsQuery = query(
+        collection(db, 'communities_members'),
+        where('user_id', '==', uid)
+      );
+      const membershipsSnapshot = await getDocs(membershipsQuery);
+      const communityIds = membershipsSnapshot.docs.map(d => d.data().community_id);
+
+      if (communityIds.length === 0) {
+        setJoinedCommunities([]);
+        return;
+      }
+
+      const communitiesData = [];
+      for (const cid of communityIds) {
+        const communityDoc = await getDoc(doc(db, 'communities', cid));
+        if (communityDoc.exists()) {
+          const data = communityDoc.data();
+          communitiesData.push({
+            id: cid,
+            name: data.name || data.community_title || data.title || 'Community',
+            img: data.profileImage || data.img || data.image || data.community_image || data.cover_image || data.coverImage || null,
+            members_count: data.members_count || data.memberCount || (Array.isArray(data.members) ? data.members.length : 0),
+            category: data.category || '',
+            tags: data.tags || [],
+          });
+        }
+      }
+      setJoinedCommunities(communitiesData);
+    } catch (e) {
+      console.warn('⚠️ Communities fetch failed:', e.message);
+    } finally {
+      setCommunityLoading(false);
+    }
+  }, []);
+
+  // ——— Upload cover image ———
+  const handleCoverUpload = async () => {
+    if (!isOwnProfile) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow photo library access to change your cover photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 7],
+        quality: 0.8,
+      });
+      if (result.canceled) return;
+
+      setCoverUploading(true);
+      const auth = getAuth(app);
+      const currentUser = auth.currentUser;
+      const uri = result.assets[0].uri;
+      const url = await uploadImageToHostinger(uri, 'cover_images');
+      if (url) {
+        await updateDoc(doc(db, 'users', currentUser.uid), { coverImage: url });
+        setUserData(prev => ({ ...prev, coverImage: url }));
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to upload cover photo.');
+    } finally {
+      setCoverUploading(false);
+    }
+  };
+
+  // ——— Upload avatar image ———
+  const handleAvatarUpload = async () => {
+    if (!isOwnProfile) return;
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Please allow photo library access to change your profile photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+      if (result.canceled) return;
+
+      setAvatarUploading(true);
+      const auth = getAuth(app);
+      const currentUser = auth.currentUser;
+      const uri = result.assets[0].uri;
+      const url = await uploadImageToHostinger(uri, 'profile_images');
+      if (url) {
+        await updateDoc(doc(db, 'users', currentUser.uid), { profileImage: url });
+        setUserData(prev => ({ ...prev, profileImage: url }));
+        await CacheManager.saveUserProfile(currentUser.uid, { ...(userData || {}), profileImage: url });
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Failed to upload profile photo.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
 
   const handleStoryPress = (story) => {
     setViewingStory(story);
@@ -496,9 +631,9 @@ export default function ProfileScreen() {
           await setDoc(doc(notificationsRef, `${currentUser.uid}_unfollow_${Date.now()}`), {
             type: 'unfollow',
             fromUserId: currentUser.uid,
-            fromUserName: currentUserData.name || currentUserData.displayName || 'User',
+            fromUserName: getDisplayName(currentUserData),
             fromUserImage: currentUserData.profileImage || currentUserData.avatar || null,
-            message: `${currentUserData.name || currentUserData.displayName || 'Someone'} unfollowed you`,
+            message: `${getDisplayName(currentUserData, 'Someone')} unfollowed you`,
             createdAt: new Date().toISOString(),
             read: false,
           });
@@ -533,9 +668,9 @@ export default function ProfileScreen() {
           await setDoc(doc(notificationsRef, `${currentUser.uid}_follow_${Date.now()}`), {
             type: 'follow',
             fromUserId: currentUser.uid,
-            fromUserName: currentUserData.name || currentUserData.displayName || 'User',
+            fromUserName: getDisplayName(currentUserData),
             fromUserImage: currentUserData.profileImage || currentUserData.avatar || null,
-            message: `${currentUserData.name || currentUserData.displayName || 'Someone'} started following you`,
+            message: `${getDisplayName(currentUserData, 'Someone')} started following you`,
             createdAt: new Date().toISOString(),
             read: false,
           });
@@ -569,6 +704,10 @@ export default function ProfileScreen() {
       storiesQuery,
       (snapshot) => {
         const fetchedStories = snapshot.docs
+          .filter(docSnap => {
+            const d = docSnap.data();
+            return !d.isRemoved && !d.isDeleted;
+          })
           .map((docSnap) => {
             const data = docSnap.data();
             const createdAt = data.createdAt?.toDate?.() || data.createdAt || null;
@@ -600,171 +739,188 @@ export default function ProfileScreen() {
     return () => unsubscribe();
   }, [targetUserId]);
 
+  // ——— fetch communities on data load ———
+  useEffect(() => {
+    if (targetUserId) fetchJoinedCommunities(targetUserId);
+  }, [targetUserId, fetchJoinedCommunities]);
+
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <Text style={{ color: C.text }}>Loading...</Text>
+      <View style={[styles.container, { paddingTop: 40 }]}>
+        <ProfileSkeleton />
       </View>
     );
   }
 
+  const displayName = getDisplayName(userData);
+  const username = getUserHandle(userData);
+  const joinedDate = userData?.createdAt
+    ? new Date(userData.createdAt?.toDate?.() || userData.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })
+    : null;
+  const userTags = userData?.tags || [];
+  const genderIcon = userData?.gender === 'Male' ? 'male' : userData?.gender === 'Female' ? 'female' : userData?.gender ? 'male-female' : null;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 36, paddingTop: 40 }}>
-      {/* Back Button - Show at top when viewing other user's profile */}
-      {!isOwnProfile && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            top: 50,
-            left: 10,
-            zIndex: 10,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            borderRadius: 20,
-            width: 40,
-            height: 40,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-      )}
-      
-      {/* More Options Button - Show for other users */}
-      {!isOwnProfile && (
-        <TouchableOpacity
-          style={{
-            position: 'absolute',
-            top: 50,
-            right: 10,
-            zIndex: 10,
-            backgroundColor: 'rgba(0,0,0,0.5)',
-            borderRadius: 20,
-            width: 40,
-            height: 40,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-          onPress={() => {
-            if (Platform.OS === 'ios') {
-              ActionSheetIOS.showActionSheetWithOptions(
-                {
-                  options: ['Cancel', 'Report User', 'Block User'],
-                  destructiveButtonIndex: 2,
-                  cancelButtonIndex: 0,
-                },
-                (buttonIndex) => {
-                  if (buttonIndex === 1) {
-                    setShowReportModal(true);
-                  } else if (buttonIndex === 2) {
-                    handleBlockUser();
-                  }
-                }
-              );
-            } else {
-              setShowOptionsMenu(true);
-            }
-          }}
-        >
-          <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
-        </TouchableOpacity>
-      )}
-      {/* ===== PROFILE CARD ===== */}
-      <LinearGradient
-        colors={["#0EE7B7", "#8A2BE2"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.profileOuter}
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
+      <ScrollView
+        contentContainerStyle={{ paddingBottom: 48 }}
+        showsVerticalScrollIndicator={false}
       >
-        <View style={styles.profileInner}>
-          <View style={{ flexDirection: "row", alignItems: "center" }}>
-            {userData?.profileImage || userData?.user_picture ? (
-              <Image
-                source={{ uri: userData.profileImage || userData.user_picture }}
-                style={styles.avatar}
-              />
-            ) : (
-              <View style={[styles.avatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
-                <Ionicons name="person" size={30} color="#657786" />
-              </View>
-            )}
-            <View style={{ marginLeft: 12, flex: 1 }}>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={styles.name}>{userData?.firstName || userData?.user_firstname || ''} {userData?.lastName || userData?.user_lastname || ''}</Text>
-                <VerifiedBadge isVerified={userData?.isVerified} size={16} style={{ marginLeft: 6 }} />
-                {/* Gender Icon - Changes based on user's selected gender */}
-                {userData?.gender && (
-                  <Ionicons
-                    name={
-                      userData.gender === 'Male' ? 'male' :
-                      userData.gender === 'Female' ? 'female' :
-                      'male-female'
-                    }
-                    size={16}
-                    color="#08FFE2"
-                    style={{ marginLeft: 6 }}
-                  />
-                )}
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
-                <Text style={styles.handle}>
-                  {isOwnProfile
-                    ? `${userData?.email || userData?.user_email || ''} · ${userData?.phoneNumber || userData?.user_phone ? `Phone: ${userData.phoneNumber || userData?.user_phone}` : 'No phone'}`
-                    : `@${userData?.username || userData?.user_name || 'user'}`
-                  }
-                </Text>
-              </View>
+        {/* ===== COVER PHOTO ===== */}
+        <View style={styles.coverContainer}>
+          {userData?.coverImage ? (
+            <Image source={{ uri: userData.coverImage }} style={styles.coverImage} />
+          ) : (
+            <LinearGradient
+              colors={['#1a1a2e', '#16213e', '#0f3460']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.coverImage}
+            />
+          )}
 
-              {/* User Status Badge - Single status display */}
-              <View style={{ marginTop: 6 }}>
-                <StatusBadge
-                  userId={isOwnProfile ? null : targetUserId}
-                  isOwnStatus={isOwnProfile}
-                  onPress={isOwnProfile ? () => setStatusSelectorVisible(true) : null}
-                  size="small"
-                  showEditIcon={isOwnProfile}
+          {/* Dark overlay for readability */}
+          <View style={styles.coverOverlay} />
+
+          {/* Back button for other profiles */}
+          {!isOwnProfile && (
+            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+              <Ionicons name="arrow-back" size={22} color="#fff" />
+            </TouchableOpacity>
+          )}
+
+          {/* More options (other profile) */}
+          {!isOwnProfile && (
+            <TouchableOpacity
+              style={styles.moreBtn}
+              onPress={() => {
+                if (Platform.OS === 'ios') {
+                  ActionSheetIOS.showActionSheetWithOptions(
+                    { options: ['Cancel', 'Report User', 'Block User'], destructiveButtonIndex: 2, cancelButtonIndex: 0 },
+                    (idx) => { if (idx === 1) setShowReportModal(true); else if (idx === 2) handleBlockUser(); }
+                  );
+                } else {
+                  setShowOptionsMenu(true);
+                }
+              }}
+            >
+              <Ionicons name="ellipsis-vertical" size={22} color="#fff" />
+            </TouchableOpacity>
+          )}
+
+          {/* Cover camera icon bottom-right (own) */}
+          {isOwnProfile && (
+            <TouchableOpacity style={styles.coverCameraBottomRight} onPress={handleCoverUpload} disabled={coverUploading}>
+              <Ionicons name="camera" size={18} color="#fff" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ===== AVATAR ROW ===== */}
+        <View style={styles.avatarRow}>
+          <TouchableOpacity
+            style={styles.avatarWrapper}
+            onPress={isOwnProfile ? handleAvatarUpload : undefined}
+            disabled={!isOwnProfile || avatarUploading}
+            activeOpacity={isOwnProfile ? 0.8 : 1}
+          >
+            {/* Cyan ring */}
+            <LinearGradient
+              colors={[C.cyan, C.brand]}
+              style={styles.avatarRing}
+            >
+              {userData?.profileImage || userData?.user_picture ? (
+                <Image
+                  source={{ uri: userData.profileImage || userData.user_picture }}
+                  style={styles.avatar}
                 />
-              </View>
-            </View>
-
-            {/* Edit Profile Button - Only show for own profile */}
-            {isOwnProfile && (
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                <TouchableOpacity
-                  style={styles.iconBtn}
-                  onPress={() => navigation.navigate("EditProfile", { userData })}
-                >
-                  <Feather name="edit-2" size={16} color={C.text} />
-                </TouchableOpacity>
-
-                {/* Daily Check-In */}
-                <TouchableOpacity
-                  style={[styles.iconBtn, { backgroundColor: 'rgba(255, 201, 60, 0.15)', borderColor: 'rgba(255, 201, 60, 0.4)' }]}
-                  onPress={() => navigation.navigate("DailyReward")}
-                >
-                  <Ionicons name="calendar-outline" size={16} color={C.gold} />
-                </TouchableOpacity>
-
-                {/* Admin Panel Button - Only show for admins */}
-                {(userData?.isAdmin || userData?.role === 'admin') && (
-                  <TouchableOpacity
-                    style={[styles.iconBtn, { backgroundColor: 'rgba(8, 255, 226, 0.15)' }]}
-                    onPress={() => navigation.navigate("AdminModeration")}
-                  >
-                    <Ionicons name="shield-checkmark" size={16} color="#08FFE2" />
-                  </TouchableOpacity>
-                )}
+              ) : (
+                <View style={[styles.avatar, styles.avatarFallback]}>
+                  <Ionicons name="person" size={38} color={C.dim} />
+                </View>
+              )}
+            </LinearGradient>
+            {avatarUploading && (
+              <View style={styles.avatarUploadOverlay}>
+                <ActivityIndicator color="#fff" />
               </View>
             )}
-            {/* Follow Button - Show when viewing other user's profile */}
-            {!isOwnProfile && (
+            {isOwnProfile && !avatarUploading && (
+              <View style={styles.avatarCameraChip}>
+                <Ionicons name="camera" size={12} color="#fff" />
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        {/* ===== IDENTITY ===== */}
+        <View style={styles.identitySection}>
+          {/* Name + verified + gender */}
+          <View style={styles.nameRow}>
+            <Text style={styles.displayName}>{displayName}</Text>
+            <VerifiedBadge isVerified={userData?.isVerified} size={18} style={{ marginLeft: 6 }} />
+            {genderIcon && (
+              <Ionicons name={genderIcon} size={16} color={C.cyan} style={{ marginLeft: 6 }} />
+            )}
+            {isOwnProfile && (
+              <TouchableOpacity onPress={() => navigation.navigate('EditProfile', { userData })} style={{ marginLeft: 8 }}>
+                <Feather name="edit-2" size={14} color={C.dim} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* Verify Account button (own profile, unverified) */}
+          {isOwnProfile && !userData?.isVerified && (
+            <TouchableOpacity style={styles.verifyBtn} onPress={() => navigation.navigate('AccountSettings')}>
+              <Ionicons name="shield-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+              <Text style={styles.verifyBtnText}>Verify Account</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* @username and joined date */}
+          <Text style={styles.usernameText}>{username}</Text>
+          {joinedDate && <Text style={styles.joinedText}>Joined {joinedDate}</Text>}
+
+          {/* Status badge */}
+          <View style={{ marginTop: 10 }}>
+            <StatusBadge
+              userId={isOwnProfile ? null : targetUserId}
+              isOwnStatus={isOwnProfile}
+              onPress={isOwnProfile ? () => setStatusSelectorVisible(true) : null}
+              size="small"
+              showEditIcon={isOwnProfile}
+            />
+          </View>
+
+          {/* Stats */}
+          <View style={styles.statsRow}>
+            <Stat
+              value={followersCount}
+              label="Followers"
+              onPress={() => navigation.navigate('FollowersFollowing', { userId: targetUserId, type: 'followers' })}
+            />
+            <View style={styles.statsDivider} />
+            <Stat
+              value={followingCount}
+              label="Following"
+              onPress={() => navigation.navigate('FollowersFollowing', { userId: targetUserId, type: 'following' })}
+            />
+            <View style={styles.statsDivider} />
+            <Stat value={userData?.friends ?? 0} label="Friends" />
+            {isOwnProfile && (
+              <>
+                <View style={styles.statsDivider} />
+                <Stat value={userData?.visits ?? 0} label="Visits" />
+              </>
+            )}
+          </View>
+
+          {/* Action buttons row for other profile */}
+          {!isOwnProfile && (
+            <View style={styles.actionBtnsRow}>
               <TouchableOpacity
-                style={[
-                  styles.followBtn,
-                  isFollowing && styles.followingBtn,
-                  followLoading && styles.followBtnDisabled
-                ]}
+                style={[styles.followBtn, isFollowing && styles.followingBtn, followLoading && { opacity: 0.6 }]}
                 onPress={handleFollowToggle}
                 disabled={followLoading}
                 activeOpacity={0.8}
@@ -773,244 +929,296 @@ export default function ProfileScreen() {
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <>
-                    <Ionicons
-                      name={isFollowing ? "checkmark" : "person-add"}
-                      size={14}
-                      color="#fff"
-                    />
-                    <Text style={styles.followBtnText}>
-                      {isFollowing ? 'Following' : 'Follow'}
-                    </Text>
+                    <Ionicons name={isFollowing ? 'checkmark' : 'person-add'} size={15} color="#fff" />
+                    <Text style={styles.followBtnText}>{isFollowing ? 'Following' : 'Follow'}</Text>
                   </>
                 )}
               </TouchableOpacity>
-            )}
+              <TouchableOpacity style={styles.messageBtn} onPress={() => navigation.navigate('Chat', { userId: targetUserId })}>
+                <Ionicons name="chatbubble-outline" size={15} color={C.text} />
+                <Text style={styles.messageBtnText}>Message</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Own profile quick-action row */}
+          {isOwnProfile && (
+            <View style={styles.actionBtnsRow}>
+              <TouchableOpacity style={styles.editProfileBtn} onPress={() => navigation.navigate('EditProfile', { userData })}>
+                <Feather name="edit-2" size={14} color={C.text} />
+                <Text style={styles.editProfileBtnText}>Edit Profile</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.checkinBtn}
+                onPress={() => navigation.navigate('DailyReward')}
+              >
+                <Ionicons name="calendar-outline" size={14} color={C.gold} />
+                <Text style={[styles.editProfileBtnText, { color: C.gold }]}>Check-in</Text>
+              </TouchableOpacity>
+              {(userData?.isAdmin || userData?.role === 'admin') && (
+                <TouchableOpacity
+                  style={styles.adminBtn}
+                  onPress={() => navigation.navigate('AdminModeration')}
+                >
+                  <Ionicons name="shield-checkmark" size={14} color={C.cyan} />
+                  <Text style={[styles.editProfileBtnText, { color: C.cyan }]}>Admin</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+
+        {/* ===== WALLET (own profile) ===== */}
+        {isOwnProfile && (
+          <View style={styles.walletCard}>
+            <View style={styles.walletHeader}>
+              <Text style={styles.walletTitle}>Wallet</Text>
+              <TouchableOpacity style={styles.purchaseChip} onPress={() => navigation.navigate('CoinPurchase')}>
+                <Text style={styles.purchaseChipText}>+ Purchase</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.walletRow}>
+              <TouchableOpacity style={styles.walletChip} onPress={() => navigation.navigate('CoinPurchase')}>
+                <Image source={require('./assets/goldicon.png')} style={styles.walletIcon} />
+                <Text style={styles.walletChipText}>{walletData?.coins ?? 0}</Text>
+                <Text style={styles.walletChipLabel}>Coins</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.walletChip} onPress={() => navigation.navigate('DiamondPurchase')}>
+                <Image source={require('./assets/diamond1.png')} style={styles.walletIcon} />
+                <Text style={styles.walletChipText}>{walletData?.diamonds ?? 0}</Text>
+                <Text style={styles.walletChipLabel}>Diamonds</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.walletChip} onPress={() => navigation.navigate('Reward')}>
+                <Image source={require('./assets/trophy.png')} style={styles.walletIcon} />
+                <Text style={styles.walletChipText}>{walletData?.earningsBalance ?? 0}</Text>
+                <Text style={styles.walletChipLabel}>Earnings</Text>
+              </TouchableOpacity>
+            </View>
           </View>
+        )}
+
+        {/* ===== ALL ABOUT ME ===== */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>All About Me</Text>
+
+          {/* Bio */}
+          <View style={styles.aboutRow}>
+            <View style={styles.aboutLabelRow}>
+              <Text style={styles.aboutLabel}>Bio</Text>
+              {isOwnProfile && (
+                <TouchableOpacity onPress={() => navigation.navigate('EditProfile', { userData, focusBio: true })}>
+                  <Feather name="edit-2" size={14} color={C.dim} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={[styles.aboutValue, !userData?.bio && styles.aboutPlaceholder]}>
+              {userData?.bio || 'Tap to add bio...'}
+            </Text>
+          </View>
+
+          <View style={styles.cardDivider} />
+
+          {/* Gender */}
+          <View style={styles.aboutRow}>
+            <View style={styles.aboutLabelRow}>
+              <Text style={styles.aboutLabel}>Gender</Text>
+              {isOwnProfile && (
+                <TouchableOpacity onPress={() => navigation.navigate('EditProfile', { userData })}>
+                  <Feather name="edit-2" size={14} color={C.dim} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <Text style={[styles.aboutValue, !userData?.gender && styles.aboutPlaceholder]}>
+              {userData?.gender || 'Not specified'}
+            </Text>
+          </View>
+
+          <View style={styles.cardDivider} />
 
           {/* Tags */}
-          <View style={{ flexDirection: "row", marginTop: 12, flexWrap: "wrap" }}>
-            <Pill label="#universocraft" />
-            <Pill label="#Anime" />
-            <Pill label="#Cartoon" />
-          </View>
-
-          {/* Stats (real-time from Firestore) */}
-          <View style={styles.statsRow}>
-            <Stat
-              value={followersCount}
-              label="Followers"
-              onPress={() => navigation.navigate('FollowersFollowing', {
-                userId: targetUserId || userId,
-                type: 'followers'
-              })}
-            />
-            <Stat
-              value={followingCount}
-              label="Following"
-              onPress={() => navigation.navigate('FollowersFollowing', {
-                userId: targetUserId || userId,
-                type: 'following'
-              })}
-            />
-            <Stat value={userData?.friends ?? 0} label="Friends" />
-            {isOwnProfile && <Stat value={userData?.visits ?? 0} label="Visits" />}
+          <View style={styles.aboutRow}>
+            <View style={styles.aboutLabelRow}>
+              <Text style={styles.aboutLabel}>Interests</Text>
+            </View>
+            <View style={styles.tagsRow}>
+              {userTags.length > 0
+                ? userTags.map((tag, i) => <TagPill key={i} label={tag} />)
+                : <Text style={styles.aboutPlaceholder}>No tags added</Text>
+              }
+              {isOwnProfile && (
+                <TouchableOpacity
+                  style={styles.addTagBtn}
+                  onPress={() => navigation.navigate('EditProfile', { userData, focusTags: true })}
+                >
+                  <Ionicons name="add" size={14} color={C.brand} />
+                  <Text style={styles.addTagBtnText}>Add Tag</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           </View>
         </View>
-      </LinearGradient>
 
-      {/* ===== WALLET ===== - Only show for own profile */}
-      {isOwnProfile && (
-        <>
-          <View style={styles.walletCard}>
-            <Text style={styles.walletTitle}>Wallet</Text>
-
-            <TouchableOpacity activeOpacity={0.9} style={styles.purchaseBtn}>
-              <LinearGradient
-                colors={["rgba(162,162,162,0.15)", "rgba(255,251,251,0)"]}
-                start={{ x: 0.5, y: 0 }}
-                end={{ x: 0.5, y: 1 }}
-                style={styles.purchaseBtnInner}
-              >
-                <Text style={{ color: C.text, fontWeight: "700", fontSize: 12 }}>Purchase</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <View style={styles.walletRow}>
-              <View style={styles.walletChipPlain}>
-                <Image source={require("./assets/goldicon.png")} style={styles.walletIconBig} />
-                <Text style={styles.walletChipPlainText}>5</Text>
-              </View>
-              <View style={styles.walletChipPlain}>
-                <Image source={require("./assets/diamond1.png")} style={styles.walletIconBig} />
-                <Text style={styles.walletChipPlainText}>5</Text>
-              </View>
-              <View style={styles.walletChipPlain}>
-                <Image source={require("./assets/trophy.png")} style={styles.walletIconBig} />
-                <Text style={styles.walletChipPlainText}>5</Text>
-              </View>
+        {/* ===== COMMUNITY JOINED ===== */}
+        <View style={[styles.card, { paddingBottom: 0 }]}>
+          <SectionHeader
+            title={`Community Joined (${joinedCommunities.length})`}
+            onAdd={isOwnProfile ? () => navigation.navigate('Community') : undefined}
+          />
+          {communityLoading ? (
+            <View style={{ height: 120, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator color={C.cyan} />
             </View>
-          </View>
-
-        </>
-      )}
-
-      {/* ===== STORIES ===== */}
-      <Text style={styles.sectionTitle}>Stories</Text>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: PADDING_H }}
-      >
-        {isOwnProfile && (
-          <TouchableOpacity
-            style={[styles.story, styles.storyAction]}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate("CreateStory")}
-          >
-            <Feather name="plus" size={24} color={C.cyan} />
-            <Text style={styles.storyActionText}>Add Story</Text>
-          </TouchableOpacity>
-        )}
-
-        {storiesLoading ? (
-          <View style={[styles.story, styles.storyPlaceholderCard]}>
-            <ActivityIndicator color={C.cyan} />
-          </View>
-        ) : stories.length === 0 ? (
-          <View style={[styles.story, styles.storyPlaceholderCard]}>
-            <Ionicons name="image-outline" size={26} color={C.dim} />
-            <Text style={styles.storyPlaceholderText}>No stories yet</Text>
-          </View>
-        ) : (
-          stories.map((story) => (
-            <TouchableOpacity
-              key={story.id}
-              style={styles.story}
-              activeOpacity={0.85}
-              onPress={() => handleStoryPress(story)}
-            >
-              {story.image ? (
-                <Image source={{ uri: story.image }} style={styles.storyImg} />
-              ) : (
-                <View style={[styles.storyImg, styles.storyFallback]}>
-                  <Ionicons name="image-outline" size={30} color={C.dim} />
-                </View>
+          ) : joinedCommunities.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="people-outline" size={32} color={C.dim} />
+              <Text style={styles.emptyStateText}>No communities joined yet</Text>
+              {isOwnProfile && (
+                <TouchableOpacity onPress={() => navigation.navigate('Community')}>
+                  <Text style={[styles.emptyStateText, { color: C.brand, marginTop: 4 }]}>Browse Communities</Text>
+                </TouchableOpacity>
               )}
-              <Text style={styles.storyCaption}>{getStoryLabel(story.createdAt)}</Text>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+            </View>
+          ) : (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: PADDING_H, paddingBottom: 16, gap: 12 }}
+            >
+              {joinedCommunities.map((community) => (
+                <TouchableOpacity
+                  key={community.id}
+                  style={styles.communityCard}
+                  onPress={() => navigation.navigate('CommunityDetail', { communityId: community.id })}
+                  activeOpacity={0.85}
+                >
+                  {community.img ? (
+                    <Image source={{ uri: community.img }} style={styles.communityImg} />
+                  ) : (
+                    <View style={[styles.communityImg, styles.communityFallback]}>
+                      <Ionicons name="people" size={28} color={C.dim} />
+                    </View>
+                  )}
+                  <View style={styles.communityCardOverlay} />
+                  <View style={styles.communityCardInfo}>
+                    <Text style={styles.communityCardName} numberOfLines={1}>{community.name}</Text>
+                    <Text style={styles.communityCardMembers}>
+                      {community.members_count ?? 0} {community.members_count === 1 ? 'Member' : 'Members'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          )}
+        </View>
 
-      {/* ===== MORE ===== - Only show for own profile */}
-      {isOwnProfile && (
-        <>
-          <Text style={[styles.sectionTitle, { marginTop: 10 }]}>More</Text>
-          <View style={{ paddingHorizontal: PADDING_H }}>
+        {/* ===== STORIES ===== */}
+        <View style={[styles.card, { paddingBottom: 0 }]}>
+          <SectionHeader
+            title={`Stories (${stories.length})`}
+            onAdd={isOwnProfile ? () => navigation.navigate('CreateStory') : undefined}
+          />
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: PADDING_H, paddingBottom: 16, gap: 12 }}
+          >
+            {storiesLoading ? (
+              <View style={styles.storyPlaceholderCard}>
+                <ActivityIndicator color={C.cyan} />
+              </View>
+            ) : stories.length === 0 ? (
+              <View style={styles.storyPlaceholderCard}>
+                <Ionicons name="image-outline" size={26} color={C.dim} />
+                <Text style={styles.storyPlaceholderText}>No stories yet</Text>
+              </View>
+            ) : (
+              stories.map((story) => (
+                <TouchableOpacity
+                  key={story.id}
+                  style={styles.storyCard}
+                  activeOpacity={0.85}
+                  onPress={() => handleStoryPress(story)}
+                >
+                  {story.image ? (
+                    <Image source={{ uri: story.image }} style={styles.storyImg} />
+                  ) : (
+                    <View style={[styles.storyImg, styles.storyFallback]}>
+                      <Ionicons name="image-outline" size={30} color={C.dim} />
+                    </View>
+                  )}
+                  <LinearGradient
+                    colors={['transparent', 'rgba(0,0,0,0.7)']}
+                    style={styles.storyGradient}
+                  />
+                  <Text style={styles.storyCaption}>{getStoryLabel(story.createdAt)}</Text>
+                </TouchableOpacity>
+              ))
+            )}
+          </ScrollView>
+        </View>
+
+        {/* ===== MORE (own profile) ===== */}
+        {isOwnProfile && (
+          <View style={{ paddingHorizontal: PADDING_H, marginTop: 8 }}>
+            <Text style={styles.moreSectionTitle}>More</Text>
             <View style={styles.listCard}>
-              {/* ✅ Only My Store navigates */}
-              <ListRow title="My Store" onPress={() => navigation.navigate("MyStore")} />
+              <ListRow title="My Store" onPress={() => navigation.navigate('MyStore')} />
               <View style={styles.divider} />
-              <ListRow title="Daily Check-In" onPress={() => navigation.navigate("DailyReward")} />
+              <ListRow title="Daily Check-In" onPress={() => navigation.navigate('DailyReward')} />
               <View style={styles.divider} />
-              <ListRow title="Membership" onPress={() => navigation.navigate("Membership")} />
+              <ListRow title="Membership" onPress={() => navigation.navigate('Membership')} />
               <View style={styles.divider} />
-              <ListRow title="Help Center" />
+              <ListRow title="Help Center" onPress={() => navigation.navigate('HelpCenter')} />
               <View style={styles.divider} />
-              <ListRow title="Shop" />
-              <View style={styles.divider} />
-              <ListRow title="Account Setting" />
+              <ListRow title="Account Settings" onPress={() => navigation.navigate('AccountSettings')} />
             </View>
 
             <TouchableOpacity
-              activeOpacity={0.9}
               style={styles.logoutBtn}
+              activeOpacity={0.85}
               onPress={async () => {
                 try {
-                  const auth = getAuth();
-
-                  // Clear AsyncStorage to prevent auto-login
-                  console.log('🗑️ Clearing saved login state from AsyncStorage...');
                   await AsyncStorage.multiRemove(['userLoggedIn', 'userEmail']);
-
-                  // Sign out from Firebase - navigation will happen automatically via onAuthStateChanged
-                  console.log('🚪 Signing out...');
-                  await signOut(auth);
-
-                  console.log('✅ User logged out successfully');
-                  // No need to manually navigate - App.js onAuthStateChanged will handle it
-                } catch (error) {
-                  console.error('Logout Error:', error);
+                  await signOut(getAuth(app));
+                } catch (e) {
                   Alert.alert('Error', 'Failed to log out. Please try again.');
                 }
               }}
             >
+              <Ionicons name="log-out-outline" size={18} color={C.danger} />
               <Text style={styles.logoutText}>Log Out</Text>
             </TouchableOpacity>
           </View>
-        </>
-      )}
+        )}
+      </ScrollView>
 
-      {/* Story Viewer Modal */}
-      <Modal
-        visible={storyModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={closeStoryModal}
-      >
+      {/* ===== STORY VIEWER MODAL ===== */}
+      <Modal visible={storyModalVisible} transparent animationType="fade" onRequestClose={closeStoryModal}>
         <View style={styles.storyModalOverlay}>
-          <TouchableOpacity
-            style={styles.storyModalClose}
-            onPress={closeStoryModal}
-            activeOpacity={0.9}
-          >
+          <TouchableOpacity style={styles.storyModalClose} onPress={closeStoryModal}>
             <Ionicons name="close-circle" size={40} color="#fff" />
           </TouchableOpacity>
-
           {viewingStory && (
-            <View style={styles.storyModalContent}>
-              {/* Story Header */}
+            <View style={{ width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' }}>
               <View style={styles.storyModalHeader}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  {userData?.profileImage ? (
-                    <Image
-                      source={{ uri: userData.profileImage }}
-                      style={styles.storyModalAvatar}
-                    />
-                  ) : (
-                    <View style={[styles.storyModalAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
-                      <Ionicons name="person" size={24} color="#657786" />
-                    </View>
-                  )}
-                  <View style={{ marginLeft: 12 }}>
-                    <Text style={styles.storyModalName}>
-                      {userData?.firstName || ''} {userData?.lastName || ''}
-                    </Text>
-                    <Text style={styles.storyModalTime}>
-                      {getStoryLabel(viewingStory.createdAt)}
-                    </Text>
+                  {userData?.profileImage
+                    ? <Image source={{ uri: userData.profileImage }} style={styles.storyModalAvatar} />
+                    : <View style={[styles.storyModalAvatar, { backgroundColor: C.card2, justifyContent: 'center', alignItems: 'center' }]}><Ionicons name="person" size={20} color={C.dim} /></View>
+                  }
+                  <View style={{ marginLeft: 10 }}>
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{displayName}</Text>
+                    <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>{getStoryLabel(viewingStory.createdAt)}</Text>
                   </View>
                 </View>
               </View>
-
-              {/* Story Image */}
-              {viewingStory.image ? (
-                <Image
-                  source={{ uri: viewingStory.image }}
-                  style={styles.storyModalImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={styles.storyModalImagePlaceholder}>
-                  <Ionicons name="image-outline" size={80} color={C.dim} />
-                  <Text style={styles.storyModalPlaceholderText}>No image</Text>
-                </View>
-              )}
-
-              {/* Story Caption if exists */}
+              {viewingStory.image
+                ? <Image source={{ uri: viewingStory.image }} style={styles.storyModalImage} resizeMode="contain" />
+                : <View style={styles.storyModalImagePlaceholder}><Ionicons name="image-outline" size={80} color={C.dim} /></View>
+              }
               {viewingStory.caption && (
-                <View style={styles.storyModalCaptionContainer}>
-                  <Text style={styles.storyModalCaption}>{viewingStory.caption}</Text>
+                <View style={styles.storyModalCaptionBox}>
+                  <Text style={{ color: '#fff', fontSize: 15, lineHeight: 22 }}>{viewingStory.caption}</Text>
                 </View>
               )}
             </View>
@@ -1018,14 +1226,10 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
-      {/* Status Selector Modal */}
-      <StatusSelector
-        visible={statusSelectorVisible}
-        onClose={() => setStatusSelectorVisible(false)}
-        title="Update Your Status"
-      />
+      {/* Status Selector */}
+      <StatusSelector visible={statusSelectorVisible} onClose={() => setStatusSelectorVisible(false)} title="Update Your Status" />
 
-      {/* Report User Modal */}
+      {/* Report Modal */}
       {!isOwnProfile && (
         <ReportUserModal
           visible={showReportModal}
@@ -1033,7 +1237,7 @@ export default function ProfileScreen() {
           reportedUser={{
             id: targetUserId,
             username: userData?.username || userData?.handle,
-            name: `${userData?.firstName || ''} ${userData?.lastName || ''}`.trim(),
+            name: displayName,
           }}
           reportType={REPORT_TYPES.USER}
         />
@@ -1041,48 +1245,20 @@ export default function ProfileScreen() {
 
       {/* Android Options Menu */}
       {Platform.OS === 'android' && (
-        <Modal
-          visible={showOptionsMenu}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowOptionsMenu(false)}
-        >
-          <TouchableOpacity 
-            style={styles.optionsOverlay}
-            activeOpacity={1}
-            onPress={() => setShowOptionsMenu(false)}
-          >
+        <Modal visible={showOptionsMenu} transparent animationType="fade" onRequestClose={() => setShowOptionsMenu(false)}>
+          <TouchableOpacity style={styles.optionsOverlay} activeOpacity={1} onPress={() => setShowOptionsMenu(false)}>
             <View style={styles.optionsMenu}>
-              <TouchableOpacity
-                style={styles.optionsItem}
-                onPress={() => {
-                  setShowOptionsMenu(false);
-                  setShowReportModal(true);
-                }}
-              >
+              <TouchableOpacity style={styles.optionsItem} onPress={() => { setShowOptionsMenu(false); setShowReportModal(true); }}>
                 <Ionicons name="flag-outline" size={22} color="#F59E0B" />
                 <Text style={styles.optionsItemText}>Report User</Text>
               </TouchableOpacity>
-              
               <View style={styles.optionsDivider} />
-              
-              <TouchableOpacity
-                style={styles.optionsItem}
-                onPress={() => {
-                  setShowOptionsMenu(false);
-                  handleBlockUser();
-                }}
-              >
+              <TouchableOpacity style={styles.optionsItem} onPress={() => { setShowOptionsMenu(false); handleBlockUser(); }}>
                 <Ionicons name="ban-outline" size={22} color="#EF4444" />
                 <Text style={[styles.optionsItemText, { color: '#EF4444' }]}>Block User</Text>
               </TouchableOpacity>
-              
               <View style={styles.optionsDivider} />
-              
-              <TouchableOpacity
-                style={styles.optionsItem}
-                onPress={() => setShowOptionsMenu(false)}
-              >
+              <TouchableOpacity style={styles.optionsItem} onPress={() => setShowOptionsMenu(false)}>
                 <Ionicons name="close-outline" size={22} color={C.dim} />
                 <Text style={[styles.optionsItemText, { color: C.dim }]}>Cancel</Text>
               </TouchableOpacity>
@@ -1090,39 +1266,27 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </Modal>
       )}
-    </ScrollView>
+    </View>
   );
 
   // Block user function
   async function handleBlockUser() {
     const auth = getAuth(app);
     const currentUser = auth.currentUser;
-    
-    if (!currentUser || !targetUserId) {
-      Alert.alert('Error', 'Unable to block user');
-      return;
-    }
-    
+    if (!currentUser || !targetUserId) { Alert.alert('Error', 'Unable to block user'); return; }
     Alert.alert(
       'Block User',
       `Are you sure you want to block ${userData?.firstName || 'this user'}? They won't be able to message or follow you.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Block',
-          style: 'destructive',
+          text: 'Block', style: 'destructive',
           onPress: async () => {
             try {
-              const blockRef = doc(db, 'users', currentUser.uid, 'blocked', targetUserId);
-              await setDoc(blockRef, {
-                blockedAt: serverTimestamp(),
-                reason: null,
-              });
-              
+              await setDoc(doc(db, 'users', currentUser.uid, 'blocked', targetUserId), { blockedAt: serverTimestamp(), reason: null });
               Alert.alert('Blocked', `${userData?.firstName || 'User'} has been blocked`);
               navigation.goBack();
             } catch (error) {
-              console.error('Error blocking user:', error);
               Alert.alert('Error', 'Failed to block user. Please try again.');
             }
           }
@@ -1132,277 +1296,295 @@ export default function ProfileScreen() {
   }
 }
 
-/* ---------- STYLES ---------- */
+/* ============================================================
+   STYLES
+   ============================================================ */
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  profileOuter: { marginTop: 18, marginHorizontal: PADDING_H, borderRadius: 18, padding: 2 },
-  profileInner: { backgroundColor: C.card, borderRadius: 16, padding: 14 },
-  avatar: { width: 52, height: 52, borderRadius: 12, backgroundColor: C.border },
-  name: { color: C.text, fontSize: 16, fontWeight: "800" },
-  handle: { color: C.dim, fontSize: 12, marginTop: 2 },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: C.card2,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: C.border,
+
+  /* Cover */
+  coverContainer: { width, height: COVER_H, position: 'relative' },
+  coverImage: { width: '100%', height: '100%' },
+  coverOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.15)' },
+  backBtn: {
+    position: 'absolute', top: 50, left: 14, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center',
+  },
+  coverCameraBtn: {
+    position: 'absolute', top: 50, left: 14, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center',
+  },
+  moreBtn: {
+    position: 'absolute', top: 50, right: 14, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center',
+  },
+  viewStoreBtn: {
+    position: 'absolute', bottom: 14, right: 14, zIndex: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+  },
+  viewStoreBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  coverCameraBottomRight: {
+    position: 'absolute', bottom: 14, right: 14, zIndex: 10,
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center',
+  },
+
+  /* Avatar */
+  avatarRow: { alignItems: 'center', marginTop: -(AVATAR_SIZE / 2) - 4, zIndex: 5 },
+  avatarWrapper: { position: 'relative' },
+  avatarRing: {
+    width: AVATAR_SIZE + 6, height: AVATAR_SIZE + 6,
+    borderRadius: (AVATAR_SIZE + 6) / 2,
+    padding: 3,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  avatar: {
+    width: AVATAR_SIZE, height: AVATAR_SIZE,
+    borderRadius: AVATAR_SIZE / 2,
+  },
+  avatarFallback: { backgroundColor: C.card2, justifyContent: 'center', alignItems: 'center' },
+  avatarUploadOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: (AVATAR_SIZE + 6) / 2,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  avatarCameraChip: {
+    position: 'absolute', bottom: 2, right: 2,
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: C.brand,
+    justifyContent: 'center', alignItems: 'center',
+    borderWidth: 2, borderColor: C.bg,
+  },
+
+  /* Identity */
+  identitySection: { alignItems: 'center', paddingHorizontal: PADDING_H, paddingTop: 12 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' },
+  displayName: { color: C.text, fontSize: 22, fontWeight: '800', textAlign: 'center' },
+  verifyBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.brand,
+    paddingHorizontal: 20, paddingVertical: 10,
+    borderRadius: 24, marginTop: 10,
+  },
+  verifyBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  usernameText: { color: C.dim, fontSize: 14, marginTop: 6 },
+  joinedText: { color: C.dim, fontSize: 12, marginTop: 2 },
+
+  /* Stats */
+  statsRow: {
+    flexDirection: 'row', alignItems: 'center',
+    marginTop: 18, paddingVertical: 14,
+    borderTopWidth: 1, borderBottomWidth: 1, borderColor: C.border,
+    width: '100%',
+  },
+  statBox: { flex: 1, alignItems: 'center' },
+  statValue: { color: C.text, fontWeight: '800', fontSize: 18 },
+  statLabel: { color: C.dim, fontSize: 12, marginTop: 2 },
+  statsDivider: { width: 1, height: 32, backgroundColor: C.border },
+
+  /* Action buttons */
+  actionBtnsRow: {
+    flexDirection: 'row', gap: 10, marginTop: 14, width: '100%', justifyContent: 'center',
   },
   followBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 24, paddingVertical: 10, borderRadius: 24,
     backgroundColor: C.brand,
-    borderWidth: 1,
-    borderColor: C.brand,
   },
-  followingBtn: {
-    backgroundColor: 'rgba(191,46,240,0.2)',
-    borderColor: C.brand,
+  followingBtn: { backgroundColor: 'rgba(191,46,240,0.2)', borderWidth: 1, borderColor: C.brand },
+  followBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  messageBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 20, paddingVertical: 10, borderRadius: 24,
+    backgroundColor: C.card2, borderWidth: 1, borderColor: C.border,
   },
-  followBtnDisabled: {
-    opacity: 0.6,
+  messageBtnText: { color: C.text, fontWeight: '600', fontSize: 14 },
+  editProfileBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 18, paddingVertical: 9, borderRadius: 24,
+    backgroundColor: C.card2, borderWidth: 1, borderColor: C.border,
   },
-  followBtnText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
+  editProfileBtnText: { color: C.text, fontWeight: '600', fontSize: 13 },
+  checkinBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 24,
+    backgroundColor: 'rgba(255,201,60,0.12)', borderWidth: 1, borderColor: 'rgba(255,201,60,0.4)',
   },
-  pill: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: C.border,
+  adminBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 24,
+    backgroundColor: 'rgba(8,255,226,0.1)', borderWidth: 1, borderColor: 'rgba(8,255,226,0.35)',
   },
-  pillText: { fontSize: 12, fontWeight: "600", color: C.text },
-  statsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    borderTopWidth: 1,
-    borderColor: C.border,
-    marginTop: 14,
-    paddingTop: 14,
+
+  /* Cards */
+  card: {
+    marginHorizontal: PADDING_H, marginTop: 16,
+    backgroundColor: C.card, borderRadius: 18,
+    borderWidth: 1, borderColor: C.border,
+    padding: 16,
   },
-  walletCard: {
-    marginTop: 16,
-    marginHorizontal: PADDING_H,
-    backgroundColor: C.card,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: C.border,
+  cardTitle: { color: C.text, fontWeight: '800', fontSize: 16, marginBottom: 14 },
+  cardDivider: { height: 1, backgroundColor: C.border, marginVertical: 12 },
+
+  /* All About Me */
+  aboutRow: { gap: 6 },
+  aboutLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  aboutLabel: { color: C.cyan, fontWeight: '700', fontSize: 14 },
+  aboutValue: { color: C.text, fontSize: 14, lineHeight: 20 },
+  aboutPlaceholder: { color: C.dim, fontStyle: 'italic' },
+  tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  tagPill: {
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, backgroundColor: 'rgba(191,46,240,0.15)',
+    borderWidth: 1, borderColor: 'rgba(191,46,240,0.4)',
   },
-  walletTitle: { color: C.text, fontWeight: "700", fontSize: 15 },
-  purchaseBtn: { position: "absolute", right: 14, top: 14, borderRadius: 10, overflow: "hidden" },
-  purchaseBtnInner: { paddingHorizontal: 10, paddingVertical: 6, alignItems: "center" },
-  walletRow: {
-    flexDirection: "row",
-    marginTop: 14,
-    justifyContent: "space-between",
-    gap: 10,
+  tagPillText: { color: C.brand, fontWeight: '600', fontSize: 12 },
+  addTagBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 20, backgroundColor: 'rgba(191,46,240,0.08)',
+    borderWidth: 1, borderColor: 'rgba(191,46,240,0.3)',
   },
-  walletChipPlain: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: C.border,
-    borderRadius: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 6,
+  addTagBtnText: { color: C.brand, fontWeight: '600', fontSize: 12 },
+
+  /* Section header */
+  sectionHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', marginBottom: 12,
   },
-  walletIconBig: { width: 22, height: 22, resizeMode: "contain" },
-  walletChipPlainText: { color: C.text, fontWeight: "800", fontSize: 14 },
-  sectionTitle: {
-    color: C.text,
-    fontWeight: "700",
-    fontSize: 16,
-    marginTop: 20,
-    marginBottom: 10,
-    paddingHorizontal: PADDING_H,
+  sectionTitle: { color: C.text, fontWeight: '800', fontSize: 16 },
+  sectionAddBtn: {
+    width: 30, height: 30, borderRadius: 15,
+    backgroundColor: C.card2, borderWidth: 1, borderColor: C.border,
+    justifyContent: 'center', alignItems: 'center',
   },
-  story: {
-    width: width * 0.34,
-    height: width * 0.42,
-    borderRadius: 16,
-    backgroundColor: C.card,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: C.border,
-    overflow: "hidden",
-  },
-  storyImg: { width: "100%", height: "100%" },
-  storyCaption: {
-    position: "absolute",
-    bottom: 8,
-    left: 10,
-    color: C.text,
-    fontWeight: "700",
-  },
-  storyAction: {
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  storyActionText: {
-    color: C.cyan,
-    marginTop: 8,
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  storyPlaceholderCard: {
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  storyPlaceholderText: {
-    color: C.dim,
-    fontSize: 12,
-  },
-  storyFallback: {
-    width: "100%",
-    height: "100%",
+
+  /* Community */
+  communityCard: {
+    width: width * 0.42, height: width * 0.42,
+    borderRadius: 14, overflow: 'hidden',
     backgroundColor: C.card2,
-    alignItems: "center",
-    justifyContent: "center",
+    borderWidth: 1, borderColor: C.border,
   },
+  communityImg: { width: '100%', height: '100%' },
+  communityFallback: { backgroundColor: C.card2, justifyContent: 'center', alignItems: 'center' },
+  communityCardOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    background: 'transparent',
+  },
+  communityCardInfo: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    padding: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  communityCardName: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  communityCardMembers: { color: 'rgba(255,255,255,0.7)', fontSize: 11, marginTop: 2 },
+
+  /* Empty state */
+  emptyState: { alignItems: 'center', paddingVertical: 24, gap: 8 },
+  emptyStateText: { color: C.dim, fontSize: 13 },
+
+  /* Stories */
+  storyCard: {
+    width: width * 0.34, height: width * 0.44,
+    borderRadius: 14, overflow: 'hidden',
+    backgroundColor: C.card2,
+    borderWidth: 1, borderColor: C.border,
+  },
+  storyImg: { width: '100%', height: '100%' },
+  storyGradient: { ...StyleSheet.absoluteFillObject, top: '50%' },
+  storyCaption: { position: 'absolute', bottom: 8, left: 8, right: 8, color: '#fff', fontWeight: '700', fontSize: 11 },
+  storyFallback: { backgroundColor: C.card2, justifyContent: 'center', alignItems: 'center' },
+  storyPlaceholderCard: {
+    width: width * 0.34, height: width * 0.44,
+    borderRadius: 14, backgroundColor: C.card2,
+    borderWidth: 1, borderColor: C.border,
+    justifyContent: 'center', alignItems: 'center', gap: 6,
+  },
+  storyPlaceholderText: { color: C.dim, fontSize: 11, textAlign: 'center' },
+
+  /* Wallet */
+  walletCard: {
+    marginHorizontal: PADDING_H, marginTop: 16,
+    backgroundColor: C.card, borderRadius: 18,
+    borderWidth: 1, borderColor: C.border,
+    padding: 16,
+  },
+  walletHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
+  walletTitle: { color: C.text, fontWeight: '800', fontSize: 16 },
+  purchaseChip: {
+    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 16,
+    backgroundColor: 'rgba(191,46,240,0.15)', borderWidth: 1, borderColor: 'rgba(191,46,240,0.4)',
+  },
+  purchaseChipText: { color: C.brand, fontWeight: '700', fontSize: 12 },
+  walletRow: { flexDirection: 'row', gap: 10 },
+  walletChip: {
+    flex: 1, alignItems: 'center', gap: 4,
+    paddingVertical: 12, borderRadius: 14,
+    backgroundColor: C.card2, borderWidth: 1, borderColor: C.border,
+  },
+  walletIcon: { width: 26, height: 26, resizeMode: 'contain' },
+  walletChipText: { color: C.text, fontWeight: '800', fontSize: 16 },
+  walletChipLabel: { color: C.dim, fontSize: 11 },
+
+  /* More list */
+  moreSectionTitle: { color: C.text, fontWeight: '800', fontSize: 16, marginBottom: 12 },
   listCard: {
-    backgroundColor: C.card,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.border,
-    paddingVertical: 4,
+    backgroundColor: C.card, borderRadius: 16,
+    borderWidth: 1, borderColor: C.border,
+    overflow: 'hidden',
   },
   row: {
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    paddingVertical: 15, paddingHorizontal: 16,
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  rowTitle: { color: C.text, fontSize: 14, fontWeight: "600" },
-  divider: { height: 1, backgroundColor: C.border, marginHorizontal: 12 },
+  rowTitle: { color: C.text, fontSize: 14, fontWeight: '600' },
+  divider: { height: 1, backgroundColor: C.border, marginHorizontal: 0 },
   logoutBtn: {
-    marginTop: 14,
-    backgroundColor: "#000",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: C.danger,
-    alignItems: "center",
-    paddingVertical: 12,
+    marginTop: 12, marginBottom: 8,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: C.card, borderRadius: 14,
+    borderWidth: 1, borderColor: C.danger,
+    paddingVertical: 14,
   },
-  logoutText: { color: C.text, fontWeight: "800", fontSize: 14 },
+  logoutText: { color: C.danger, fontWeight: '800', fontSize: 14 },
+
+  /* Story Modal */
   storyModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center', alignItems: 'center',
   },
-  storyModalClose: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-  },
-  storyModalContent: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  storyModalHeader: {
-    position: 'absolute',
-    top: 60,
-    left: 20,
-    right: 80,
-    zIndex: 5,
-  },
-  storyModalAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: C.cyan,
-  },
-  storyModalName: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  storyModalTime: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
-    marginTop: 2,
-  },
-  storyModalImage: {
-    width: width,
-    height: width * 1.5,
-    maxHeight: '80%',
-  },
+  storyModalClose: { position: 'absolute', top: 50, right: 20, zIndex: 20 },
+  storyModalHeader: { position: 'absolute', top: 60, left: 20, right: 80, zIndex: 10 },
+  storyModalAvatar: { width: 42, height: 42, borderRadius: 21, borderWidth: 2, borderColor: C.cyan },
+  storyModalImage: { width, height: width * 1.5, maxHeight: '80%' },
   storyModalImagePlaceholder: {
-    width: width * 0.8,
-    height: width * 1.2,
-    backgroundColor: C.card,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: width * 0.8, height: width * 1.2,
+    backgroundColor: C.card, borderRadius: 16,
+    justifyContent: 'center', alignItems: 'center',
   },
-  storyModalPlaceholderText: {
-    color: C.dim,
-    fontSize: 16,
-    marginTop: 12,
+  storyModalCaptionBox: {
+    position: 'absolute', bottom: 60, left: 20, right: 20,
+    backgroundColor: 'rgba(0,0,0,0.7)', padding: 16, borderRadius: 12,
   },
-  storyModalCaptionContainer: {
-    position: 'absolute',
-    bottom: 60,
-    left: 20,
-    right: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    padding: 16,
-    borderRadius: 12,
-  },
-  storyModalCaption: {
-    color: '#fff',
-    fontSize: 15,
-    lineHeight: 22,
-  },
-  // Options menu styles
+
+  /* Options menu */
   optionsOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 40,
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center', alignItems: 'center', padding: 40,
   },
   optionsMenu: {
-    backgroundColor: C.card,
-    borderRadius: 16,
-    width: '100%',
-    maxWidth: 300,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: C.border,
+    backgroundColor: C.card, borderRadius: 16, width: '100%', maxWidth: 300,
+    overflow: 'hidden', borderWidth: 1, borderColor: C.border,
   },
-  optionsItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
-    gap: 12,
-  },
-  optionsItemText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: C.text,
-  },
-  optionsDivider: {
-    height: 1,
-    backgroundColor: C.border,
-  },
+  optionsItem: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 12 },
+  optionsItemText: { fontSize: 16, fontWeight: '600', color: C.text },
+  optionsDivider: { height: 1, backgroundColor: C.border },
 });
 

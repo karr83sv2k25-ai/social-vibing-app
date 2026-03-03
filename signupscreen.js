@@ -409,6 +409,23 @@ export default function WithEmailScreen({ navigation }) {
           username: normalizedUsername,
           profileImage: '',
           uid: userId,
+          role: 'member',
+          isAdmin: false,
+          isVerified: false,
+          verificationStatus: null,
+          isBanned: false,
+          banType: null,
+          banReason: null,
+          bannedAt: null,
+          banExpiresAt: null,
+          bannedBy: null,
+          isSuspended: false,
+          suspendedReason: null,
+          suspendedAt: null,
+          suspendedBy: null,
+          warningsCount: 0,
+          accountStatus: 'active',
+          reportsReceived: 0,
         };
         transaction.set(userRef, userData);
 

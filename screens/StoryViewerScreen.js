@@ -24,6 +24,8 @@ import { getAuth } from 'firebase/auth';
 import { doc, updateDoc, arrayUnion, increment } from 'firebase/firestore';
 import { db } from '../firebaseConfig';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ReportUserModal from '../components/ReportUserModal';
+import { REPORT_TYPES } from '../shared/services/reportService';
 
 const { width, height } = Dimensions.get('window');
 const STORY_DURATION = 5000; // ms per story
@@ -39,6 +41,7 @@ export default function StoryViewerScreen({ navigation, route }) {
   const [storyIndex, setStoryIndex] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // ── refs ───────────────────────────────────────────────────────────────────
   const progress = useRef(new Animated.Value(0)).current;
@@ -271,14 +274,28 @@ export default function StoryViewerScreen({ navigation, route }) {
             )}
           </View>
 
-          {/* Close */}
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={28} color="#fff" />
-          </TouchableOpacity>
+          {/* Report & Close */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            {currentGroup?.userId !== auth.currentUser?.uid && (
+              <TouchableOpacity
+                onPress={() => {
+                  setIsPaused(true);
+                  stopAnim();
+                  setShowReportModal(true);
+                }}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              >
+                <Ionicons name="flag-outline" size={22} color="rgba(255,255,255,0.85)" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
 
@@ -303,6 +320,24 @@ export default function StoryViewerScreen({ navigation, route }) {
           <Text style={styles.captionText}>{currentStory.caption}</Text>
         </View>
       )}
+
+      {/* ── Report Story Modal ─────────────────────────────────────────── */}
+      <ReportUserModal
+        visible={showReportModal}
+        onClose={() => {
+          setShowReportModal(false);
+          setIsPaused(false);
+        }}
+        reportedUser={{
+          id: currentGroup?.userId || '',
+          username: currentGroup?.displayName || 'User',
+          name: currentGroup?.displayName || 'User',
+        }}
+        reportType={REPORT_TYPES.STORY}
+        contentId={currentStory?.id || currentStory?.storyId || ''}
+        contentType="story"
+        contentPreview={currentStory?.caption || ''}
+      />
     </View>
   );
 }

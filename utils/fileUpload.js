@@ -5,6 +5,7 @@
  */
 
 import { hostingerConfig } from '../hostingerConfig';
+import { normalizeBlobUri } from './normalizeUri';
 
 /**
  * Upload file to Hostinger
@@ -20,12 +21,15 @@ export const uploadFileToHostinger = async (file, folder = 'chat_files') => {
 
     console.log('📁 Uploading file to Hostinger:', file.name);
 
+    // Normalize blob: URIs before passing to native networking
+    const safeUri = await normalizeBlobUri(file.uri);
+
     // Create form data
     const formData = new FormData();
     
     // Add file with proper metadata
     formData.append('file', {
-      uri: file.uri,
+      uri: safeUri,
       type: file.mimeType || 'application/octet-stream',
       name: file.name || 'file',
     });

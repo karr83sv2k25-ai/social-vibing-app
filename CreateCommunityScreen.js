@@ -20,6 +20,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { launchImageLibraryAsync, requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { normalizeBlobUri } from './utils/normalizeUri';
 import { db, auth } from './firebaseConfig';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 import { Ionicons } from "@expo/vector-icons";
@@ -145,7 +146,8 @@ export default function CreateCommunityScreen({ navigation }) {
       });
 
       if (!result.canceled && result.assets?.length > 0) {
-        setter(result.assets[0].uri);
+        const safeUri = await normalizeBlobUri(result.assets[0].uri);
+        setter(safeUri);
       }
     } catch (e) {
       console.warn('ImagePicker error', e);
@@ -221,6 +223,8 @@ export default function CreateCommunityScreen({ navigation }) {
         community_admin: currentUserId,
         adminIds: [currentUserId],
         memberIds: [currentUserId],
+        announcements: [],   // Pinned announcement post IDs (max 3)
+        featuredPosts: [],   // Featured post IDs
       };
       
       // Only add image fields if they have values (not null or undefined)

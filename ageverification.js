@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { normalizeBlobUri } from './utils/normalizeUri';
 import {
   useFonts,
   Manrope_700Bold,
@@ -39,7 +40,9 @@ export default function AgeVerificationScreen({ navigation, route }) {
       });
 
       if (!result.canceled) {
-        setVerificationDocument(result.assets[0]);
+        const asset = result.assets[0];
+        const safeUri = await normalizeBlobUri(asset.uri);
+        setVerificationDocument({ ...asset, uri: safeUri });
       }
     } catch (error) {
       Alert.alert('Error', 'Failed to pick document');
@@ -62,8 +65,20 @@ export default function AgeVerificationScreen({ navigation, route }) {
       return;
     }
 
+    // Validate date format (YYYY-MM-DD)
+    const dateRegex = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+    if (!dateRegex.test(dateOfBirth)) {
+      Alert.alert('Invalid Date', 'Please enter a valid date in YYYY-MM-DD format (e.g., 1999-12-31)');
+      return;
+    }
+
     // Calculate age
     const birthDate = new Date(dateOfBirth);
+    if (isNaN(birthDate.getTime())) {
+      Alert.alert('Invalid Date', 'Please enter a valid date of birth');
+      return;
+    }
+
     const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
     const monthDiff = today.getMonth() - birthDate.getMonth();
@@ -73,6 +88,11 @@ export default function AgeVerificationScreen({ navigation, route }) {
 
     if (age < 17) {
       Alert.alert('Age Restriction', 'You must be at least 17 years old to use Social Vibing');
+      return;
+    }
+
+    if (age > 120) {
+      Alert.alert('Invalid Date', 'Please enter a valid date of birth');
       return;
     }
 
@@ -107,9 +127,8 @@ export default function AgeVerificationScreen({ navigation, route }) {
       Alert.alert(
         'Verification Submitted',
         'Your verification request has been submitted. An admin will review it within 24-48 hours.',
-        [{ text: 'OK' }]
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
-      // Navigation will happen automatically via onAuthStateChanged
     } catch (error) {
       console.error('Verification error:', error);
       Alert.alert('Error', 'Failed to submit verification. Please try again.');
@@ -125,8 +144,8 @@ export default function AgeVerificationScreen({ navigation, route }) {
       [
         { text: 'Verify Now', style: 'cancel' },
         { 
-          text: 'Continue Without Verification'
-          // Navigation will happen automatically via onAuthStateChanged
+          text: 'Continue Without Verification',
+          onPress: () => navigation.goBack()
         }
       ]
     );

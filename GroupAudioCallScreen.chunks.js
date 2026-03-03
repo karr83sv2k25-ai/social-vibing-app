@@ -31,6 +31,7 @@ import {
 import { getAuth } from 'firebase/auth';
 import { app as firebaseApp, db } from './firebaseConfig';
 import { uploadAudioToHostinger } from './hostingerConfig';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 
 const { width, height } = Dimensions.get('window');
 
@@ -74,18 +75,12 @@ export default function GroupAudioCallScreen() {
 
           if (userSnap.exists()) {
             const userData = userSnap.data();
-            const userName =
-              userData.displayName ||
-              userData.name ||
-              userData.fullName ||
-              userData.username ||
-              auth.currentUser.displayName ||
-              'User';
+            const userName = getDisplayName(userData);
 
             setCurrentUser({
               id: userId,
               name: userName,
-              profileImage: userData.profileImage || userData.avatar || null,
+              profileImage: getUserAvatar(userData),
               email: userData.email || auth.currentUser.email,
             });
           } else {

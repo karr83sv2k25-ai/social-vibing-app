@@ -84,6 +84,7 @@ export default function ReportUserModal({
   contentType = null,
   contentPreview = null,
   communityId = null,
+  parentId = null,
 }) {
   const [step, setStep] = useState(1); // 1: Select reason, 2: Add details, 3: Confirmation
   const [selectedReason, setSelectedReason] = useState(null);
@@ -165,6 +166,7 @@ export default function ReportUserModal({
         contentType: contentType || null,
         contentPreview: contentPreview || null,
         communityId: communityId || null,
+        parentId: parentId || null,
       });
 
       if (result.success) {

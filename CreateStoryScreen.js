@@ -14,8 +14,10 @@ import * as ImagePicker from 'expo-image-picker';
 import { getAuth } from 'firebase/auth';
 import { compressStoryImage } from './utils/imageCompression';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
+import { checkBlockedContent } from './shared/services/blockedContentService';
 import { db } from './firebaseConfig';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 
 export default function CreateStoryScreen({ navigation }) {
   const [selectedImage, setSelectedImage] = useState(null);
@@ -87,9 +89,8 @@ export default function CreateStoryScreen({ navigation }) {
         const userSnapshot = await getDoc(userDocRef);
         if (userSnapshot.exists()) {
           const userData = userSnapshot.data();
-          const fullName = [userData.firstName || userData.user_firstname, userData.lastName || userData.user_lastname].filter(Boolean).join(' ').trim();
-          displayName = fullName || userData.displayName || userData.username || userData.user_name || displayName;
-          userAvatar = userData.profileImage || userData.user_picture || userData.avatar || userData.photoURL || userAvatar;
+          displayName = getDisplayName(userData, displayName);
+          userAvatar = getUserAvatar(userData) || userAvatar;
         }
       } catch (profileError) {
         console.log('⚠️  Could not load profile for story author:', profileError.message);
@@ -101,6 +102,9 @@ export default function CreateStoryScreen({ navigation }) {
       try {
         imageUrl = await uploadImageToHostinger(selectedImage, 'stories');
         console.log('✅ Story image uploaded:', imageUrl);
+        if (!imageUrl || !/^https?:\/\//i.test(imageUrl) || imageUrl.includes('blob:')) {
+          throw new Error('Upload returned an invalid URL: ' + imageUrl);
+        }
       } catch (uploadError) {
         console.error('❌ Story image upload failed:', uploadError);
         Alert.alert('Upload Error', 'Failed to upload story image. Please try again.');
@@ -117,10 +121,22 @@ export default function CreateStoryScreen({ navigation }) {
         caption: caption,
         views: 0,
         viewedBy: [],
+        isRemoved: false,
+        isDeleted: false,
         createdAt: serverTimestamp(),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24 hours
         type: 'story',
       };
+
+      // Check for admin-blocked content before publishing
+      if (caption) {
+        const blockCheck = await checkBlockedContent(caption);
+        if (blockCheck.blocked) {
+          Alert.alert('Content Blocked', `Your story contains content that is not allowed: "${blockCheck.matchedKeyword}". Please edit and try again.`);
+          setIsPosting(false);
+          return;
+        }
+      }
 
       await addDoc(collection(db, 'stories'), storyData);
       

@@ -418,6 +418,8 @@ export default function EnhancedChatScreen({ route, navigation }) {
         messageId: flaggedMessage.id,
         messageText: flaggedMessage.text || '',
         reportedUserId: flaggedMessage.senderId || user.id || user.userId || '',
+        reporterUsername: currentUser.displayName || currentUser.email || 'Unknown User',
+        reportedUsername: flaggedMessage.sender || user.name || user.username || 'Unknown User',
         conversationId: chatId,
         chatType: user.isGroup ? 'group' : 'private',
         reason: flagSelectedReason,

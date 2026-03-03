@@ -16,10 +16,11 @@ service cloud.firestore {
       return request.auth.uid == userId;
     }
     
-    // Check if user is admin
+    // Check if user is admin (supports both role field and isAdmin boolean)
     function isAdmin() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return isSignedIn() && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+             (userData.role == 'admin' || userData.isAdmin == true);
     }
     
     // Check if user is creator
@@ -133,15 +134,26 @@ service cloud.firestore {
                                   'canPost', 'canMessage', 'canFollow', 'canCreateContent',
                                   // Message moderation
                                   'messagesDisabledAt', 'messagesDisabledBy', 'messagesDisabledReason',
+                                  // Verification fields
+                                  'verificationStatus', 'isVerified', 'verifiedAt', 'verifiedBy',
+                                  'rejectedAt', 'rejectedBy', 'rejectionReason',
+                                  'revokedAt', 'revokedBy',
+                                  // Unban tracking
+                                  'unbannedAt', 'unbannedBy',
                                   'updatedAt']);
 
-      // Leaders (and above) can strike/unstrike & disable messages for users
+      // Leaders (and above) can strike/unstrike, disable messages, warn, kick, ban users
       allow update: if isSignedIn() &&
                       request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['isStruck', 'strikeCount', 'lastStrikeAt', 'strikeExpiresAt',
                                   'strikeReason', 'struckBy', 'struckByCommunityId',
                                   'canPost', 'canMessage', 'canFollow', 'canCreateContent',
                                   'messagesDisabledAt', 'messagesDisabledBy', 'messagesDisabledReason',
+                                  // Warning fields (compatible with admin app)
+                                  'warningsCount', 'lastWarning', 'lastWarningDate',
+                                  'warnedAt', 'warnedBy',
+                                  // Ban fields (community leader can ban)
+                                  'isBanned', 'banReason', 'bannedAt', 'bannedBy', 'banExpiresAt',
                                   'updatedAt']);
       
       // Users can update their own membership tier
@@ -153,6 +165,12 @@ service cloud.firestore {
       allow update: if isSignedIn() &&
                       request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['followersCount', 'followingCount']);
+
+      // Any signed-in user can increment report stats on another user's profile
+      // (written by the reporting system when a report is submitted)
+      allow update: if isSignedIn() &&
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['reportsReceived', 'lastReportedAt']);
       
       // User boost usage tracking
       match /boostUsage/{usageId} {
@@ -340,6 +358,88 @@ service cloud.firestore {
     // ADMIN COLLECTIONS
     // =============================================================================
     
+    // ── Advertisements (managed by admin panel) ─────────────────────────
+    match /advertisements/{adId} {
+      // Any signed-in user can read active ads for display
+      allow read: if isSignedIn();
+      // Only admins can create, update, or delete ads
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ── Blocked Content (admin-managed keyword blocklist) ───────────────
+    match /blocked_content/{ruleId} {
+      // Users can read blocked content rules (needed for client-side validation)
+      allow read: if isSignedIn();
+      // Only admins can manage blocked content rules
+      allow create: if isAdmin();
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+    
+    // ── Join Requests (private community membership requests) ───────────
+    match /join_requests/{requestId} {
+      // Users can read their own requests; admins and community staff can read all
+      allow read: if isSignedIn() && (
+        resource.data.userId == request.auth.uid ||
+        isAdmin() ||
+        (resource.data.communityId != null && isCommunityStaff(resource.data.communityId))
+      );
+      // Any signed-in user can create a join request
+      allow create: if isSignedIn() &&
+                      request.resource.data.userId == request.auth.uid;
+      // Admins and community staff can approve/reject; user can cancel own
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        (resource.data.communityId != null && isCommunityStaff(resource.data.communityId))
+      );
+      // Admins and community staff can delete; user can delete own
+      allow delete: if isSignedIn() && (
+        isAdmin() ||
+        resource.data.userId == request.auth.uid ||
+        (resource.data.communityId != null && isCommunityStaff(resource.data.communityId))
+      );
+    }
+    
+    // ── Management Records (admin audit trail) ──────────────────────────
+    match /management_records/{recordId} {
+      // Admins can read all; community staff can read their community's records
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.communityId != null &&
+                     isCommunityStaff(resource.data.communityId));
+      // Only admins can create management records
+      allow create: if isAdmin();
+      // Management records are immutable
+      allow update: if false;
+      allow delete: if false;
+    }
+    
+    // ── Reports (user-submitted, admin-managed) ────────────────────────
+    match /reports/{reportId} {
+      // Admins can read all reports; users can read reports they submitted
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.reporterId == request.auth.uid);
+      // Any signed-in user can create a report
+      allow create: if isSignedIn() &&
+                      request.resource.data.reporterId == request.auth.uid;
+      // Only admins can update reports (review, resolve, add notes)
+      allow update: if isAdmin();
+      // Only admins can delete reports
+      allow delete: if isAdmin();
+    }
+    
+    // ── Admin Actions (immutable action log from admin panel) ────────────
+    match /admin_actions/{actionId} {
+      // Only admins can read and create admin actions
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      // Admin actions are immutable — never allow update or delete
+      allow update: if false;
+      allow delete: if false;
+    }
+    
     // =============================================================================
     // MODERATION LOGS (Amino-style audit trail)
     // =============================================================================
@@ -500,7 +600,11 @@ service cloud.firestore {
         allow create: if canWrite();
         // Post author can update; staff can moderate
         allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid)
-                       || isCommunityStaff(communityId) || isAdmin();
+                       || isCommunityStaff(communityId) || isAdmin()
+                       // Any signed-in user can toggle likes
+                       || (isSignedIn()
+                           && request.resource.data.diff(resource.data).affectedKeys()
+                                .hasOnly(['likes', 'likedBy']));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid
@@ -519,7 +623,12 @@ service cloud.firestore {
       match /blogs/{blogId} {
         allow read: if isSignedIn();
         allow create: if canWrite();
-        allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isCommunityStaff(communityId) || isAdmin();
+        allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid)
+                       || isCommunityStaff(communityId) || isAdmin()
+                       // Any signed-in user can toggle likes
+                       || (isSignedIn()
+                           && request.resource.data.diff(resource.data).affectedKeys()
+                                .hasOnly(['likes', 'likedBy']));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid
@@ -550,12 +659,28 @@ service cloud.firestore {
         allow delete: if isSignedIn();
       }
 
+      // Members subcollection (community membership & nicknames)
+      match /members/{memberId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn();
+        allow update: if isSignedIn() && (memberId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
+        allow delete: if isSignedIn() && (memberId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
+      }
+
       // ── Amino Role System Sub-collections ──────────────────────────────
 
-      // Strikes: staff write, owner/leaders/admin can manage
+      // Strikes: staff write, owner/leaders/admin can manage; users can read their own strike
       match /strikes/{userId} {
-        allow read: if isCommunityStaff(communityId) || isAdmin();
+        allow read: if (isSignedIn() && userId == request.auth.uid) || isCommunityStaff(communityId) || isAdmin();
         allow write: if isLeaderOrAbove(communityId) || isAdmin();
+      }
+
+      // Warnings: staff can read/write community-scoped warnings
+      match /warnings/{warningId} {
+        allow read: if isCommunityStaff(communityId) || isAdmin();
+        allow create: if isCommunityStaff(communityId) || isAdmin();
+        allow update: if false;
+        allow delete: if isLeaderOrAbove(communityId) || isAdmin();
       }
 
       // Pending Promotions: read by the target user; write by owner/leaders/admin
@@ -576,6 +701,7 @@ service cloud.firestore {
       match /groups/{groupId} {
         allow read: if isSignedIn();
         allow create: if canWrite();
+        // Staff can update group settings (lock, slowmode); members can update basic fields
         allow update: if isSignedIn();
         allow delete: if isSignedIn() && (resource.data.createdBy == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         
@@ -583,16 +709,33 @@ service cloud.firestore {
         match /messages/{messageId} {
           allow read: if isSignedIn();
           allow create: if canWrite();
-          allow update: if isSignedIn();
-          allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
+          // Staff can soft-delete (update isDeleted); message authors can update their own
+          allow update: if isSignedIn() && (
+            resource.data.senderId == request.auth.uid ||
+            isCommunityStaff(communityId) ||
+            isAdmin()
+          );
+          allow delete: if isSignedIn() && (
+            resource.data.senderId == request.auth.uid ||
+            isCommunityStaff(communityId) ||
+            isAdmin()
+          );
         }
         
-        // Members within a group
+        // Members within a group — staff can update (mute/unmute)
         match /members/{memberId} {
           allow read: if isSignedIn();
           allow create: if isSignedIn();
-          allow update: if isSignedIn();
-          allow delete: if isSignedIn() && memberId == request.auth.uid;
+          allow update: if isSignedIn() && (
+            memberId == request.auth.uid ||
+            isCommunityStaff(communityId) ||
+            isAdmin()
+          );
+          allow delete: if isSignedIn() && (
+            memberId == request.auth.uid ||
+            isCommunityStaff(communityId) ||
+            isAdmin()
+          );
         }
       }
       
@@ -873,7 +1016,11 @@ service cloud.firestore {
       // Author can edit; staff can moderate (hide/disable/feature)
       allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid)
                      || isAdmin()
-                     || (resource.data.communityId != null && isCommunityStaff(resource.data.communityId));
+                     || (resource.data.communityId != null && isCommunityStaff(resource.data.communityId))
+                     // Any signed-in user can toggle likes
+                     || (isSignedIn()
+                         && request.resource.data.diff(resource.data).affectedKeys()
+                              .hasOnly(['likes', 'likedBy']));
       allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid)
                      || isAdmin()
                      || (resource.data.communityId != null && isCommunityStaff(resource.data.communityId));

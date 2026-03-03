@@ -92,7 +92,9 @@ export default function ExploreScreen({ navigation }) {
   useEffect(() => {
     // db is now imported globally
     const unsub = onSnapshot(collection(db, 'communities'), (snap) => {
-      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const docs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(c => !c.isDisabled && !c.isDeleted);
       setCommunities(docs);
     }, (err) => {
       console.error('Error fetching communities:', err);

@@ -347,7 +347,7 @@ export default function ChatActionsScreen({ navigation, route }) {
           visible={showReportModal}
           onClose={handleReportClose}
           reportedUser={{
-            id: chat.oderId || chat.oderId || chat.userId,
+            id: chat.userId,
             username: chat.username || chat.name,
             name: chat.name,
           }}

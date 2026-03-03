@@ -17,6 +17,7 @@ import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../firebaseConfig';
 import { createGroupChat } from '../utils/groupChatHelpers';
 import { uploadImageToHostinger } from '../hostingerConfig';
+import { normalizeBlobUri } from '../utils/normalizeUri';
 
 const ACCENT = '#7C3AED';
 const BG = '#0B0B0E';
@@ -186,7 +187,8 @@ export default function GroupChatCreationScreen({ navigation }) {
     });
     
     if (!result.canceled) {
-      setGroupIcon(result.assets[0].uri);
+      const safeUri = await normalizeBlobUri(result.assets[0].uri);
+      setGroupIcon(safeUri);
     }
   };
   

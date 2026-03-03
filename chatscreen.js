@@ -1,9 +1,10 @@
 // ChatScreen.js — header visible (back + avatar + name + email + info icon)
-import React, { useState, useLayoutEffect, useMemo, useRef, useEffect } from "react";
+import React, { useState, useLayoutEffect, useMemo, useCallback, useRef, useEffect } from "react";
 import {
   View,
   Text,
   StyleSheet,
+  FlatList,
   ScrollView,
   KeyboardAvoidingView,
   Platform,
@@ -17,9 +18,11 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from 'expo-linear-gradient';
-import { collection, query, orderBy, onSnapshot, addDoc, doc, setDoc, serverTimestamp, getDoc, limit, where, getDocs, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, addDoc, doc, setDoc, serverTimestamp, getDoc, limit, where, getDocs, updateDoc, deleteDoc, increment } from 'firebase/firestore';
 import { db, auth } from './firebaseConfig';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { normalizeBlobUri } from './utils/normalizeUri';
+import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 import { StickerPicker } from './components/StickerPicker';
 import { AttachmentPicker } from './components/AttachmentPicker';
 import { cacheMessages, getCachedMessages } from './utils/messageCache';
@@ -27,6 +30,7 @@ import { flagMessage, MESSAGE_REPORT_REASONS } from './shared/services/moderatio
 import { SimpleInlineStatus } from './components/StatusBadge';
 import * as WebBrowser from 'expo-web-browser';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 
 const ACCENT = "#7C3AED";
 const CYAN = "#08FFE2";
@@ -79,7 +83,7 @@ const Avatar = ({ name, size = 34, color = ACCENT, source }) => {
 };
 
 export default function ChatScreen({ route, navigation }) {
-  const scrollViewRef = useRef(null);
+  const flatListRef = useRef(null);
   const currentUser = auth.currentUser;
 
   const user = route?.params?.user || {
@@ -108,6 +112,10 @@ export default function ChatScreen({ route, navigation }) {
   const [flagSelectedReason, setFlagSelectedReason] = useState(null);
   const [flagLoading, setFlagLoading] = useState(false);
 
+  // Message options bottom sheet
+  const [showMessageOptions, setShowMessageOptions] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState(null);
+
   // Party/Feature functionality states
   const [showFeatureModal, setShowFeatureModal] = useState(false);
   const [showMiniScreen, setShowMiniScreen] = useState(null); // 'voice', 'screening', 'roleplay'
@@ -130,6 +138,7 @@ export default function ChatScreen({ route, navigation }) {
   const [selectedCharactersForSession, setSelectedCharactersForSession] = useState([]);
   const [editingCharacterId, setEditingCharacterId] = useState(null);
   const [pendingRoleplayJoin, setPendingRoleplayJoin] = useState(null);
+  const [currentUserName, setCurrentUserName] = useState('User');
 
   // Advanced character customization states
   const [uploadingCharacterImage, setUploadingCharacterImage] = useState(false);
@@ -212,7 +221,8 @@ export default function ChatScreen({ route, navigation }) {
         setUploadingCharacterImage(true);
 
         try {
-          const imageUrl = await uploadImageToHostinger(result.assets[0].uri, 'roleplay_characters');
+          const safeUri = await normalizeBlobUri(result.assets[0].uri);
+          const imageUrl = await uploadImageToHostinger(safeUri, 'roleplay_characters');
           setCharacterAvatar(imageUrl);
           setUploadingCharacterImage(false);
           Alert.alert('Success', 'Character image uploaded!');
@@ -294,6 +304,7 @@ export default function ChatScreen({ route, navigation }) {
           const data = doc.data();
           return {
             id: doc.id,
+            senderId: data.senderId || null,
             from: data.senderId === currentUser.uid ? 'me' : 'them',
             isMine: data.senderId === currentUser.uid,
             text: data.text || data.message || '',
@@ -324,23 +335,33 @@ export default function ChatScreen({ route, navigation }) {
       // Cache messages
       cacheMessages(conversationId, messages);
 
-      // Scroll to bottom when new messages arrive
-      requestAnimationFrame(() =>
-        scrollViewRef.current?.scrollToEnd({ animated: true })
-      );
+      // With inverted FlatList, scrollToEnd is automatic for new messages
     });
 
     return () => unsubscribe();
   }, [conversationId, currentUser]);
 
   // Listen for room/session status changes and update messages accordingly
+  // Use a ref to track active message IDs to avoid re-subscribing on every msgs change
+  const activeRoomMsgsRef = useRef(new Set());
   useEffect(() => {
     if (!conversationId || !msgs.length) return;
 
+    // Only subscribe to new room/session messages we haven't seen
+    const newRoomMsgs = msgs.filter(m =>
+      ((m.type === 'voiceChat' && m.roomId) ||
+       (m.type === 'screeningRoom' && m.roomId) ||
+       (m.type === 'roleplay' && m.sessionId)) &&
+      m.isActive &&
+      !activeRoomMsgsRef.current.has(m.id)
+    );
+    if (newRoomMsgs.length === 0) return;
+
     const unsubscribers = [];
 
-    // Listen to all active voice rooms, screening rooms, and roleplay sessions
-    msgs.forEach((msg) => {
+    // Listen to new active voice rooms, screening rooms, and roleplay sessions
+    newRoomMsgs.forEach((msg) => {
+      activeRoomMsgsRef.current.add(msg.id);
       if (msg.type === 'voiceChat' && msg.roomId) {
         // Listen to audio_calls room status
         const roomRef = doc(db, 'audio_calls', conversationId, 'rooms', msg.roomId);
@@ -430,6 +451,8 @@ export default function ChatScreen({ route, navigation }) {
 
     return () => {
       unsubscribers.forEach(unsub => unsub());
+      // Remove tracked IDs for messages we just unsubscribed from
+      newRoomMsgs.forEach(m => activeRoomMsgsRef.current.delete(m.id));
     };
   }, [conversationId, msgs]);
 
@@ -445,9 +468,14 @@ export default function ChatScreen({ route, navigation }) {
         if (userSnap.exists()) {
           const userData = userSnap.data();
           setCharacterCollection(userData.characterCollection || []);
+          // Resolve display name from Firestore data
+          setCurrentUserName(getDisplayName(userData, currentUser.email || 'User'));
+        } else {
+          setCurrentUserName(currentUser.displayName || currentUser.email?.split('@')[0] || 'User');
         }
       } catch (error) {
         console.log('Error loading character collection:', error);
+        setCurrentUserName(currentUser.displayName || currentUser.email?.split('@')[0] || 'User');
       }
     };
 
@@ -575,12 +603,12 @@ export default function ChatScreen({ route, navigation }) {
       await setDoc(sessionRef, {
         conversationId: conversationId,
         createdBy: currentUser.uid,
-        createdByName: currentUser.displayName || currentUser.email || 'User',
+        createdByName: currentUserName,
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email || 'User',
+          userName: currentUserName,
           profileImage: currentUser.photoURL || null,
           joinedAt: now,
           characters: selectedCharactersForSession.map(c => c.id),
@@ -589,7 +617,7 @@ export default function ChatScreen({ route, navigation }) {
         characters: selectedCharactersForSession.map(char => ({
           ...char,
           ownerId: currentUser.uid,
-          ownerName: currentUser.displayName || currentUser.email || 'User',
+          ownerName: currentUserName,
           available: true,
         })),
         messages: [],
@@ -611,7 +639,7 @@ export default function ChatScreen({ route, navigation }) {
           description: char.description,
           taken: true,
           takenBy: currentUser.uid,
-          takenByName: currentUser.displayName || currentUser.email || 'User',
+          takenByName: currentUserName,
         })),
         availableRoles: 0,
         createdAt: serverTimestamp(),
@@ -696,11 +724,11 @@ export default function ChatScreen({ route, navigation }) {
 
         // Update conversation last message
         const conversationRef = doc(db, 'conversations', convoId);
-        await setDoc(conversationRef, {
+        await updateDoc(conversationRef, {
           lastMessage: message,
           lastMessageTime: serverTimestamp(),
-          [`unreadCount.${otherUserId}`]: (await getDoc(conversationRef)).data()?.unreadCount?.[otherUserId] + 1 || 1,
-        }, { merge: true });
+          [`unreadCount.${otherUserId}`]: increment(1),
+        });
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -773,11 +801,11 @@ export default function ChatScreen({ route, navigation }) {
         });
 
         const conversationRef = doc(db, 'conversations', convoId);
-        await setDoc(conversationRef, {
+        await updateDoc(conversationRef, {
           lastMessage: '🎨 Sticker',
           lastMessageTime: serverTimestamp(),
-          [`unreadCount.${otherUserId}`]: (await getDoc(conversationRef)).data()?.unreadCount?.[otherUserId] + 1 || 1,
-        }, { merge: true });
+          [`unreadCount.${otherUserId}`]: increment(1),
+        });
       }
     } catch (error) {
       console.error('Error sending sticker:', error);
@@ -835,14 +863,11 @@ export default function ChatScreen({ route, navigation }) {
         });
 
         const conversationRef = doc(db, 'conversations', convoId);
-        const convoDoc = await getDoc(conversationRef);
-        const currentUnread = convoDoc.data()?.unreadCount?.[otherUserId] || 0;
-
-        await setDoc(conversationRef, {
+        await updateDoc(conversationRef, {
           lastMessage: '📷 Photo',
           lastMessageTime: serverTimestamp(),
-          [`unreadCount.${otherUserId}`]: currentUnread + 1,
-        }, { merge: true });
+          [`unreadCount.${otherUserId}`]: increment(1),
+        });
       }
 
       console.log('✅ Photo sent successfully!');
@@ -864,22 +889,46 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  // Long-press a message: delete own, flag others
+  // Long-press a message: open rich options sheet
   const handleMessageLongPress = (message) => {
-    if (message.from === 'me') {
-      Alert.alert(
-        'Delete Message',
-        'Remove this message for everyone?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMessage(message.id) },
-        ]
-      );
-    } else {
-      setFlaggedMessage(message);
+    setSelectedMessage(message);
+    setShowMessageOptions(true);
+  };
+
+  const handleCopyMessage = async () => {
+    if (selectedMessage?.text) {
+      await Clipboard.setStringAsync(selectedMessage.text);
+      Alert.alert('Copied', 'Message copied to clipboard');
+    }
+    setShowMessageOptions(false);
+  };
+
+  const handleReplyToMessage = () => {
+    if (selectedMessage?.text) {
+      setText(`> ${selectedMessage.text}\n`);
+    }
+    setShowMessageOptions(false);
+  };
+
+  const handleDeleteSelected = () => {
+    setShowMessageOptions(false);
+    Alert.alert(
+      'Delete Message',
+      'Remove this message for everyone?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => handleDeleteMessage(selectedMessage.id) },
+      ]
+    );
+  };
+
+  const handleReportSelected = () => {
+    setShowMessageOptions(false);
+    setTimeout(() => {
+      setFlaggedMessage(selectedMessage);
       setFlagSelectedReason(null);
       setShowFlagModal(true);
-    }
+    }, 200);
   };
 
   const submitFlagMessage = async () => {
@@ -890,10 +939,16 @@ export default function ChatScreen({ route, navigation }) {
     if (!currentUser) return;
     setFlagLoading(true);
     try {
+      // Ensure reportedUserId is never empty — fall back to participants if needed
+      const resolvedReportedUserId =
+        flaggedMessage.senderId || otherUserId || (flaggedMessage.participants || []).find(p => p !== currentUser.uid) || '';
+
       const result = await flagMessage(db, currentUser.uid, {
         messageId: flaggedMessage.id,
         messageText: flaggedMessage.text || '',
-        reportedUserId: flaggedMessage.senderId || otherUserId,
+        reportedUserId: resolvedReportedUserId,
+        reporterUsername: currentUserName || currentUser.displayName || 'Unknown User',
+        reportedUsername: flaggedMessage.sender || user?.name || 'Unknown User',
         conversationId: conversationId,
         chatType: isGroupChat ? 'group' : 'private',
         reason: flagSelectedReason,
@@ -939,12 +994,12 @@ export default function ChatScreen({ route, navigation }) {
       await setDoc(roomRef, {
         conversationId: conversationId,
         createdBy: currentUser.uid,
-        createdByName: currentUser.displayName || currentUser.email || 'User',
+        createdByName: currentUserName,
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email || 'User',
+          userName: currentUserName,
           profileImage: currentUser.photoURL || null,
           joinedAt: now,
           isMuted: false,
@@ -1002,12 +1057,12 @@ export default function ChatScreen({ route, navigation }) {
       await setDoc(roomRef, {
         conversationId: conversationId,
         createdBy: currentUser.uid,
-        createdByName: currentUser.displayName || currentUser.email || 'User',
+        createdByName: currentUserName,
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.uid,
-          userName: currentUser.displayName || currentUser.email || 'User',
+          userName: currentUserName,
           profileImage: currentUser.photoURL || null,
           joinedAt: now,
         }],
@@ -1052,29 +1107,11 @@ export default function ChatScreen({ route, navigation }) {
   // Handle message delete
   const handleDeleteMessage = async (messageId) => {
     try {
-      Alert.alert(
-        'Delete Message',
-        'Are you sure you want to delete this message?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Delete',
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
-                await deleteDoc(messageRef);
-                Alert.alert('Success', 'Message deleted successfully');
-              } catch (error) {
-                console.error('Error deleting message:', error);
-                Alert.alert('Error', 'Failed to delete message');
-              }
-            }
-          }
-        ]
-      );
+      const messageRef = doc(db, 'conversations', conversationId, 'messages', messageId);
+      await deleteDoc(messageRef);
     } catch (error) {
-      console.error('Error in handleDeleteMessage:', error);
+      console.error('Error deleting message:', error);
+      Alert.alert('Error', 'Failed to delete message');
     }
   };
 
@@ -1129,53 +1166,60 @@ export default function ChatScreen({ route, navigation }) {
             <Text style={{ color: TEXT_DIM, marginTop: 10 }}>Loading messages...</Text>
           </View>
         ) : (
-          <ScrollView
-            ref={scrollViewRef}
+          <FlatList
+            ref={flatListRef}
+            data={[...msgs].reverse()}
+            inverted
+            keyExtractor={(m) => m.id}
+            style={{ flex: 1 }}
             contentContainerStyle={styles.scrollContainer}
             showsVerticalScrollIndicator={false}
-          >
-            {msgs.length === 0 ? (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100 }}>
+            initialNumToRender={15}
+            maxToRenderPerBatch={10}
+            windowSize={11}
+            removeClippedSubviews={Platform.OS === 'android'}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 100, transform: [{ scaleY: -1 }] }}>
                 <Ionicons name="chatbubbles-outline" size={64} color={TEXT_DIM} />
                 <Text style={{ color: TEXT_DIM, marginTop: 16, fontSize: 16 }}>No messages yet</Text>
                 <Text style={{ color: TEXT_DIM, marginTop: 4, fontSize: 12 }}>Send a message to start the conversation</Text>
               </View>
-            ) : (
-              msgs.map((m) => (
-                <View
-                  key={m.id}
+            }
+            renderItem={({ item: m }) => (
+              <View
+                style={[
+                  styles.bubbleRow,
+                  m.from === "me" && styles.bubbleRight,
+                ]}
+              >
+                {m.from !== "me" && (
+                  <Avatar name={user.name} size={28} source={user.avatar} />
+                )}
+                <TouchableOpacity
+                  onLongPress={() => handleMessageLongPress(m)}
+                  activeOpacity={0.7}
                   style={[
-                    styles.bubbleRow,
-                    m.from === "me" && styles.bubbleRight,
+                    styles.bubble,
+                    m.from === "me" ? styles.bubbleMe : styles.bubbleThem,
+                    m.type === 'sticker' && styles.bubbleSticker,
                   ]}
                 >
-                  {m.from !== "me" && (
-                    <Avatar name={user.name} size={28} source={user.avatar} />
-                  )}
-                  <TouchableOpacity
-                    onLongPress={() => handleMessageLongPress(m)}
-                    activeOpacity={0.7}
-                    style={[
-                      styles.bubble,
-                      m.from === "me" ? styles.bubbleMe : styles.bubbleThem,
-                      m.type === 'sticker' && styles.bubbleSticker,
-                    ]}
-                  >
-                    {m.type === 'image' && m.imageUrl ? (
-                      <>
-                        <Image
-                          source={{ uri: m.imageUrl }}
-                          style={styles.messageImage}
-                          resizeMode="cover"
-                        />
-                        <Text style={styles.bubbleTime}>{m.time}</Text>
-                      </>
-                    ) : m.type === 'sticker' ? (
-                      <>
-                        <Text style={styles.stickerText}>{m.text}</Text>
-                        <Text style={styles.bubbleTime}>{m.time}</Text>
-                      </>
-                    ) : m.type === 'voiceChat' && m.roomId ? (
+                  {m.type === 'image' && m.imageUrl ? (
+                    <>
+                      <Image
+                        source={{ uri: m.imageUrl }}
+                        style={styles.messageImage}
+                        resizeMode="cover"
+                      />
+                      <Text style={styles.bubbleTime}>{m.time}</Text>
+                    </>
+                  ) : m.type === 'sticker' ? (
+                    <>
+                      <Text style={styles.stickerText}>{m.text}</Text>
+                      <Text style={styles.bubbleTime}>{m.time}</Text>
+                    </>
+                  ) : m.type === 'voiceChat' && m.roomId ? (
                       <TouchableOpacity
                         style={styles.roomCard}
                         onPress={() => {
@@ -1329,9 +1373,8 @@ export default function ChatScreen({ route, navigation }) {
                     )}
                   </TouchableOpacity>
                 </View>
-              ))
-            )}
-          </ScrollView>
+              )}
+          />
         )}
 
         {/* ✍️ Message Composer */}
@@ -1455,76 +1498,178 @@ export default function ChatScreen({ route, navigation }) {
         </TouchableOpacity>
       </Modal>
 
+      {/* ─── Message Options Bottom Sheet ─── */}
+      <Modal
+        visible={showMessageOptions}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowMessageOptions(false)}
+      >
+        <TouchableOpacity
+          style={styles.msgOptOverlay}
+          activeOpacity={1}
+          onPress={() => setShowMessageOptions(false)}
+        >
+          <View style={styles.msgOptSheet} onStartShouldSetResponder={() => true}>
+            {/* Handle */}
+            <View style={styles.msgOptHandle} />
+
+            {/* Preview of the selected message */}
+            {selectedMessage?.text ? (
+              <View style={styles.msgOptPreview}>
+                <Ionicons name="chatbubble-outline" size={14} color={TEXT_DIM} style={{ marginRight: 8, marginTop: 2 }} />
+                <Text style={styles.msgOptPreviewText} numberOfLines={2}>{selectedMessage.text}</Text>
+              </View>
+            ) : null}
+
+            {/* Copy */}
+            {(selectedMessage?.type !== 'image' && selectedMessage?.type !== 'sticker') && (
+              <TouchableOpacity style={styles.msgOptRow} onPress={handleCopyMessage} activeOpacity={0.7}>
+                <View style={[styles.msgOptIcon, { backgroundColor: '#08FFE222' }]}>
+                  <Ionicons name="copy-outline" size={20} color={CYAN} />
+                </View>
+                <Text style={styles.msgOptLabel}>Copy</Text>
+                <Ionicons name="chevron-forward" size={16} color={TEXT_DIM} />
+              </TouchableOpacity>
+            )}
+
+            {/* Reply */}
+            <TouchableOpacity style={styles.msgOptRow} onPress={handleReplyToMessage} activeOpacity={0.7}>
+              <View style={[styles.msgOptIcon, { backgroundColor: '#7C3AED22' }]}>
+                <Ionicons name="return-down-back-outline" size={20} color={ACCENT} />
+              </View>
+              <Text style={styles.msgOptLabel}>Reply</Text>
+              <Ionicons name="chevron-forward" size={16} color={TEXT_DIM} />
+            </TouchableOpacity>
+
+            {/* Delete (own messages only) */}
+            {selectedMessage?.from === 'me' && (
+              <TouchableOpacity style={styles.msgOptRow} onPress={handleDeleteSelected} activeOpacity={0.7}>
+                <View style={[styles.msgOptIcon, { backgroundColor: '#EF444422' }]}>
+                  <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                </View>
+                <Text style={[styles.msgOptLabel, { color: '#EF4444' }]}>Delete</Text>
+                <Ionicons name="chevron-forward" size={16} color={TEXT_DIM} />
+              </TouchableOpacity>
+            )}
+
+            {/* Report (others' messages only) */}
+            {selectedMessage?.from !== 'me' && (
+              <TouchableOpacity style={styles.msgOptRow} onPress={handleReportSelected} activeOpacity={0.7}>
+                <View style={[styles.msgOptIcon, { backgroundColor: '#F9731622' }]}>
+                  <Ionicons name="flag-outline" size={20} color="#F97316" />
+                </View>
+                <Text style={[styles.msgOptLabel, { color: '#F97316' }]}>Report</Text>
+                <Ionicons name="chevron-forward" size={16} color={TEXT_DIM} />
+              </TouchableOpacity>
+            )}
+
+            {/* Cancel */}
+            <TouchableOpacity
+              style={[styles.msgOptRow, { marginTop: 8, borderTopWidth: 1, borderTopColor: '#ffffff11' }]}
+              onPress={() => setShowMessageOptions(false)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.msgOptLabel, { color: TEXT_DIM, textAlign: 'center', flex: 1 }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Flag / Report Message Modal */}
       <Modal
         visible={showFlagModal}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setShowFlagModal(false)}
       >
         <TouchableOpacity
-          style={styles.modalOverlay}
+          style={styles.reportOverlay}
           activeOpacity={1}
           onPress={() => setShowFlagModal(false)}
         >
-          <View style={styles.modalContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Report Message</Text>
-              <TouchableOpacity onPress={() => setShowFlagModal(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
+          <View style={styles.reportSheet} onStartShouldSetResponder={() => true}>
+            {/* Handle bar */}
+            <View style={styles.reportSheetHandle} />
+
+            {/* Header */}
+            <View style={styles.reportSheetHeader}>
+              <View style={styles.reportIconWrap}>
+                <Ionicons name="flag" size={22} color="#EF4444" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reportSheetTitle}>Report Message</Text>
+                <Text style={styles.reportSheetSubtitle}>Help us understand the problem</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowFlagModal(false)} style={styles.reportCloseBtn}>
+                <Ionicons name="close" size={20} color={TEXT_DIM} />
               </TouchableOpacity>
             </View>
 
-            <View style={styles.modalBody}>
-              <Text style={{ color: TEXT_DIM, fontSize: 13, marginBottom: 12 }}>
-                Why are you reporting this message?
-              </Text>
-              {MESSAGE_REPORT_REASONS.map((r) => (
-                <TouchableOpacity
-                  key={r.key}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    paddingVertical: 12,
-                    paddingHorizontal: 14,
-                    borderRadius: 12,
-                    marginBottom: 8,
-                    backgroundColor: flagSelectedReason === r.key ? `${ACCENT}33` : CARD,
-                    borderWidth: 1,
-                    borderColor: flagSelectedReason === r.key ? ACCENT : '#23232A',
-                  }}
-                  onPress={() => setFlagSelectedReason(r.key)}
-                >
-                  <View style={{
-                    width: 20, height: 20, borderRadius: 10,
-                    borderWidth: 2,
-                    borderColor: flagSelectedReason === r.key ? ACCENT : TEXT_DIM,
-                    backgroundColor: flagSelectedReason === r.key ? ACCENT : 'transparent',
-                    marginRight: 12,
-                  }} />
-                  <Text style={{ color: '#fff', fontSize: 15 }}>{r.label}</Text>
-                </TouchableOpacity>
-              ))}
+            {/* Quoted message preview */}
+            {flaggedMessage?.text ? (
+              <View style={styles.reportQuote}>
+                <Ionicons name="chatbubble-outline" size={14} color={TEXT_DIM} style={{ marginRight: 8, marginTop: 2 }} />
+                <Text style={styles.reportQuoteText} numberOfLines={2}>{flaggedMessage.text}</Text>
+              </View>
+            ) : null}
 
-              <TouchableOpacity
-                style={{
-                  marginTop: 8,
-                  paddingVertical: 14,
-                  borderRadius: 14,
-                  backgroundColor: ACCENT,
-                  alignItems: 'center',
-                  opacity: flagLoading ? 0.6 : 1,
-                }}
-                onPress={submitFlagMessage}
-                disabled={flagLoading}
-              >
-                {flagLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Submit Report</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.reportReasonLabel}>Why are you reporting this?</Text>
+
+            {/* Reason list */}
+            <ScrollView
+              style={{ maxHeight: 320 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {[
+                { key: 'spam',        label: 'Spam or scam',              icon: 'alert-circle-outline',   color: '#F59E0B' },
+                { key: 'harassment',  label: 'Harassment or bullying',    icon: 'hand-left-outline',       color: '#EF4444' },
+                { key: 'hate_speech', label: 'Hate speech',               icon: 'megaphone-outline',       color: '#F97316' },
+                { key: 'threats',     label: 'Threats or violence',       icon: 'warning-outline',         color: '#DC2626' },
+                { key: 'explicit',    label: 'Explicit / adult content',  icon: 'eye-off-outline',         color: '#7C3AED' },
+                { key: 'other',       label: 'Something else',            icon: 'ellipsis-horizontal-circle-outline', color: '#6B7280' },
+              ].map((r) => {
+                const selected = flagSelectedReason === r.key;
+                return (
+                  <TouchableOpacity
+                    key={r.key}
+                    style={[styles.reportReasonRow, selected && styles.reportReasonRowSelected]}
+                    onPress={() => setFlagSelectedReason(r.key)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.reportReasonIcon, { backgroundColor: `${r.color}22` }]}>
+                      <Ionicons name={r.icon} size={20} color={r.color} />
+                    </View>
+                    <Text style={styles.reportReasonText}>{r.label}</Text>
+                    <View style={[styles.reportRadio, selected && styles.reportRadioSelected]}>
+                      {selected && <View style={styles.reportRadioDot} />}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* Submit */}
+            <TouchableOpacity
+              style={[styles.reportSubmitBtn, (!flagSelectedReason || flagLoading) && styles.reportSubmitBtnDisabled]}
+              onPress={submitFlagMessage}
+              disabled={!flagSelectedReason || flagLoading}
+              activeOpacity={0.8}
+            >
+              {flagLoading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="flag" size={18} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.reportSubmitText}>Submit Report</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.reportDisclaimer}>
+              Reports are reviewed by our moderation team. False reports may result in account action.
+            </Text>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -1668,7 +1813,6 @@ export default function ChatScreen({ route, navigation }) {
       </Modal>
 
       {/* Roleplay Character Creation Screen - Multi-page System */}
-      {console.log('Roleplay Modal visible:', showMiniScreen === 'roleplay', 'showMiniScreen:', showMiniScreen)}
       <Modal
         visible={showMiniScreen === 'roleplay'}
         animationType="slide"
@@ -2172,7 +2316,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 60,
+    paddingTop: 10,
     paddingBottom: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#1F1F25",
@@ -2197,11 +2341,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: `${ACCENT}66`,
   },
+  partyEmoji: {
+    fontSize: 18,
+  },
 
   scrollContainer: {
     paddingHorizontal: 14,
     paddingTop: 20,
-    paddingBottom: 100,
+    paddingBottom: 8,
   },
   bubbleRow: {
     flexDirection: "row",
@@ -2278,10 +2425,6 @@ const styles = StyleSheet.create({
 
   // Uploading indicator
   uploadingBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 70,
     padding: 10,
     backgroundColor: CARD,
     borderTopWidth: 1,
@@ -2298,10 +2441,6 @@ const styles = StyleSheet.create({
   },
 
   composerBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     padding: 10,
     backgroundColor: BG,
     flexDirection: "row",
@@ -2342,10 +2481,6 @@ const styles = StyleSheet.create({
 
   // Blocked bar styles
   blockedBar: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    bottom: 0,
     padding: 16,
     backgroundColor: '#1F1F25',
     borderTopWidth: 1,
@@ -2491,21 +2626,28 @@ const styles = StyleSheet.create({
   featureOption: {
     borderRadius: 16,
     overflow: 'hidden',
+    width: '100%',
   },
   featureGradient: {
-    padding: 20,
+    width: '100%',
+    flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    minHeight: 110,
     gap: 8,
   },
   featureTitle: {
     color: '#fff',
     fontSize: 18,
     fontWeight: '700',
+    textAlign: 'center',
   },
   featureSubtitle: {
-    color: '#fff',
+    color: 'rgba(255,255,255,0.8)',
     fontSize: 14,
-    opacity: 0.8,
+    textAlign: 'center',
   },
 
   // Mini Screen Styles
@@ -2521,8 +2663,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     width: '100%',
     maxWidth: 400,
-    maxHeight: '90%',
-    overflow: 'hidden',
   },
   miniScreenHeader: {
     flexDirection: 'row',
@@ -2538,7 +2678,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   miniScreenBody: {
-    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 20,
+    gap: 24,
   },
   miniScreenBodyContent: {
     padding: 20,
@@ -3193,6 +3337,218 @@ const styles = StyleSheet.create({
     backgroundColor: '#1F1F25',
     borderTopWidth: 1,
     borderTopColor: '#2A2A30',
+  },
+
+  // ── Report / Flag Message Sheet ──────────────────────────────────────────
+  reportOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    justifyContent: 'flex-end',
+  },
+  reportSheet: {
+    backgroundColor: CARD,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderColor: '#23232A',
+  },
+  reportSheetHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#3A3A45',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  reportSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 12,
+  },
+  reportIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#EF444422',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportSheetTitle: {
+    color: '#fff',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  reportSheetSubtitle: {
+    color: TEXT_DIM,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  reportCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#23232A',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportQuote: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#0B0B0E',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: ACCENT,
+  },
+  reportQuoteText: {
+    flex: 1,
+    color: TEXT_DIM,
+    fontSize: 13,
+    lineHeight: 18,
+    fontStyle: 'italic',
+  },
+  reportReasonLabel: {
+    color: TEXT_DIM,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 10,
+  },
+  reportReasonRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 13,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: BG,
+    borderWidth: 1,
+    borderColor: '#23232A',
+    gap: 12,
+  },
+  reportReasonRowSelected: {
+    backgroundColor: `${ACCENT}18`,
+    borderColor: ACCENT,
+  },
+  reportReasonIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportReasonText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+  },
+  reportRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: TEXT_DIM,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reportRadioSelected: {
+    borderColor: ACCENT,
+    backgroundColor: `${ACCENT}33`,
+  },
+  reportRadioDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    backgroundColor: ACCENT,
+  },
+  reportSubmitBtn: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 15,
+    borderRadius: 14,
+    backgroundColor: '#EF4444',
+  },
+  reportSubmitBtnDisabled: {
+    backgroundColor: '#3A3A45',
+  },
+  reportSubmitText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  reportDisclaimer: {
+    color: TEXT_DIM,
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 12,
+    lineHeight: 16,
+    paddingHorizontal: 8,
+  },
+
+  // Message Options Bottom Sheet
+  msgOptOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  msgOptSheet: {
+    backgroundColor: '#1A1A22',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 36,
+    paddingTop: 8,
+  },
+  msgOptHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ffffff33',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  msgOptPreview: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#ffffff0A',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  msgOptPreviewText: {
+    color: TEXT_DIM,
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  msgOptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  msgOptIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  msgOptLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#fff',
   },
 });
 

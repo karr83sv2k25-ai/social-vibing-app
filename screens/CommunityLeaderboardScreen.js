@@ -66,10 +66,58 @@ const MEDAL_COLORS = {
 };
 
 const FILTERS = [
-  { id: 'all', label: 'All Time' },
-  { id: 'monthly', label: 'This Month' },
-  { id: 'weekly', label: 'This Week' },
+  { id: 'all', label: 'All Time', icon: 'infinite-outline' },
+  { id: 'monthly', label: 'Month', icon: 'calendar-outline' },
+  { id: 'weekly', label: 'Week', icon: 'today-outline' },
 ];
+
+// Animated skeleton placeholder
+const SkeletonCommunityItem = () => {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 750, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={[skeletonStyles.row, { opacity: pulse }]}>
+      <View style={skeletonStyles.rank} />
+      <View style={skeletonStyles.avatar} />
+      <View style={skeletonStyles.lines}>
+        <View style={skeletonStyles.line1} />
+        <View style={skeletonStyles.line2} />
+      </View>
+      <View style={skeletonStyles.badge} />
+    </Animated.View>
+  );
+};
+
+const SkeletonCommunityLoading = () => (
+  <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+    {[...Array(8)].map((_, i) => <SkeletonCommunityItem key={i} />)}
+  </View>
+);
+
+const skeletonStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#2A2F3A', borderRadius: 16, padding: 14, marginBottom: 10 },
+  rank: { width: 32, height: 18, borderRadius: 4, backgroundColor: '#353B48', marginRight: 14 },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#353B48', marginRight: 14 },
+  lines: { flex: 1, gap: 7 },
+  line1: { height: 14, borderRadius: 6, backgroundColor: '#353B48', width: '65%' },
+  line2: { height: 11, borderRadius: 6, backgroundColor: '#353B48', width: '42%' },
+  badge: { width: 52, height: 34, borderRadius: 20, backgroundColor: '#353B48' },
+});
+
+const getCommunityRankColor = (rank) => {
+  if (rank === 1) return '#FFD700';
+  if (rank === 2) return '#C0C0C0';
+  if (rank === 3) return '#CD7F32';
+  if (rank <= 10) return '#FF8C42';
+  return '#8B9099';
+};
 
 function CommunityLeaderboardScreen() {
   const navigation = useNavigation();
@@ -89,6 +137,13 @@ function CommunityLeaderboardScreen() {
   
   // Animation
   const scrollY = useRef(new Animated.Value(0)).current;
+
+  // Per-filter cache to avoid redundant Firestore fetches
+  const leaderboardCache = useRef({});
+
+  // Animation: sliding filter indicator + list fade-in
+  const filterIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const listFadeAnim = useRef(new Animated.Value(0)).current;
 
   // Monitor network connectivity
   useEffect(() => {
@@ -117,19 +172,31 @@ function CommunityLeaderboardScreen() {
   }, []);
 
   // Fetch leaderboard data
-  const fetchData = useCallback(async (isFilterChange = false) => {
+  const fetchData = useCallback(async (forceRefresh = false) => {
     if (!communityId) return;
-    
+
     setError(null);
-    
+
+    // Return cached data immediately if available and not a manual refresh
+    if (!forceRefresh && leaderboardCache.current[activeFilter]) {
+      const cached = leaderboardCache.current[activeFilter];
+      setLeaderboard(cached.leaderboard);
+      setUserRankData(cached.userRankData);
+      setLoading(false);
+      setContentLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
       const [leaderboardData, userRank] = await Promise.all([
         getCommunityLeaderboard(db, communityId, activeFilter, 50),
         currentUser?.id ? getUserRank(db, communityId, currentUser.id, activeFilter) : null,
       ]);
-      
+
       setLeaderboard(leaderboardData || []);
       setUserRankData(userRank);
+      leaderboardCache.current[activeFilter] = { leaderboard: leaderboardData || [], userRankData: userRank };
     } catch (err) {
       console.error('Error fetching leaderboard:', err);
       setError('Failed to load leaderboard. Please try again.');
@@ -146,51 +213,94 @@ function CommunityLeaderboardScreen() {
   }, [fetchData]);
 
   const onRefresh = useCallback(() => {
+    // Invalidate cache so a full re-fetch happens
+    leaderboardCache.current = {};
     setRefreshing(true);
-    fetchData();
+    fetchData(true);
   }, [fetchData]);
 
   const handleFilterChange = (filterId) => {
     if (filterId !== activeFilter) {
+      const toIndex = FILTERS.findIndex(f => f.id === filterId);
+      Animated.spring(filterIndicatorAnim, {
+        toValue: toIndex,
+        useNativeDriver: true,
+        tension: 68,
+        friction: 10,
+      }).start();
       setActiveFilter(filterId);
-      setContentLoading(true); // Only set content loading, not full page loading
+      // Only show spinner if we don't already have cached data for this filter
+      if (!leaderboardCache.current[filterId]) {
+        setContentLoading(true);
+      }
     }
   };
 
+  // Fade list in whenever leaderboard data changes
+  useEffect(() => {
+    if (leaderboard.length > 0) {
+      listFadeAnim.setValue(0);
+      Animated.timing(listFadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    }
+  }, [leaderboard]);
+
   // Render filter tabs
-  const renderFilters = () => (
-    <View style={styles.filterContainer}>
-      {FILTERS.map((filter) => (
-        <TouchableOpacity
-          key={filter.id}
+  const renderFilters = () => {
+    const TAB_WIDTH = (SCREEN_WIDTH - 32 - 8) / FILTERS.length;
+    return (
+      <View style={styles.filterContainer}>
+        <Animated.View
           style={[
-            styles.filterButton,
-            activeFilter === filter.id && styles.filterButtonActive,
+            styles.filterIndicator,
+            {
+              width: TAB_WIDTH,
+              transform: [{
+                translateX: filterIndicatorAnim.interpolate({
+                  inputRange: [0, 1, 2],
+                  outputRange: [0, TAB_WIDTH, TAB_WIDTH * 2],
+                }),
+              }],
+            },
           ]}
-          onPress={() => handleFilterChange(filter.id)}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              activeFilter === filter.id && styles.filterTextActive,
-            ]}
-          >
-            {filter.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
+        />
+        {FILTERS.map((filter) => {
+          const isActive = activeFilter === filter.id;
+          return (
+            <TouchableOpacity
+              key={filter.id}
+              style={styles.filterButton}
+              onPress={() => handleFilterChange(filter.id)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={filter.icon}
+                size={14}
+                color={isActive ? '#fff' : '#8B9099'}
+                style={{ marginBottom: 2 }}
+              />
+              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
 
   // Render user rank card
   const renderUserRankCard = () => {
     if (!userRankData || !userRankData.rank) return null;
-    
+
     const { rank, totalUsers, points, userData } = userRankData;
     const badge = userData?.badge || getUserBadge(points || 0);
-    
+
     return (
-      <View style={styles.userRankCard}>
+      <LinearGradient
+        colors={['#7C3AED25', '#E91E8C10', '#2A2F3A']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.userRankCard}>
         <View style={styles.userRankHeader}>
           <Text style={styles.userRankTitle}>Your Ranking</Text>
           <View style={styles.userRankBadge}>
@@ -219,7 +329,7 @@ function CommunityLeaderboardScreen() {
             <Text style={styles.userRankLabel}>Total</Text>
           </View>
         </View>
-      </View>
+      </LinearGradient>
     );
   };
 
@@ -322,20 +432,22 @@ function CommunityLeaderboardScreen() {
   // Render leaderboard item - redesigned for #4 and below
   const renderLeaderboardItem = ({ item, index }) => {
     if (index < 3) return null; // Top 3 shown in podium
-    
+
     const isCurrentUser = currentUser?.id === item.userId;
     const badge = item.badge || getUserBadge(item.points || 0);
     const rank = item.rank || index + 1;
-    
+    const rankColor = getCommunityRankColor(rank);
+
     return (
+      <Animated.View style={{ opacity: listFadeAnim }}>
       <View style={[
         styles.leaderboardItem,
         isCurrentUser && styles.leaderboardItemCurrentUser,
       ]}>
         {/* Rank Number */}
         <View style={styles.rankContainer}>
-          <Text style={styles.rankHash}>#</Text>
-          <Text style={styles.rankNumber}>{rank}</Text>
+          <Text style={[styles.rankHash, { color: rankColor }]}>#</Text>
+          <Text style={[styles.rankNumber, { color: rankColor }]}>{rank}</Text>
         </View>
 
         {/* Avatar */}
@@ -369,14 +481,24 @@ function CommunityLeaderboardScreen() {
           <Text style={styles.streakNumber}>{item.currentStreak || 0}</Text>
         </View>
       </View>
+      </Animated.View>
     );
   };
 
   if (loading && !refreshing) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color={COLORS.purple} />
-        <Text style={styles.loadingText}>Loading leaderboard...</Text>
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <Ionicons name="chevron-back" size={28} color="#fff" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Ionicons name="trophy" size={24} color={COLORS.magenta} />
+            <Text style={styles.headerTitle}>Leaderboard</Text>
+          </View>
+          <View style={styles.headerRightPlaceholder} />
+        </View>
+        <SkeletonCommunityLoading />
       </View>
     );
   }
@@ -433,10 +555,7 @@ function CommunityLeaderboardScreen() {
         >
           {/* Content Loading State - shows when filter changes */}
           {contentLoading ? (
-            <View style={styles.contentLoadingContainer}>
-              <ActivityIndicator size="large" color={COLORS.purple} />
-              <Text style={styles.loadingText}>Loading...</Text>
-            </View>
+            <SkeletonCommunityLoading />
           ) : (
             <>
               {/* User Rank Card */}
@@ -559,23 +678,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginBottom: 12,
-    backgroundColor: COLORS.card,
+    backgroundColor: '#2A2F3A',
     borderRadius: 12,
     padding: 4,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  filterIndicator: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: 10,
+    backgroundColor: '#7C3AED',
   },
   filterButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 10,
-  },
-  filterButtonActive: {
-    backgroundColor: COLORS.purple,
+    gap: 2,
   },
   filterText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    color: COLORS.dim,
+    color: '#8B9099',
   },
   filterTextActive: {
     color: '#fff',
@@ -585,11 +713,11 @@ const styles = StyleSheet.create({
   userRankCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    backgroundColor: COLORS.card,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: COLORS.purple + '50',
+    borderColor: '#7C3AED50',
+    overflow: 'hidden',
   },
   userRankHeader: {
     flexDirection: 'row',

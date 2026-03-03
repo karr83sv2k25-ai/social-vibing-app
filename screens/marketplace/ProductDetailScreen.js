@@ -17,6 +17,8 @@ import { useWallet } from '../../context/WalletContext';
 import { httpsCallable } from 'firebase/functions';
 import { db, auth, functions } from '../../firebaseConfig';
 import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
+import ReportUserModal from '../../components/ReportUserModal';
+import { REPORT_TYPES } from '../../shared/services/reportService';
 
 const BG = '#0B0B0E';
 const CARD = '#17171C';
@@ -32,6 +34,7 @@ export default function ProductDetailScreen({ route, navigation }) {
     const [loading, setLoading] = useState(true);
     const [purchasing, setPurchasing] = useState(false);
     const [activeImage, setActiveImage] = useState(0);
+    const [showReportModal, setShowReportModal] = useState(false);
 
     useEffect(() => {
         fetchProductDetails();
@@ -320,6 +323,9 @@ export default function ProductDetailScreen({ route, navigation }) {
                     <TouchableOpacity>
                         <Ionicons name="share-outline" size={24} color={TEXT} />
                     </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setShowReportModal(true)}>
+                        <Ionicons name="flag-outline" size={22} color={TEXT} />
+                    </TouchableOpacity>
                 </View>
             </View>
 
@@ -513,6 +519,21 @@ export default function ProductDetailScreen({ route, navigation }) {
                     </LinearGradient>
                 </TouchableOpacity>
             </View>
+
+            {/* Report Product Modal */}
+            <ReportUserModal
+                visible={showReportModal}
+                onClose={() => setShowReportModal(false)}
+                reportedUser={{
+                    id: product?.seller?.userId || product?.creatorId || '',
+                    username: product?.seller?.username || product?.seller?.displayName || 'Seller',
+                    name: product?.seller?.displayName || product?.seller?.username || 'Seller',
+                }}
+                reportType={REPORT_TYPES.PRODUCT}
+                contentId={productId}
+                contentType="product"
+                contentPreview={product?.title || ''}
+            />
         </SafeAreaView>
     );
 }

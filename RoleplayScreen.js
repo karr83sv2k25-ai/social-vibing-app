@@ -39,6 +39,7 @@ import {
 } from 'firebase/firestore';
 import { app as firebaseApp, db } from './firebaseConfig';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { normalizeBlobUri } from './utils/normalizeUri';
 
 const { width } = Dimensions.get('window');
 
@@ -149,7 +150,8 @@ export default function RoleplayScreen() {
         setUploadingImage(true);
 
         try {
-          const imageUrl = await uploadImageToHostinger(result.assets[0].uri, 'roleplay_characters');
+          const safeUri = await normalizeBlobUri(result.assets[0].uri);
+          const imageUrl = await uploadImageToHostinger(safeUri, 'roleplay_characters');
 
           setCharacterImage(imageUrl);
           setUploadingImage(false);

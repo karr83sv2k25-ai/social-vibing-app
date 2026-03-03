@@ -148,6 +148,7 @@ export const submitReport = async ({
   contentType = null,
   contentPreview = null,
   communityId = null,
+  parentId = null,
 }) => {
   try {
     // Validation
@@ -288,6 +289,7 @@ export const submitReport = async ({
       contentType: contentType || null,
       contentPreview: contentPreview ? String(contentPreview).substring(0, 500) : null,
       communityId: communityId || null,
+      parentId: parentId || null,
       status: REPORT_STATUS.PENDING,
       priority: calculatePriority(reasonObj),
       createdAt: serverTimestamp(),
@@ -337,7 +339,7 @@ export const submitReport = async ({
  */
 const calculatePriority = (reason) => {
   const highPriority = ['violence', 'self_harm', 'underage', 'scam'];
-  const mediumPriority = ['harassment', 'hate_speech', 'impersonation'];
+  const mediumPriority = ['harassment', 'hate_speech', 'impersonation', 'inappropriate_content', 'copyright'];
   
   const reasonId = reason.id || reason;
   
@@ -615,6 +617,7 @@ export const takeActionOnReport = async (reportId, {
       case ADMIN_ACTIONS.ACCOUNT_SUSPENDED:
         batch.update(userRef, {
           isSuspended: true,
+          suspendedReason: actionDetails.reason || 'Account under review',
           suspensionReason: actionDetails.reason || 'Account under review',
           suspendedAt: serverTimestamp(),
           suspendedBy: adminId,
@@ -693,10 +696,10 @@ const removeReportedContent = async (contentId, contentType, adminId) => {
     }
 
     await updateDoc(contentRef, {
-      isRemoved: true,
-      removedAt: serverTimestamp(),
-      removedBy: adminId,
-      removedReason: 'Violated community guidelines',
+      isDeleted: true,
+      deletedAt: serverTimestamp(),
+      deletedBy: adminId,
+      deletionReason: 'Violated community guidelines',
     });
   } catch (error) {
     console.error('Error removing content:', error);

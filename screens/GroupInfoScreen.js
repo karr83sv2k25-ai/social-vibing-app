@@ -27,6 +27,9 @@ import {
   updateGroupInfo 
 } from '../utils/groupChatHelpers';
 import { uploadImageToHostinger } from '../hostingerConfig';
+import { normalizeBlobUri } from '../utils/normalizeUri';
+import ReportUserModal from '../components/ReportUserModal';
+import { REPORT_TYPES } from '../shared/services/reportService';
 
 const ACCENT = '#7C3AED';
 const CYAN = '#08FFE2';
@@ -49,6 +52,7 @@ export default function GroupInfoScreen({ route, navigation }) {
   const [tempName, setTempName] = useState('');
   const [tempDescription, setTempDescription] = useState('');
   const [showExitModal, setShowExitModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
   
   // User settings
   const [muteNotifications, setMuteNotifications] = useState(false);
@@ -117,7 +121,8 @@ export default function GroupInfoScreen({ route, navigation }) {
     
     if (!result.canceled) {
       try {
-        const iconUrl = await uploadImageToHostinger(result.assets[0].uri, 'group_icons');
+        const safeUri = await normalizeBlobUri(result.assets[0].uri);
+        const iconUrl = await uploadImageToHostinger(safeUri, 'group_icons');
         await updateGroupInfo(conversationId, { groupIcon: iconUrl });
         Alert.alert('Success', 'Group icon updated');
       } catch (error) {
@@ -634,7 +639,7 @@ export default function GroupInfoScreen({ route, navigation }) {
             <Text style={styles.dangerText}>Exit Group</Text>
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.dangerButton}>
+          <TouchableOpacity style={styles.dangerButton} onPress={() => setShowReportModal(true)}>
             <Ionicons name="flag" size={22} color={DANGER} />
             <Text style={styles.dangerText}>Report Group</Text>
           </TouchableOpacity>
@@ -676,6 +681,21 @@ export default function GroupInfoScreen({ route, navigation }) {
           </View>
         </View>
       </Modal>
+
+      {/* Report Group Modal */}
+      <ReportUserModal
+        visible={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        reportedUser={{
+          id: conversationId,
+          username: groupData?.groupName || 'Group',
+          name: groupData?.groupName || 'Group',
+        }}
+        reportType={REPORT_TYPES.COMMUNITY}
+        contentId={conversationId}
+        contentType="group"
+        contentPreview={groupData?.groupName || groupData?.description || 'Group'}
+      />
     </View>
   );
 }

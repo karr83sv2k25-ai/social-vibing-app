@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, TouchableOpacity, StyleSheet, TextInput, Text, ScrollView, Image, Dimensions, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { View, TouchableOpacity, StyleSheet, TextInput, Text, ScrollView, Image, Dimensions, ActivityIndicator, Pressable, Share } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
 import { collection, getDocs, query, orderBy, onSnapshot, doc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
+import { getDisplayName, getUserHandle, getUserAvatar } from './utils/userNameHelpers';
+import PostOptionsModal from './components/PostOptionsModal';
+import * as Haptics from 'expo-haptics';
 
 import starImage from './assets/starimage.png';
 import postIcon from './assets/posticon.jpg';
@@ -21,6 +24,18 @@ export default function HeaderWithSearch({ navigation }) {
 
   const tabs = ['All', 'Users', 'Shops', 'Community', 'Post Live'];
 
+  // Post options modal state (long-press)
+  const [postOptionsVisible, setPostOptionsVisible] = useState(false);
+  const [postOptionsTarget, setPostOptionsTarget] = useState(null);
+
+  const currentUserId = getAuth(app).currentUser?.uid || null;
+
+  const handlePostLongPress = useCallback((post) => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPostOptionsTarget(post);
+    setPostOptionsVisible(true);
+  }, []);
+
   // Fetch users from Firestore (real-time)
   useEffect(() => {
     // db is now imported globally
@@ -31,9 +46,9 @@ export default function HeaderWithSearch({ navigation }) {
         const data = docSnap.data();
         return {
           id: docSnap.id,
-          name: data.displayName || data.name || data.fullName || data.username || data.user_name || data.email || 'User',
+          name: getDisplayName(data),
           email: data.email || data.user_email || '',
-          pic: data.profileImage || data.user_picture || data.avatar || data.profile_image || data.photoURL || null,
+          pic: getUserAvatar(data),
           username: data.username || data.user_name || '',
           bio: data.bio || data.user_biography || '',
         };
@@ -69,8 +84,8 @@ export default function HeaderWithSearch({ navigation }) {
               const ownerSnap = await getDoc(ownerRef);
               if (ownerSnap.exists()) {
                 const ownerData = ownerSnap.data();
-                ownerName = ownerData.displayName || ownerData.name || ownerData.username || 'Owner';
-                ownerPic = ownerData.profileImage || ownerData.avatar || null;
+                ownerName = getDisplayName(ownerData, 'Owner');
+                ownerPic = getUserAvatar(ownerData);
               }
             } catch (e) {
               console.log('Error fetching owner:', e);
@@ -161,8 +176,8 @@ export default function HeaderWithSearch({ navigation }) {
                     const userSnap = await getDoc(userRef);
                     if (userSnap.exists()) {
                       const userData = userSnap.data();
-                      authorName = userData.displayName || userData.name || userData.username || userData.user_name || 'User';
-                      authorImage = userData.profileImage || userData.avatar || userData.user_picture || null;
+                      authorName = getDisplayName(userData);
+                      authorImage = getUserAvatar(userData);
                       username = userData.username || userData.user_name || '';
                     }
                   } catch (e) {
@@ -222,8 +237,8 @@ export default function HeaderWithSearch({ navigation }) {
                     const userSnap = await getDoc(userRef);
                     if (userSnap.exists()) {
                       const userData = userSnap.data();
-                      authorName = userData.displayName || userData.name || userData.username || userData.user_name || 'User';
-                      authorImage = userData.profileImage || userData.avatar || userData.user_picture || null;
+                      authorName = getDisplayName(userData);
+                      authorImage = getUserAvatar(userData);
                       username = userData.username || userData.user_name || '';
                     }
                   } catch (e) {
@@ -396,7 +411,12 @@ export default function HeaderWithSearch({ navigation }) {
 
   // Post row
   const renderPost = (post) => (
-    <View key={`${post.communityId}-${post.type}-${post.id}`} style={styles.postContainer}>
+    <Pressable
+      key={`${post.communityId}-${post.type}-${post.id}`}
+      style={styles.postContainer}
+      onLongPress={() => handlePostLongPress(post)}
+      delayLongPress={400}
+    >
       <View style={styles.postHeader}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Image 
@@ -436,7 +456,7 @@ export default function HeaderWithSearch({ navigation }) {
           <Ionicons name="share-social-outline" size={24} color="#fff" />
         </TouchableOpacity>
       </View>
-    </View>
+    </Pressable>
   );
 
   return (
@@ -560,6 +580,25 @@ export default function HeaderWithSearch({ navigation }) {
           )
         )}
       </ScrollView>
+
+      {/* Post Options Modal (long-press) */}
+      <PostOptionsModal
+        visible={postOptionsVisible}
+        post={postOptionsTarget}
+        currentUserId={currentUserId}
+        onClose={() => {
+          setPostOptionsVisible(false);
+          setPostOptionsTarget(null);
+        }}
+        onShare={(p) => {
+          const title = p.title || p.caption || p.text || 'Post';
+          Share.share({ message: `Check out "${title}" on Social Vibing!` });
+        }}
+        onCopyLink={(p) => {
+          const title = p.title || p.caption || p.text || 'Post';
+          Share.share({ message: `Check out "${title}" on Social Vibing!` });
+        }}
+      />
     </View>
   );
 }

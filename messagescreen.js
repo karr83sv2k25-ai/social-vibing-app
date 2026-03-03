@@ -18,6 +18,8 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { collection, query, where, orderBy, onSnapshot, getDocs, limit, getDoc, doc } from 'firebase/firestore';
 import { db, auth } from './firebaseConfig';
 import { getFriends } from './utils/friendHelpers';
+import { getDisplayName, getUserHandle, getUserAvatar } from './utils/userNameHelpers';
+import { ConversationSkeleton } from './components/SkeletonLoaders';
 import { cacheConversations, getCachedConversations, cacheUsers, getCachedUsers } from './utils/messageCache';
 import StatusBadge from './components/StatusBadge';
 import StatusSelector from './components/StatusSelector';
@@ -435,52 +437,10 @@ export default function MessagesScreen({ navigation }) {
           snapshot.forEach((doc) => {
             const userData = doc.data();
 
-            // DEBUG: Log user data to check what fields exist
-            console.log('👤 User data from batch for', doc.id, ':', {
-              username: userData.username,
-              firstName: userData.firstName,
-              lastName: userData.lastName,
-              profileImage: userData.profileImage,
-              profilePicture: userData.profilePicture,
-              email: userData.email,
-            });
-
-            // Build display name - prioritize first + last name
-            let displayName = 'User';
-
-            if (userData.firstName || userData.lastName) {
-              const first = userData.firstName || '';
-              const last = userData.lastName || '';
-              displayName = `${first} ${last}`.trim();
-            } else if (userData.username && userData.username.trim()) {
-              displayName = userData.username;
-            } else if (userData.displayName && userData.displayName.trim()) {
-              displayName = userData.displayName;
-            } else if (userData.fullName && userData.fullName.trim()) {
-              displayName = userData.fullName;
-            } else if (userData.name && userData.name.trim()) {
-              displayName = userData.name;
-            } else if (userData.email) {
-              displayName = userData.email.split('@')[0];
-            }
-
-            // Try multiple field names for avatar/profile picture
-            const avatarUri = userData.profileImage ||
-              userData.profilePicture ||
-              userData.avatar ||
-              userData.photoURL ||
-              null;
-
-            const handle = userData.username ? `@${userData.username}` :
-              userData.handle ||
-              (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
-
-            console.log('👤 Built user object:', {
-              name: displayName,
-              handle: handle,
-              hasAvatar: !!avatarUri,
-              avatarUri: avatarUri
-            });
+            // Use centralized helpers for consistent name resolution
+            const displayName = getDisplayName(userData);
+            const avatarUri = getUserAvatar(userData);
+            const handle = getUserHandle(userData);
 
             // FIXED: Don't use { uri: null }, use fallback image directly
             const avatar = avatarUri ? { uri: avatarUri } : null;
@@ -616,55 +576,10 @@ export default function MessagesScreen({ navigation }) {
               const userData = userDataMap.get(otherUserId);
 
               if (userData) {
-                // DEBUG: Log user data to see what fields are available
-                console.log('🔍 User data for', otherUserId, ':', {
-                  username: userData.username,
-                  firstName: userData.firstName,
-                  lastName: userData.lastName,
-                  displayName: userData.displayName,
-                  name: userData.name,
-                  profileImage: userData.profileImage,
-                  profilePicture: userData.profilePicture,
-                  avatar: userData.avatar,
-                  photoURL: userData.photoURL,
-                });
-
-                // Build display name - prioritize first + last name
-                let displayName = 'User';
-
-                if (userData.firstName || userData.lastName) {
-                  const first = userData.firstName || '';
-                  const last = userData.lastName || '';
-                  displayName = `${first} ${last}`.trim();
-                } else if (userData.username && userData.username.trim()) {
-                  displayName = userData.username;
-                } else if (userData.displayName && userData.displayName.trim()) {
-                  displayName = userData.displayName;
-                } else if (userData.fullName && userData.fullName.trim()) {
-                  displayName = userData.fullName;
-                } else if (userData.name && userData.name.trim()) {
-                  displayName = userData.name;
-                } else if (userData.email) {
-                  displayName = userData.email.split('@')[0];
-                }
-
-                // Try multiple field names for avatar/profile picture
-                const avatarUri = userData.profileImage ||
-                  userData.profilePicture ||
-                  userData.avatar ||
-                  userData.photoURL ||
-                  null;
-
-                const handle = userData.username ? `@${userData.username}` :
-                  userData.handle ||
-                  (userData.email ? `@${userData.email.split('@')[0]}` : '@user');
-
-                console.log('✅ Conversation built:', {
-                  name: displayName,
-                  handle: handle,
-                  avatarUri: avatarUri,
-                  hasAvatar: !!avatarUri
-                });
+                // Use centralized helpers for consistent name resolution
+                const displayName = getDisplayName(userData);
+                const avatarUri = getUserAvatar(userData);
+                const handle = getUserHandle(userData);
 
                 // FIXED: Don't use { uri: null }, use null so Avatar component shows initials
                 const avatar = avatarUri ? { uri: avatarUri } : null;
@@ -882,10 +797,7 @@ export default function MessagesScreen({ navigation }) {
             <Text style={styles.headerTitle}>Messages</Text>
           </View>
         </View>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <ActivityIndicator size="large" color={ACCENT} />
-          <Text style={{ color: TEXT_DIM, marginTop: 10 }}>Loading messages...</Text>
-        </View>
+        <ConversationSkeleton count={8} />
       </SafeAreaView>
     );
   }
@@ -994,6 +906,11 @@ export default function MessagesScreen({ navigation }) {
         contentContainerStyle={{ paddingBottom: 100 }}
         ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
         style={{ paddingHorizontal: 14 }}
+        initialNumToRender={10}
+        maxToRenderPerBatch={8}
+        windowSize={11}
+        removeClippedSubviews={true}
+        updateCellsBatchingPeriod={50}
         ListEmptyComponent={() => {
           let icon = "chatbubbles-outline";
           let title = "No messages yet";

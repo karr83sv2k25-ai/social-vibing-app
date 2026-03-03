@@ -35,7 +35,9 @@ import {
   Keyboard,
   InteractionManager,
   RefreshControl,
+  Animated,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Ionicons, Entypo, AntDesign, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -51,15 +53,55 @@ import {
   deleteDoc,
   runTransaction,
   arrayUnion,
+  arrayRemove,
   onSnapshot,
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { app as firebaseApp, db } from './firebaseConfig';
 import CacheManager from './cacheManager';
 import * as ImagePicker from 'expo-image-picker';
+import * as Haptics from 'expo-haptics';
+import * as Clipboard from 'expo-clipboard';
 import { uploadImageToHostinger, uploadAudioToHostinger, uploadVideoToHostinger } from './hostingerConfig';
+import { normalizeBlobUri, normalizeImageUri } from './utils/normalizeUri';
 import { Audio, Video } from 'expo-av';
 import ReportUserModal from './components/ReportUserModal';
+import PostOptionsModal from './components/PostOptionsModal';
+import { canCheckInToday, getUserCheckInData, checkInToCommunity, COINS_CONFIG, POINTS_CONFIG } from './shared/services/communityCheckInService';
+import { useWallet } from './context/WalletContext';
+
+// Animated heart button for instant like feedback
+const AnimatedHeartButton = memo(({ isLiked, likes, onPress, size = 20 }) => {
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const handlePress = useCallback(() => {
+    Animated.sequence([
+      Animated.spring(scale, { toValue: 1.35, friction: 3, tension: 200, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: 4, tension: 100, useNativeDriver: true }),
+    ]).start();
+    onPress && onPress();
+  }, [onPress, scale]);
+
+  return (
+    <TouchableOpacity
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+      onPress={handlePress}
+      activeOpacity={0.7}
+    >
+      <Animated.View style={{ transform: [{ scale }] }}>
+        <Ionicons
+          name={isLiked ? 'heart' : 'heart-outline'}
+          size={size}
+          color={isLiked ? '#ff4b6e' : '#888'}
+        />
+      </Animated.View>
+      <Text style={{ color: isLiked ? '#ff4b6e' : '#888', fontSize: 12 }}>
+        {likes || 0}
+      </Text>
+    </TouchableOpacity>
+  );
+});
+AnimatedHeartButton.displayName = 'AnimatedHeartButton';
 
 // Helper function to check if message type is a voice room
 const isVoiceRoomType = (type) => {
@@ -85,7 +127,8 @@ const RenderMessages = memo(({
   playingVoiceId,
   voiceSound,
   setPlayingVoiceId,
-  setVoiceSound
+  setVoiceSound,
+  onLongPressMessage,
 }) => {
   // Memoize current user ID to avoid recalculation
   const currentUserId = useMemo(() => currentUser?.id, [currentUser?.id]);
@@ -117,11 +160,12 @@ const RenderMessages = memo(({
           voiceSound={voiceSound}
           setPlayingVoiceId={setPlayingVoiceId}
           setVoiceSound={setVoiceSound}
+          onLongPressMessage={onLongPressMessage}
         />
       );
     });
   }, [messages, currentUserId, currentUser, playingVideoId, playingVoiceId,
-    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress]);
+    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress, onLongPressMessage]);
 
   return <>{messageElements}</>;
 });
@@ -146,10 +190,14 @@ const MessageRow = memo(({
   playingVoiceId,
   voiceSound,
   setPlayingVoiceId,
-  setVoiceSound
+  setVoiceSound,
+  onLongPressMessage,
 }) => {
   return (
-    <View
+    <TouchableOpacity
+      activeOpacity={1}
+      onLongPress={() => onLongPressMessage && onLongPressMessage(msg)}
+      delayLongPress={400}
       style={[
         styles.chatMessageContainer,
         isCurrentUser ? styles.chatMessageContainerRight : styles.chatMessageContainerLeft
@@ -185,7 +233,7 @@ const MessageRow = memo(({
         )}
 
         {/* Image Message */}
-        {msg.imageUrl && (
+        {!!msg.imageUrl && (
           <TouchableOpacity
             onPress={() => setSelectedImageModal(msg.imageUrl)}
             activeOpacity={0.9}
@@ -199,7 +247,7 @@ const MessageRow = memo(({
         )}
 
         {/* Video Message */}
-        {msg.videoUrl && (
+        {!!msg.videoUrl && (
           <View style={styles.chatVideoContainer}>
             <Video
               ref={(ref) => {
@@ -371,7 +419,7 @@ const MessageRow = memo(({
                         </Text>
 
                         {/* Subtitle */}
-                        {char.subtitle && (
+                        {!!char.subtitle && (
                           <Text style={styles.roleplayCharacterSubtitle} numberOfLines={1}>
                             {char.subtitle}
                           </Text>
@@ -398,17 +446,17 @@ const MessageRow = memo(({
 
                         {/* Attributes */}
                         <View style={styles.roleplayCharacterAttributes}>
-                          {char.gender && (
+                          {!!char.gender && (
                             <Text style={styles.roleplayCharacterAttribute}>
                               {char.gender}
                             </Text>
                           )}
-                          {char.age && (
+                          {!!char.age && (
                             <Text style={styles.roleplayCharacterAttribute}>
                               • {char.age} yrs
                             </Text>
                           )}
-                          {char.language && (
+                          {!!char.language && (
                             <Text style={styles.roleplayCharacterAttribute}>
                               • {char.language}
                             </Text>
@@ -496,7 +544,7 @@ const MessageRow = memo(({
               <Text style={styles.communityInviteTitle}>Community Invitation</Text>
             </View>
 
-            {msg.communityImage && (
+            {!!msg.communityImage && (
               <Image
                 source={{ uri: msg.communityImage }}
                 style={styles.communityInviteImage}
@@ -519,7 +567,7 @@ const MessageRow = memo(({
         )}
 
         {/* Voice Message */}
-        {msg.voiceUrl && msg.type !== 'voiceChat' && !isVoiceRoomType(msg.type) && (
+        {!!msg.voiceUrl && msg.type !== 'voiceChat' && !isVoiceRoomType(msg.type) && (
           <View style={styles.chatVoiceContainer}>
             <TouchableOpacity
               style={[
@@ -578,7 +626,7 @@ const MessageRow = memo(({
         )}
 
         {/* Text Message */}
-        {msg.text && msg.type !== 'voiceChat' && !isVoiceRoomType(msg.type) && (
+        {!!msg.text && msg.type !== 'voiceChat' && !isVoiceRoomType(msg.type) && (
           <Text style={[
             styles.chatMessageText,
             isCurrentUser && styles.chatMessageTextOwn,
@@ -606,7 +654,7 @@ const MessageRow = memo(({
           style={styles.profilePic}
         />
       )}
-    </View>
+    </TouchableOpacity>
   );
 }, (prevProps, nextProps) => {
   // Custom comparison function for memo - return TRUE to skip re-render when props are same
@@ -641,6 +689,36 @@ const MessageRow = memo(({
 
 export default function GroupInfoScreen() {
   // Call this after ending a voice room session
+  const handleMsgLongPress = useCallback((msg) => {
+    if (msg.type === 'system' || msg.type === 'announcement' || msg.senderId === 'system') return;
+    setSelectedMsg(msg);
+    setShowMsgOptions(true);
+  }, []);
+
+  const handleCopyChatMsg = useCallback(async () => {
+    if (selectedMsg?.text) {
+      await Clipboard.setStringAsync(selectedMsg.text);
+      Alert.alert('Copied', 'Message copied to clipboard');
+    }
+    setShowMsgOptions(false);
+    setSelectedMsg(null);
+  }, [selectedMsg]);
+
+  const handleDeleteOwnChatMsg = useCallback(async () => {
+    if (!selectedMsg || selectedMsg.senderId !== currentUser?.id) return;
+    try {
+      const msgRef = doc(db, 'community_chats', communityId, 'messages', selectedMsg.id);
+      await updateDoc(msgRef, {
+        isDeleted: true,
+        text: 'This message was deleted.',
+      });
+    } catch (e) {
+      Alert.alert('Error', 'Failed to delete message');
+    }
+    setShowMsgOptions(false);
+    setSelectedMsg(null);
+  }, [selectedMsg, communityId, currentUser?.id]);
+
   const handleVoiceRoomSessionEnd = useCallback(async (messageId) => {
     // 1. Send system message
     await sendSessionEndSystemMessage(communityId, currentUser);
@@ -719,6 +797,7 @@ export default function GroupInfoScreen() {
   const [commentsLoading, setCommentsLoading] = useState(false);
   const [commentsUnsubscribe, setCommentsUnsubscribe] = useState(null);
   const [likeProcessingIds, setLikeProcessingIds] = useState([]);
+  const likeDebounceRef = useRef(new Set());
   const [followLoadingIds, setFollowLoadingIds] = useState([]);
   const [followingUserIds, setFollowingUserIds] = useState([]);
   const [userStats, setUserStats] = useState({
@@ -737,6 +816,8 @@ export default function GroupInfoScreen() {
   const [communityGroups, setCommunityGroups] = useState([]);
   const [joinedGroupIds, setJoinedGroupIds] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [selectedMsg, setSelectedMsg] = useState(null);
+  const [showMsgOptions, setShowMsgOptions] = useState(false);
   const [showBlogModal, setShowBlogModal] = useState(false);
   const [blogTitle, setBlogTitle] = useState('');
   const [blogContent, setBlogContent] = useState('');
@@ -758,6 +839,12 @@ export default function GroupInfoScreen() {
   const [showMembersModal, setShowMembersModal] = useState(false);
   const [membersModalContext, setMembersModalContext] = useState('all'); // 'all' or 'online'
   const [showShareModal, setShowShareModal] = useState(false);
+  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [checkInStreak, setCheckInStreak] = useState(0);
+  const [checkInPoints, setCheckInPoints] = useState(0);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const walletContext = useWallet();
+  const { wallet: walletData } = walletContext;
   const [inviteLink, setInviteLink] = useState('');
   const [qrCodeValue, setQrCodeValue] = useState('');
   const [memberSearchQuery, setMemberSearchQuery] = useState('');
@@ -769,7 +856,15 @@ export default function GroupInfoScreen() {
   // Report user state
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportTargetMember, setReportTargetMember] = useState(null);
+  const [reportTargetPost, setReportTargetPost] = useState(null);
   const memberStatusUnsubscribersRef = useRef([]);
+
+  // Community Nickname state
+  const [communityNickname, setCommunityNickname] = useState('');
+  const [showNicknameModal, setShowNicknameModal] = useState(false);
+  const [nicknameInput, setNicknameInput] = useState('');
+  const [nicknameSaving, setNicknameSaving] = useState(false);
+  const [memberNicknames, setMemberNicknames] = useState({}); // { memberId: nickname }
 
   // Active audio call state
   const [activeAudioCall, setActiveAudioCall] = useState(null);
@@ -863,6 +958,26 @@ export default function GroupInfoScreen() {
 
     loadCharacterCollection();
   }, [currentUser]);
+
+  // Load check-in status for this community
+  useEffect(() => {
+    const loadCheckInStatus = async () => {
+      const userId = auth.currentUser?.uid;
+      if (!communityId || !userId) return;
+      try {
+        const [checkStatus, data] = await Promise.all([
+          canCheckInToday(db, communityId, userId),
+          getUserCheckInData(db, communityId, userId),
+        ]);
+        setHasCheckedIn(!checkStatus?.canCheckIn);
+        setCheckInStreak(data?.currentStreak ?? 0);
+        setCheckInPoints(data?.totalPoints ?? 0);
+      } catch (e) {
+        // non-fatal
+      }
+    };
+    loadCheckInStatus();
+  }, [communityId, auth.currentUser]);
 
   // Handle opening character selector when navigating from RoleplayScreen
   useEffect(() => {
@@ -1049,9 +1164,14 @@ export default function GroupInfoScreen() {
                     const userDoc = await getDoc(doc(usersCol, uid));
                     if (userDoc.exists()) {
                       const userData = userDoc.data();
+                      const globalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
+                      // Prefer community nickname if set
+                      const nickname = memberNicknames[uid];
                       return {
                         id: userDoc.id,
-                        name: userData.displayName || userData.name || userData.fullName || userData.username || 'User',
+                        name: nickname || globalName,
+                        globalName: globalName,
+                        communityNickname: nickname || null,
                         profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                         email: userData.email || null,
                         joinedAt: userData.joinedAt || userData.createdAt || null,
@@ -1134,9 +1254,13 @@ export default function GroupInfoScreen() {
                         const userDoc = await getDoc(doc(usersCol, uid));
                         if (userDoc.exists()) {
                           const userData = userDoc.data();
+                          const backupGlobalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
+                          const backupNickname = memberNicknames[userDoc.id];
                           return {
                             id: userDoc.id,
-                            name: userData.displayName || userData.name || userData.fullName || userData.username || 'User',
+                            name: backupNickname || backupGlobalName,
+                            globalName: backupGlobalName,
+                            communityNickname: backupNickname || null,
                             profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                             email: userData.email || null,
                             joinedAt: userData.joinedAt || userData.createdAt || null,
@@ -1318,15 +1442,33 @@ export default function GroupInfoScreen() {
 
             if (memberUserIds.length > 0) {
               const usersCol = collection(db, 'users');
+              // Also extract nicknames from the membership docs
+              const backupNicknames = {};
+              snapshot.docs.forEach(docSnap => {
+                const mData = docSnap.data();
+                const uid = mData.user_id || mData.userId || mData.uid;
+                if (uid && mData.communityNickname) {
+                  backupNicknames[uid] = mData.communityNickname;
+                }
+              });
+              // Merge into memberNicknames state
+              if (Object.keys(backupNicknames).length > 0) {
+                setMemberNicknames(prev => ({ ...prev, ...backupNicknames }));
+              }
+
               const allMemberDocs = await Promise.all(
                 memberUserIds.map(async (uid) => {
                   try {
                     const userDoc = await getDoc(doc(usersCol, uid));
                     if (userDoc.exists()) {
                       const userData = userDoc.data();
+                      const globalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
+                      const nickname = backupNicknames[uid] || memberNicknames[uid];
                       return {
                         id: userDoc.id,
-                        name: userData.displayName || userData.name || userData.fullName || userData.username || 'User',
+                        name: nickname || globalName,
+                        globalName: globalName,
+                        communityNickname: nickname || null,
                         profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                         email: userData.email || null,
                         joinedAt: userData.joinedAt || userData.createdAt || null,
@@ -1435,6 +1577,107 @@ export default function GroupInfoScreen() {
 
     fetchCurrentUser();
   }, []);
+
+  // Fetch current user's community nickname
+  useEffect(() => {
+    if (!auth.currentUser?.uid || !communityId) return;
+    const fetchCommunityNickname = async () => {
+      try {
+        const membershipId = `${auth.currentUser.uid}_${communityId}`;
+        const membershipRef = doc(db, 'communities_members', membershipId);
+        const membershipSnap = await getDoc(membershipRef);
+        if (membershipSnap.exists()) {
+          const data = membershipSnap.data();
+          if (data.communityNickname) {
+            setCommunityNickname(data.communityNickname);
+          }
+        }
+      } catch (e) {
+        console.log('Error fetching community nickname:', e);
+      }
+    };
+    fetchCommunityNickname();
+  }, [communityId]);
+
+  // Sync community nickname to currentUser when either changes
+  useEffect(() => {
+    if (!currentUser) return;
+    if (communityNickname && currentUser.communityNickname !== communityNickname) {
+      setCurrentUser(prev => prev ? { ...prev, communityNickname } : prev);
+    }
+  }, [communityNickname, currentUser?.id]);
+
+  // Fetch all member nicknames for this community
+  useEffect(() => {
+    if (!communityId) return;
+    const fetchMemberNicknames = async () => {
+      try {
+        const { query: fsQuery, where: fsWhere, getDocs: fsGetDocs } = await import('firebase/firestore');
+        const membersRef = collection(db, 'communities_members');
+        const q = fsQuery(membersRef, fsWhere('community_id', '==', communityId));
+        const snap = await fsGetDocs(q);
+        const nicknames = {};
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          if (data.communityNickname && data.user_id) {
+            nicknames[data.user_id] = data.communityNickname;
+          }
+        });
+        setMemberNicknames(nicknames);
+      } catch (e) {
+        console.log('Error fetching member nicknames:', e);
+      }
+    };
+    fetchMemberNicknames();
+  }, [communityId]);
+
+  // Save community nickname handler
+  const handleSaveNickname = async () => {
+    if (!auth.currentUser?.uid || !communityId) return;
+    const trimmed = nicknameInput.trim();
+    if (trimmed.length > 30) {
+      Alert.alert('Too Long', 'Nickname must be 30 characters or less.');
+      return;
+    }
+    setNicknameSaving(true);
+    try {
+      const membershipId = `${auth.currentUser.uid}_${communityId}`;
+      const membershipRef = doc(db, 'communities_members', membershipId);
+      await setDoc(membershipRef, {
+        user_id: auth.currentUser.uid,
+        community_id: communityId,
+        communityNickname: trimmed || null, // null removes nickname
+      }, { merge: true });
+      setCommunityNickname(trimmed || '');
+      // Update memberNicknames cache
+      setMemberNicknames(prev => {
+        const updated = { ...prev };
+        if (trimmed) {
+          updated[auth.currentUser.uid] = trimmed;
+        } else {
+          delete updated[auth.currentUser.uid];
+        }
+        return updated;
+      });
+      // Update currentUser name so chat uses it immediately
+      if (trimmed) {
+        setCurrentUser(prev => prev ? { ...prev, communityNickname: trimmed } : prev);
+      } else {
+        setCurrentUser(prev => {
+          if (!prev) return prev;
+          const { communityNickname: _, ...rest } = prev;
+          return rest;
+        });
+      }
+      setShowNicknameModal(false);
+      Alert.alert('Success', trimmed ? `Your community nickname is now "${trimmed}"` : 'Community nickname removed. Your global name will be used.');
+    } catch (e) {
+      console.error('Error saving community nickname:', e);
+      Alert.alert('Error', 'Failed to save nickname. Please try again.');
+    } finally {
+      setNicknameSaving(false);
+    }
+  };
 
   // Fetch user stats (following, followers, likes, blogs, posts, ranking)
   useEffect(() => {
@@ -1730,11 +1973,14 @@ export default function GroupInfoScreen() {
               }
             }
 
+            // Check for community nickname for this sender
+            const senderNickname = senderId ? memberNicknames[senderId] : null;
+
             return {
               id: docSnap.id,
               text: data.text || '',
-              sender: senderData.name || data.sender || data.senderName || 'User',
-              senderName: senderData.name || data.senderName || data.sender || 'User',
+              sender: senderNickname || senderData.name || data.sender || data.senderName || 'User',
+              senderName: senderNickname || senderData.name || data.senderName || data.sender || 'User',
               senderId: senderId || data.senderId,
               profileImage: senderData.profileImage || data.senderImage || data.profileImage,
               imageUrl: data.imageUrl || null,
@@ -2393,10 +2639,14 @@ export default function GroupInfoScreen() {
         unsubscribe = firestore.onSnapshot(q, (snapshot) => {
           const postsList = snapshot.docs.map((docSnap) => {
             const data = docSnap.data();
+            const rawImageUri = data.imageUri || data.imageUrl || data.mediaUrl || data.image || null;
+            const rawImageURL = data.imageURL || null;
             return {
               id: docSnap.id,
               type: 'image', // Mark as image post type
               ...data,
+              imageUri: normalizeImageUri(rawImageUri, 'posts'),
+              imageURL: normalizeImageUri(rawImageURL, 'posts'),
               likes: typeof data.likes === 'number' ? data.likes : 0,
               comments: typeof data.comments === 'number' ? data.comments : 0,
               likedBy: Array.isArray(data.likedBy) ? data.likedBy : [],
@@ -2637,7 +2887,8 @@ export default function GroupInfoScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        setSelectedChatImage(result.assets[0].uri);
+        const safeUri = await normalizeBlobUri(result.assets[0].uri);
+        setSelectedChatImage(safeUri);
       }
     } catch (e) {
       console.warn('ImagePicker error', e);
@@ -2753,12 +3004,12 @@ export default function GroupInfoScreen() {
         communityId: communityId,
         communityName: community?.name || groupTitle || 'Community',
         createdBy: currentUser.id,
-        createdByName: currentUser.name,
+        createdByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
           isMuted: false,
@@ -2771,7 +3022,7 @@ export default function GroupInfoScreen() {
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
 
       const messageData = {
-        sender: currentUser?.name || 'User',
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
         profileImage: currentUser?.profileImage || null,
         createdAt: firestore.serverTimestamp(),
@@ -2823,12 +3074,12 @@ export default function GroupInfoScreen() {
         communityId: communityId,
         communityName: community?.name || groupTitle || 'Community',
         createdBy: currentUser.id,
-        createdByName: currentUser.name,
+        createdByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
         }],
@@ -2841,7 +3092,7 @@ export default function GroupInfoScreen() {
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
 
       const messageData = {
-        sender: currentUser?.name || 'User',
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
         profileImage: currentUser?.profileImage || null,
         createdAt: firestore.serverTimestamp(),
@@ -2915,12 +3166,12 @@ export default function GroupInfoScreen() {
         communityId: communityId,
         communityName: community?.name || groupTitle || 'Community',
         createdBy: currentUser.id,
-        createdByName: currentUser.name,
+        createdByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         createdAt: now,
         updatedAt: now,
         participants: [{
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
           role: 'Host',
@@ -2936,7 +3187,7 @@ export default function GroupInfoScreen() {
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
 
       const messageData = {
-        sender: currentUser?.name || 'User',
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
         profileImage: currentUser?.profileImage || null,
         createdAt: firestore.serverTimestamp(),
@@ -3188,7 +3439,7 @@ export default function GroupInfoScreen() {
       );
 
       const messageData = {
-        sender: currentUser?.name || 'User',
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         senderId: currentUser?.id || 'user',
         profileImage: currentUser?.profileImage || null,
         createdAt: firestore.serverTimestamp(),
@@ -3261,7 +3512,7 @@ export default function GroupInfoScreen() {
         await updateDoc(roomRef, {
           participants: arrayUnion({
             userId: currentUser.id,
-            userName: currentUser.name || currentUser.displayName || 'User',
+            userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
             profileImage: currentUser.profileImage || null,
             joinedAt: now,
             isMuted: false,
@@ -3325,7 +3576,7 @@ export default function GroupInfoScreen() {
         await updateDoc(roomRef, {
           participants: arrayUnion({
             userId: currentUser.id,
-            userName: currentUser.name || currentUser.displayName || 'User',
+            userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
             profileImage: currentUser.profileImage || null,
             joinedAt: now,
           }),
@@ -3566,7 +3817,7 @@ export default function GroupInfoScreen() {
             themeColor: char.themeColor || char.frameColor || '#FFD700',
             description: char.description || '',
             ownerId: currentUser.id,
-            ownerName: currentUser.name || currentUser.displayName || 'User',
+            ownerName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
             available: true,
           }));
 
@@ -3593,7 +3844,7 @@ export default function GroupInfoScreen() {
 
           const newParticipant = {
             userId: currentUser.id,
-            userName: currentUser.name || currentUser.displayName || 'User',
+            userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
             profileImage: currentUser.profileImage || currentUser.avatar || null,
             joinedAt: now,
             characters: selectedCharactersForSession.map(c => c.id || `char_${Date.now()}`),
@@ -3609,7 +3860,7 @@ export default function GroupInfoScreen() {
             themeColor: char.themeColor || char.frameColor || '#FFD700',
             description: char.description || '',
             ownerId: currentUser.id,
-            ownerName: currentUser.name || currentUser.displayName || 'User',
+            ownerName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
             available: true,
           }));
 
@@ -3633,7 +3884,7 @@ export default function GroupInfoScreen() {
                 participants: arrayUnion(currentUser.id),
                 participantsDetails: arrayUnion({
                   userId: currentUser.id,
-                  userName: currentUser.name,
+                  userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
                   profileImage: currentUser.profileImage,
                 }),
                 availableCharacters: updatedCharacters.length,
@@ -3673,18 +3924,18 @@ export default function GroupInfoScreen() {
         sessionId: sessionId,
         communityId: communityId,
         createdBy: currentUser.id,
-        createdByName: currentUser.name,
+        createdByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         createdAt: now,
         updatedAt: now,
         characters: selectedCharactersForSession.map(char => ({
           ...char,
           ownerId: currentUser.id,
-          ownerName: currentUser.name,
+          ownerName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           available: true,
         })),
         participants: [{
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
           characters: selectedCharactersForSession.map(c => c.id),
@@ -3700,8 +3951,8 @@ export default function GroupInfoScreen() {
       const messageRef = doc(collection(db, 'community_chats', communityId, 'messages'));
       const messageData = {
         senderId: currentUser.id,
-        sender: currentUser.name,
-        senderName: currentUser.name,
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
+        senderName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         profileImage: currentUser.profileImage,
         text: `Started a roleplay session with ${selectedCharactersForSession.length} character(s)`,
         createdAt: firestore.serverTimestamp(),
@@ -3720,12 +3971,12 @@ export default function GroupInfoScreen() {
           tags: char.tags,
           description: char.description,
           greeting: char.greeting,
-          ownerName: currentUser.name,
+          ownerName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         })),
         participants: [currentUser.id],
         participantsDetails: [{
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
         }],
         isActive: true,
@@ -3821,7 +4072,7 @@ export default function GroupInfoScreen() {
       // Update the selected role as taken
       const updatedRoles = sessionData.roles.map(r =>
         r.id === selectedRole.id
-          ? { ...r, taken: true, takenBy: currentUser.id, takenByName: currentUser.name }
+          ? { ...r, taken: true, takenBy: currentUser.id, takenByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User' }
           : r
       );
 
@@ -3829,7 +4080,7 @@ export default function GroupInfoScreen() {
       await updateDoc(sessionRef, {
         participants: arrayUnion({
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
           role: selectedRole.name,
@@ -3892,7 +4143,7 @@ export default function GroupInfoScreen() {
         description: customRoleDescription.trim(),
         taken: true,
         takenBy: currentUser.id,
-        takenByName: currentUser.name,
+        takenByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
         isCustom: true,
       };
 
@@ -3903,7 +4154,7 @@ export default function GroupInfoScreen() {
       await updateDoc(sessionRef, {
         participants: arrayUnion({
           userId: currentUser.id,
-          userName: currentUser.name,
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           profileImage: currentUser.profileImage,
           joinedAt: now,
           role: customRole.name,
@@ -3968,8 +4219,8 @@ export default function GroupInfoScreen() {
       const chatCol = collection(db, 'community_chats', communityId, 'messages');
 
       const messageData = {
-        sender: currentUser?.name || currentUser?.displayName || 'User',
-        senderName: currentUser?.name || currentUser?.displayName || 'User', // Add for backward compatibility
+        sender: currentUser?.communityNickname || communityNickname || currentUser?.name || currentUser?.displayName || 'User',
+        senderName: currentUser?.communityNickname || communityNickname || currentUser?.name || currentUser?.displayName || 'User',
         senderId: currentUser?.id || 'user',
         profileImage: currentUser?.profileImage || null,
         createdAt: (await import('firebase/firestore')).serverTimestamp(),
@@ -4099,7 +4350,8 @@ export default function GroupInfoScreen() {
     }
   };
 
-  const handleToggleLike = async (post) => {
+  // Optimistic like (Facebook-style: instant UI, background Firestore)
+  const handleToggleLike = useCallback((post) => {
     if (!currentUser?.id) {
       Alert.alert('Login Required', 'Please log in to like posts.');
       return;
@@ -4110,54 +4362,38 @@ export default function GroupInfoScreen() {
     }
 
     const likeKey = `${post.type}-${post.id}`;
-    if (likeProcessingIds.includes(likeKey)) return;
-    setLikeProcessingIds((prev) => [...prev, likeKey]);
+    // Ref-based debounce — no re-render, instant check
+    if (likeDebounceRef.current.has(likeKey)) return;
+    likeDebounceRef.current.add(likeKey);
 
-    try {
-      // db is now imported globally
-      const postRef = getPostDocRef(db, post);
-      let result = null;
+    // Compute optimistic state from current local data
+    const likedBy = Array.isArray(post.likedBy) ? post.likedBy : [];
+    const alreadyLiked = likedBy.includes(currentUser.id);
+    const newLikedBy = alreadyLiked
+      ? likedBy.filter((id) => id !== currentUser.id)
+      : [...likedBy, currentUser.id];
+    const currentLikeCount = typeof post.likes === 'number' ? post.likes : likedBy.length;
+    const newLikes = alreadyLiked ? Math.max(0, currentLikeCount - 1) : currentLikeCount + 1;
 
-      await runTransaction(db, async (transaction) => {
-        const snapshot = await transaction.get(postRef);
-        if (!snapshot.exists()) {
-          throw new Error('Post not found');
-        }
-        const data = snapshot.data();
-        const likedBy = Array.isArray(data.likedBy) ? [...data.likedBy] : [];
-        const alreadyLiked = likedBy.includes(currentUser.id);
+    // 1. Instant UI update — no waiting for Firestore
+    updateLocalPostState(post.id, post.type, () => ({ likedBy: newLikedBy, likes: newLikes }));
 
-        let newLikedBy;
-        if (alreadyLiked) {
-          newLikedBy = likedBy.filter((id) => id !== currentUser.id);
-        } else {
-          newLikedBy = [...likedBy, currentUser.id];
-        }
+    // 2. Haptic feedback
+    try { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); } catch (e) {}
 
-        const currentLikeCount =
-          typeof data.likes === 'number' ? data.likes : likedBy.length;
-        const newLikes = alreadyLiked
-          ? Math.max(0, currentLikeCount - 1)
-          : currentLikeCount + 1;
-
-        transaction.update(postRef, {
-          likedBy: newLikedBy,
-          likes: newLikes,
-        });
-
-        result = { likedBy: newLikedBy, likes: newLikes };
-      });
-
-      if (result) {
-        updateLocalPostState(post.id, post.type, () => result);
-      }
-    } catch (e) {
-      console.error('Error toggling like:', e);
-      Alert.alert('Error', 'Unable to update like. Please try again.');
-    } finally {
-      setLikeProcessingIds((prev) => prev.filter((key) => key !== likeKey));
-    }
-  };
+    // 3. Background Firestore write — fire and forget
+    const postRef = getPostDocRef(db, post);
+    updateDoc(postRef, {
+      likedBy: alreadyLiked ? arrayRemove(currentUser.id) : arrayUnion(currentUser.id),
+      likes: increment(alreadyLiked ? -1 : 1),
+    }).catch((err) => {
+      // Silent rollback on failure
+      console.log('Like sync failed, rolling back:', err);
+      updateLocalPostState(post.id, post.type, () => ({ likedBy, likes: currentLikeCount }));
+    }).finally(() => {
+      likeDebounceRef.current.delete(likeKey);
+    });
+  }, [currentUser, communityId]);
 
   const handleCommentPress = (post) => {
     if (!currentUser?.id) {
@@ -4286,7 +4522,7 @@ export default function GroupInfoScreen() {
         transaction.set(commentRef, {
           text,
           userId: currentUser.id,
-          userName: currentUser.name || currentUser.displayName || 'User',
+          userName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           userImage: currentUser.profileImage || null,
           createdAt: firestore.serverTimestamp(),
         });
@@ -4469,7 +4705,7 @@ export default function GroupInfoScreen() {
           title: blogTitle,
           content: blogContent,
           authorId: currentUser?.id || 'user',
-          authorName: currentUser?.name || 'User',
+          authorName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           authorImage: currentUser?.profileImage || null,
           createdAt: firestore.serverTimestamp(),
           updatedAt: firestore.serverTimestamp(),
@@ -4505,7 +4741,7 @@ export default function GroupInfoScreen() {
           title: blogTitle,
           content: blogContent,
           authorId: currentUser?.id || 'user',
-          authorName: currentUser?.name || 'User',
+          authorName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           authorImage: currentUser?.profileImage || null,
           createdAt: firestore.serverTimestamp(),
           updatedAt: firestore.serverTimestamp(),
@@ -4557,7 +4793,7 @@ export default function GroupInfoScreen() {
           caption: imageCaption,
           imageUri: selectedImage,
           authorId: currentUser?.id || 'user',
-          authorName: currentUser?.name || 'User',
+          authorName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           authorImage: currentUser?.profileImage || null,
           createdAt: firestore.serverTimestamp(),
           updatedAt: firestore.serverTimestamp(),
@@ -4584,17 +4820,25 @@ export default function GroupInfoScreen() {
 
     setImageLoading(true);
     try {
-      // For now, we'll create a post with base64 image or URL
-      // In production, you'd upload to Firebase Storage first
+      // Upload image to Hostinger first
+      console.log('📤 Uploading community post image to Hostinger...');
+      const uploadedUrl = await uploadImageToHostinger(selectedImage, 'posts');
+      if (!uploadedUrl || !/^https?:\/\//i.test(uploadedUrl) || uploadedUrl.includes('blob:')) {
+        setImageLoading(false);
+        alert('Upload returned an invalid URL. Please try again.');
+        return;
+      }
+      console.log('✅ Community post image uploaded:', uploadedUrl);
+
       // db is now imported globally
       const postsCol = collection(db, 'communities', communityId, 'posts');
 
       import('firebase/firestore').then(firestore => {
         firestore.addDoc(postsCol, {
           caption: imageCaption,
-          imageUri: selectedImage, // In production, upload to Storage and get download URL
+          imageUri: uploadedUrl,
           authorId: currentUser?.id || 'user',
-          authorName: currentUser?.name || 'User',
+          authorName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'User',
           authorImage: currentUser?.profileImage || null,
           createdAt: firestore.serverTimestamp(),
           likes: 0,
@@ -4688,7 +4932,8 @@ export default function GroupInfoScreen() {
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
-              setSelectedImage(result.assets[0].uri);
+              const safeUri = await normalizeBlobUri(result.assets[0].uri);
+              setSelectedImage(safeUri);
             }
           },
         },
@@ -4712,7 +4957,8 @@ export default function GroupInfoScreen() {
             });
 
             if (!result.canceled && result.assets && result.assets.length > 0) {
-              setSelectedImage(result.assets[0].uri);
+              const safeUri = await normalizeBlobUri(result.assets[0].uri);
+              setSelectedImage(safeUri);
             }
           },
         },
@@ -4933,7 +5179,7 @@ export default function GroupInfoScreen() {
       const postData = {
         text: `Check out ${community?.name || 'this community'}! 🎉\n\nJoin us to connect with amazing people and share great content!`,
         authorId: currentUser.id,
-        authorName: currentUser.name || 'User',
+        authorName: currentUser.communityNickname || communityNickname || currentUser.name || 'User',
         authorImage: currentUser.profileImage || null,
         communityId: communityId,
         communityName: community?.name || 'Community',
@@ -5046,6 +5292,7 @@ export default function GroupInfoScreen() {
     if (!communityId || !community) return;
     
     const loadAnnouncements = async () => {
+      setAnnouncementsLoading(true);
       try {
         const announcementIds = community.announcements || [];
         if (announcementIds.length === 0) {
@@ -5058,6 +5305,8 @@ export default function GroupInfoScreen() {
         setAnnouncements(announcementPosts);
       } catch (error) {
         console.error('Error loading announcements:', error);
+      } finally {
+        setAnnouncementsLoading(false);
       }
     };
 
@@ -5083,8 +5332,8 @@ export default function GroupInfoScreen() {
 
   // Handle Pin Post as Announcement
   const handlePinAnnouncement = async (postId) => {
-    if (!isAdmin) {
-      Alert.alert('Permission Denied', 'Only admins can pin announcements');
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only admins and moderators can pin announcements');
       return;
     }
 
@@ -5121,8 +5370,8 @@ export default function GroupInfoScreen() {
 
   // Handle Unpin Announcement
   const handleUnpinAnnouncement = async (postId) => {
-    if (!isAdmin) {
-      Alert.alert('Permission Denied', 'Only admins can unpin announcements');
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only admins and moderators can unpin announcements');
       return;
     }
 
@@ -5141,59 +5390,14 @@ export default function GroupInfoScreen() {
     }
   };
 
-  // Handle Post Options Menu (for admins)
+  // Handle Post Options Menu (for admins) – opens PostOptionsModal
+  const [postOptionsVisible, setPostOptionsVisible] = useState(false);
+  const [postOptionsTarget, setPostOptionsTarget] = useState(null);
+
   const handlePostOptions = (post) => {
-    const currentAnnouncements = community?.announcements || [];
-    const currentFeatured = community?.featuredPosts || [];
-    const isPinned = currentAnnouncements.includes(post.id);
-    const isFeatured = currentFeatured.includes(post.id);
-
-    const options = [
-      {
-        text: 'Cancel',
-        style: 'cancel'
-      }
-    ];
-
-    if (isAdmin) {
-      // Announcement options (admin-only)
-      if (isPinned) {
-        options.unshift({
-          text: 'Unpin Announcement',
-          onPress: () => handleUnpinAnnouncement(post.id)
-        });
-      } else {
-        options.unshift({
-          text: 'Pin as Announcement',
-          onPress: () => handlePinAnnouncement(post.id)
-        });
-      }
-    }
-
-    if (isAdmin || isModerator) {
-      // Featured options (admin and moderator)
-      if (isFeatured) {
-        options.unshift({
-          text: 'Remove from Featured',
-          onPress: () => handleUnfeaturePost(post.id)
-        });
-      } else {
-        options.unshift({
-          text: 'Add to Featured',
-          onPress: () => handleFeaturePost(post.id)
-        });
-      }
-    }
-
-    if (post.authorId === currentUser?.id || isAdmin) {
-      options.unshift({
-        text: 'Delete Post',
-        style: 'destructive',
-        onPress: () => handleDeletePost(post.id, post.type)
-      });
-    }
-
-    Alert.alert('Post Options', 'Choose an action', options);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPostOptionsTarget(post);
+    setPostOptionsVisible(true);
   };
 
   // Handle Feature Post
@@ -5287,7 +5491,7 @@ export default function GroupInfoScreen() {
 
   // Handle Start Audio Call
   return (
-    <View style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {/* Top Bar */}
       <View style={styles.topBar}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
@@ -5316,7 +5520,8 @@ export default function GroupInfoScreen() {
         </View>
       ) : (
         <>
-          {/* Content Area */}
+          {/* Content Area - Chat tab is rendered outside ScrollView to avoid nesting */}
+          {activeTab !== 'chat' ? (
           <ScrollView
             style={{ flex: 1 }}
             refreshControl={
@@ -5540,13 +5745,13 @@ export default function GroupInfoScreen() {
                             {/* Image Post - Show Image and Caption */}
                             {post.type === 'image' && (
                               <>
-                                {post.imageUri && (
+                                {!!post.imageUri && (
                                   <Image
                                     source={{ uri: post.imageUri }}
                                     style={{ width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover' }}
                                   />
                                 )}
-                                {post.caption && (
+                                {!!post.caption && (
                                   <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
                                     {post.caption}
                                   </Text>
@@ -5622,20 +5827,11 @@ export default function GroupInfoScreen() {
 
                             {/* Action Buttons */}
                             <View style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
-                              <TouchableOpacity
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                              <AnimatedHeartButton
+                                isLiked={isLiked}
+                                likes={post.likes}
                                 onPress={() => handleToggleLike(post)}
-                                disabled={likeBusy}
-                              >
-                                <Ionicons
-                                  name={isLiked ? 'heart' : 'heart-outline'}
-                                  size={20}
-                                  color={isLiked ? '#ff4b6e' : '#888'}
-                                />
-                                <Text style={{ color: isLiked ? '#ff4b6e' : '#888', fontSize: 12 }}>
-                                  {post.likes || 0}
-                                </Text>
-                              </TouchableOpacity>
+                              />
                               <TouchableOpacity
                                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
                                 onPress={() => handleCommentPress(post)}
@@ -5921,13 +6117,13 @@ export default function GroupInfoScreen() {
                             {/* Image Post - Show Image and Caption */}
                             {post.type === 'image' && (
                               <>
-                                {post.imageUri && (
+                                {!!post.imageUri && (
                                   <Image
                                     source={{ uri: post.imageUri }}
                                     style={{ width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover' }}
                                   />
                                 )}
-                                {post.caption && (
+                                {!!post.caption && (
                                   <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
                                     {post.caption}
                                   </Text>
@@ -6004,20 +6200,11 @@ export default function GroupInfoScreen() {
 
                             {/* Action Buttons */}
                             <View style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
-                              <TouchableOpacity
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                              <AnimatedHeartButton
+                                isLiked={isLiked}
+                                likes={post.likes}
                                 onPress={() => handleToggleLike(post)}
-                                disabled={likeBusy}
-                              >
-                                <Ionicons
-                                  name={isLiked ? 'heart' : 'heart-outline'}
-                                  size={20}
-                                  color={isLiked ? '#ff4b6e' : '#888'}
-                                />
-                                <Text style={{ color: isLiked ? '#ff4b6e' : '#888', fontSize: 12 }}>
-                                  {post.likes || 0}
-                                </Text>
-                              </TouchableOpacity>
+                              />
                               <TouchableOpacity
                                 style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
                                 onPress={() => handleCommentPress(post)}
@@ -6110,8 +6297,8 @@ export default function GroupInfoScreen() {
                             </View>
 
                             {/* Post Image - Large */}
-                            {firstPost.imageURL && (
-                              <Image source={{ uri: firstPost.imageURL }} style={{ width: '100%', height: 400, borderRadius: 8, marginTop: 8 }} />
+                            {normalizeImageUri(firstPost.imageURL, 'posts') && (
+                              <Image source={{ uri: normalizeImageUri(firstPost.imageURL, 'posts') }} style={{ width: '100%', height: 400, borderRadius: 8, marginTop: 8 }} />
                             )}
 
                             {/* Post Content */}
@@ -6155,8 +6342,8 @@ export default function GroupInfoScreen() {
                                 </View>
 
                                 {/* Post Image */}
-                                {post.imageURL && (
-                                  <Image source={{ uri: post.imageURL }} style={{ width: '100%', height: 150, borderRadius: 8 }} />
+                                {normalizeImageUri(post.imageURL, 'posts') && (
+                                  <Image source={{ uri: normalizeImageUri(post.imageURL, 'posts') }} style={{ width: '100%', height: 150, borderRadius: 8 }} />
                                 )}
 
                                 {/* Post Content */}
@@ -6237,6 +6424,7 @@ export default function GroupInfoScreen() {
                           m.currentStatus && m.currentStatus === 'online' &&
                           (!memberSearchQuery ||
                             m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                            m.globalName?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
                             m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                         ).length})
                       </Text>
@@ -6254,6 +6442,7 @@ export default function GroupInfoScreen() {
                       m.currentStatus && m.currentStatus === 'online' &&
                       (!memberSearchQuery ||
                         m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                        m.globalName?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
                         m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                     ).length === 0 ? (
                       <View style={{ paddingVertical: 20, alignItems: 'center', width: Dimensions.get('window').width - 32 }}>
@@ -6267,6 +6456,7 @@ export default function GroupInfoScreen() {
                           m.currentStatus && m.currentStatus === 'online' &&
                           (!memberSearchQuery ||
                             m.name?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
+                            m.globalName?.toLowerCase().includes(memberSearchQuery.toLowerCase()) ||
                             m.email?.toLowerCase().includes(memberSearchQuery.toLowerCase()))
                         )
                         .map((member, idx) => (
@@ -6496,15 +6686,200 @@ export default function GroupInfoScreen() {
               </View>
             )}
 
-            {/* Tab 4: Chat */}
-            {activeTab === 'chat' && (
-              <View style={{ flex: 1, position: 'relative' }}>
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                  style={{ flex: 1 }}
-                  keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-                  enabled={true}
-                >
+            {/* Tab 5: Account */}
+            {activeTab === 'account' && (
+              <View style={styles.accountSection}>
+                <View style={styles.accountCard}>
+                  <View style={styles.accountAvatarContainer}>
+                    {currentUser?.profileImage ? (
+                      <Image
+                        source={{ uri: currentUser.profileImage }}
+                        style={styles.accountAvatar}
+                      />
+                    ) : (
+                      <View style={[styles.accountAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
+                        <Ionicons name="person" size={60} color="#657786" />
+                      </View>
+                    )}
+                    <View style={styles.accountBadge}>
+                      <Ionicons name="checkmark-circle" size={24} color="#00FF47" />
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <Text style={styles.accountName}>{currentUser?.communityNickname || communityNickname || currentUser?.name || 'User'}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setNicknameInput(communityNickname || '');
+                        setShowNicknameModal(true);
+                      }}
+                      style={{ padding: 4 }}
+                    >
+                      <MaterialIcons name="edit" size={18} color="#8B2EF0" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.accountEmailContainer}>
+                    <Ionicons name="mail-outline" size={16} color="#8B2EF0" />
+                    <Text style={styles.accountEmail}>{currentUser?.email || 'user@example.com'}</Text>
+                  </View>
+
+                  {/* Stats Grid */}
+                  <View style={styles.accountStatsGrid}>
+                    <View style={styles.accountStatItem}>
+                      <Text style={styles.accountStatValue}>{userStats.following}</Text>
+                      <Text style={styles.accountStatLabel}>Following</Text>
+                    </View>
+                    <View style={styles.accountStatItem}>
+                      <Text style={styles.accountStatValue}>{userStats.followers}</Text>
+                      <Text style={styles.accountStatLabel}>Followers</Text>
+                    </View>
+                    <View style={styles.accountStatItem}>
+                      <Text style={styles.accountStatValue}>{userStats.totalLikes}</Text>
+                      <Text style={styles.accountStatLabel}>Likes</Text>
+                    </View>
+                  </View>
+
+                  {/* Content Stats */}
+                  <View style={styles.accountContentStats}>
+                    <View style={styles.accountContentStatItem}>
+                      <Ionicons name="document-text" size={20} color="#40DFFC" />
+                      <View style={styles.accountContentStatText}>
+                        <Text style={styles.accountContentStatValue}>{userStats.totalBlogs}</Text>
+                        <Text style={styles.accountContentStatLabel}>Blogs</Text>
+                      </View>
+                    </View>
+                    <View style={styles.accountContentStatItem}>
+                      <Ionicons name="image" size={20} color="#FF4A4A" />
+                      <View style={styles.accountContentStatText}>
+                        <Text style={styles.accountContentStatValue}>{userStats.totalPosts}</Text>
+                        <Text style={styles.accountContentStatLabel}>Posts</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Ranking/Leaderboard */}
+                  <View style={styles.accountRankingContainer}>
+                    <View style={styles.accountRankingHeader}>
+                      <Ionicons name="trophy" size={24} color="#FFD700" />
+                      <Text style={styles.accountRankingTitle}>Your Ranking</Text>
+                    </View>
+                    <View style={styles.accountRankingBadge}>
+                      <Text style={styles.accountRankingNumber}>#{userStats.ranking || 'N/A'}</Text>
+                      <Text style={styles.accountRankingSubtext}>Based on total likes</Text>
+                    </View>
+                  </View>
+
+                  {/* Daily Check-in Card */}
+                  <View style={styles.checkInCard}>
+                    <View style={styles.checkInCardHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="flame" size={16} color="#FF6B6B" />
+                        <Text style={styles.checkInCardTitle}>Community Check-in</Text>
+                      </View>
+                      {hasCheckedIn ? (
+                        <View style={styles.checkInDonePill}>
+                          <Ionicons name="checkmark-circle" size={13} color="#00FF73" />
+                          <Text style={styles.checkInDonePillText}>Done today</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.checkInPendingPill}>
+                          <Text style={styles.checkInPendingPillText}>Earn rewards</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Stats row */}
+                    <View style={styles.checkInStatsRow}>
+                      <View style={styles.checkInStatChip}>
+                        <Image source={require('./assets/goldicon.png')} style={styles.checkInCoinIcon} />
+                        <Text style={styles.checkInStatValue}>{walletData?.coins ?? 0}</Text>
+                        <Text style={styles.checkInStatLabel}>Coins</Text>
+                      </View>
+                      <View style={styles.checkInStatChip}>
+                        <Ionicons name="flame" size={20} color="#FF6B6B" />
+                        <Text style={styles.checkInStatValue}>{checkInStreak}</Text>
+                        <Text style={styles.checkInStatLabel}>Streak</Text>
+                      </View>
+                      <View style={styles.checkInStatChip}>
+                        <Ionicons name="star" size={20} color="#FFD700" />
+                        <Text style={styles.checkInStatValue}>{checkInPoints}</Text>
+                        <Text style={styles.checkInStatLabel}>Points</Text>
+                      </View>
+                    </View>
+
+                    {/* CTA */}
+                    <TouchableOpacity
+                      style={[styles.checkInCTA, hasCheckedIn && styles.checkInCTADone]}
+                      onPress={async () => {
+                        if (hasCheckedIn || checkingIn) {
+                          navigation.navigate('CommunityCheckIn', { communityId, communityData: community });
+                          return;
+                        }
+                        setCheckingIn(true);
+                        try {
+                          const userId = auth.currentUser?.uid;
+                          if (!userId) return;
+                          const result = await checkInToCommunity(db, communityId, userId, walletContext);
+                          if (result.success) {
+                            setHasCheckedIn(true);
+                            setCheckInStreak(result.streak);
+                            setCheckInPoints((prev) => prev + result.pointsEarned);
+                            Alert.alert(
+                              '🎉 Check-in Successful!',
+                              `+${result.pointsEarned} Points${result.multiplier > 1 ? ` (${result.multiplier}x bonus!)` : ''}\n` +
+                              `+${result.coinsEarned} Coins\n` +
+                              `🔥 Streak: ${result.streak} days`,
+                              [{ text: 'Awesome!' }]
+                            );
+                          }
+                        } catch (e) {
+                          Alert.alert('Error', e.message || 'Check-in failed');
+                        } finally {
+                          setCheckingIn(false);
+                        }
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <LinearGradient
+                        colors={hasCheckedIn ? ['#1A2A1A', '#1A2A1A'] : ['#8B2EF0', '#6A1BB8']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.checkInCTAGradient}
+                      >
+                        {checkingIn ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name={hasCheckedIn ? 'checkmark-circle' : 'gift-outline'}
+                              size={18}
+                              color={hasCheckedIn ? '#00FF73' : '#fff'}
+                            />
+                            <Text style={[styles.checkInCTAText, hasCheckedIn && { color: '#00FF73' }]}>
+                              {hasCheckedIn
+                                ? 'Checked In ✓'
+                                : `Check In · +${COINS_CONFIG.DAILY_CHECK_IN} coins & +${POINTS_CONFIG.DAILY_CHECK_IN} pts`}
+                            </Text>
+                          </>
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+          </ScrollView>
+          ) : null}
+
+          {/* Tab 4: Chat - Rendered OUTSIDE ScrollView to avoid nested scroll issues */}
+          {activeTab === 'chat' && (
+            <KeyboardAvoidingView
+              behavior={'padding'}
+              style={{ flex: 1 }}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? 56 : 0}
+              enabled={true}
+            >
                   <View style={{ flex: 1, flexDirection: 'column' }}>
                     {/* Active Audio Call Banner */}
                     {activeAudioCall && showVoiceRoomButton && (
@@ -6606,6 +6981,7 @@ export default function GroupInfoScreen() {
                           voiceSound={voiceSound}
                           setPlayingVoiceId={setPlayingVoiceId}
                           setVoiceSound={setVoiceSound}
+                          onLongPressMessage={handleMsgLongPress}
                         />
                       )}
                     </ScrollView>
@@ -6620,15 +6996,8 @@ export default function GroupInfoScreen() {
                       </TouchableOpacity>
                     )}
                   </View>
-                </KeyboardAvoidingView>
 
                 {/* Chat Input - Always visible at bottom */}
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                  keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
-                  style={{ backgroundColor: '#1a1a1a' }}
-                  enabled={true}
-                >
                   <View style={styles.chatInputContainer}>
                     {/* Selected Image Preview */}
                     {selectedChatImage && (
@@ -6894,88 +7263,11 @@ export default function GroupInfoScreen() {
                       </View>
                     )}
                   </View>
-                </KeyboardAvoidingView>
-              </View>
-            )}
+            </KeyboardAvoidingView>
+          )}
 
-            {/* Tab 5: Account */}
-            {activeTab === 'account' && (
-              <View style={styles.accountSection}>
-                <View style={styles.accountCard}>
-                  <View style={styles.accountAvatarContainer}>
-                    {currentUser?.profileImage ? (
-                      <Image
-                        source={{ uri: currentUser.profileImage }}
-                        style={styles.accountAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.accountAvatar, { backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }]}>
-                        <Ionicons name="person" size={60} color="#657786" />
-                      </View>
-                    )}
-                    <View style={styles.accountBadge}>
-                      <Ionicons name="checkmark-circle" size={24} color="#00FF47" />
-                    </View>
-                  </View>
-
-                  <Text style={styles.accountName}>{currentUser?.name || 'User'}</Text>
-
-                  <View style={styles.accountEmailContainer}>
-                    <Ionicons name="mail-outline" size={16} color="#8B2EF0" />
-                    <Text style={styles.accountEmail}>{currentUser?.email || 'user@example.com'}</Text>
-                  </View>
-
-                  {/* Stats Grid */}
-                  <View style={styles.accountStatsGrid}>
-                    <View style={styles.accountStatItem}>
-                      <Text style={styles.accountStatValue}>{userStats.following}</Text>
-                      <Text style={styles.accountStatLabel}>Following</Text>
-                    </View>
-                    <View style={styles.accountStatItem}>
-                      <Text style={styles.accountStatValue}>{userStats.followers}</Text>
-                      <Text style={styles.accountStatLabel}>Followers</Text>
-                    </View>
-                    <View style={styles.accountStatItem}>
-                      <Text style={styles.accountStatValue}>{userStats.totalLikes}</Text>
-                      <Text style={styles.accountStatLabel}>Likes</Text>
-                    </View>
-                  </View>
-
-                  {/* Content Stats */}
-                  <View style={styles.accountContentStats}>
-                    <View style={styles.accountContentStatItem}>
-                      <Ionicons name="document-text" size={20} color="#40DFFC" />
-                      <View style={styles.accountContentStatText}>
-                        <Text style={styles.accountContentStatValue}>{userStats.totalBlogs}</Text>
-                        <Text style={styles.accountContentStatLabel}>Blogs</Text>
-                      </View>
-                    </View>
-                    <View style={styles.accountContentStatItem}>
-                      <Ionicons name="image" size={20} color="#FF4A4A" />
-                      <View style={styles.accountContentStatText}>
-                        <Text style={styles.accountContentStatValue}>{userStats.totalPosts}</Text>
-                        <Text style={styles.accountContentStatLabel}>Posts</Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* Ranking/Leaderboard */}
-                  <View style={styles.accountRankingContainer}>
-                    <View style={styles.accountRankingHeader}>
-                      <Ionicons name="trophy" size={24} color="#FFD700" />
-                      <Text style={styles.accountRankingTitle}>Your Ranking</Text>
-                    </View>
-                    <View style={styles.accountRankingBadge}>
-                      <Text style={styles.accountRankingNumber}>#{userStats.ranking || 'N/A'}</Text>
-                      <Text style={styles.accountRankingSubtext}>Based on total likes</Text>
-                    </View>
-                  </View>
-                </View>
-              </View>
-            )}
-          </ScrollView>
-
-          {/* Tab Bar at Bottom */}
+          {/* Tab Bar at Bottom - Hidden when keyboard is active on chat tab */}
+          {!(activeTab === 'chat' && keyboardHeight > 0) && (
           <View style={styles.tabBar}>
             <TouchableOpacity
               style={[styles.tabItem, activeTab === 'community' && styles.tabItemActive]}
@@ -7018,6 +7310,7 @@ export default function GroupInfoScreen() {
               <Text style={[styles.tabLabel, { color: activeTab === 'account' ? '#8B2EF0' : '#666' }]}>Account</Text>
             </TouchableOpacity>
           </View>
+          )}
         </>
       )}
 
@@ -7026,6 +7319,7 @@ export default function GroupInfoScreen() {
         visible={showImageModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowImageModal(false)}
       >
         <View style={styles.imageModalContainer}>
@@ -7106,7 +7400,7 @@ export default function GroupInfoScreen() {
                 </View>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={styles.imageAuthorName}>{currentUser?.name || 'User'}</Text>
+                <Text style={styles.imageAuthorName}>{currentUser?.communityNickname || communityNickname || currentUser?.name || 'User'}</Text>
                 <Text style={styles.imageAuthorEmail}>{currentUser?.email || 'user@example.com'}</Text>
               </View>
             </View>
@@ -7119,6 +7413,7 @@ export default function GroupInfoScreen() {
         visible={showBlogModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowBlogModal(false)}
       >
         <View style={styles.blogModalContainer}>
@@ -7191,7 +7486,7 @@ export default function GroupInfoScreen() {
                 </View>
               )}
               <View style={{ flex: 1 }}>
-                <Text style={styles.blogAuthorName}>{currentUser?.name || 'User'}</Text>
+                <Text style={styles.blogAuthorName}>{currentUser?.communityNickname || communityNickname || currentUser?.name || 'User'}</Text>
                 <Text style={styles.blogAuthorEmail}>{currentUser?.email || 'user@example.com'}</Text>
               </View>
             </View>
@@ -7204,6 +7499,7 @@ export default function GroupInfoScreen() {
         visible={showCommentModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => {
           if (!commentSaving) {
             // Cleanup comments listener
@@ -7336,6 +7632,7 @@ export default function GroupInfoScreen() {
         visible={showDraftsModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowDraftsModal(false)}
       >
         <View style={styles.draftsModalContainer}>
@@ -7535,7 +7832,7 @@ export default function GroupInfoScreen() {
                     </View>
                   )}
                   <Text style={styles.voiceChatParticipantName} numberOfLines={1}>
-                    {currentUser?.name || 'You'}
+                    {currentUser?.communityNickname || communityNickname || currentUser?.name || 'You'}
                   </Text>
                 </View>
               )
@@ -7611,7 +7908,7 @@ export default function GroupInfoScreen() {
                       )}
 
                       {/* Voice Message */}
-                      {msg.voiceUrl && (
+                      {!!msg.voiceUrl && (
                         <TouchableOpacity
                           style={[
                             styles.voiceChatVoiceButton,
@@ -7672,7 +7969,7 @@ export default function GroupInfoScreen() {
                       )}
 
                       {/* Text Message */}
-                      {msg.text && (
+                      {!!msg.text && (
                         <Text style={styles.voiceChatMessageText}>
                           {msg.text}
                         </Text>
@@ -7977,7 +8274,7 @@ export default function GroupInfoScreen() {
 
                       <View style={styles.characterCardInfo}>
                         <Text style={styles.characterCardName}>{character.name}</Text>
-                        {character.subtitle && (
+                        {!!character.subtitle && (
                           <Text style={styles.characterCardSubtitle}>{character.subtitle}</Text>
                         )}
                         <View style={styles.characterCardTags}>
@@ -8079,7 +8376,7 @@ export default function GroupInfoScreen() {
                         <MaterialCommunityIcons name="drama-masks" size={32} color="#FFD700" />
                         <Text style={styles.roleSelectName}>{role.name}</Text>
                       </View>
-                      {role.description && (
+                      {!!role.description && (
                         <Text style={styles.roleSelectDescription}>{role.description}</Text>
                       )}
                       <View style={styles.roleSelectButton}>
@@ -8190,6 +8487,7 @@ export default function GroupInfoScreen() {
         visible={showFeatureModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowFeatureModal(false)}
       >
         <View style={styles.featureModalOverlay}>
@@ -8267,6 +8565,7 @@ export default function GroupInfoScreen() {
         visible={showMiniScreen === 'voice'}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowMiniScreen(null)}
       >
         <View style={styles.miniScreenOverlay}>
@@ -8313,6 +8612,7 @@ export default function GroupInfoScreen() {
         visible={showMiniScreen === 'screening'}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowMiniScreen(null)}
       >
         <View style={styles.miniScreenOverlay}>
@@ -8359,6 +8659,7 @@ export default function GroupInfoScreen() {
         visible={showMiniScreen === 'roleplay'}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => {
           setShowMiniScreen(null);
           setPendingRoleplayJoin(null); // Reset pending join info
@@ -8505,7 +8806,8 @@ export default function GroupInfoScreen() {
                           quality: 0.8,
                         });
                         if (!result.canceled) {
-                          setCharacterAvatar(result.assets[0].uri);
+                          const safeUri = await normalizeBlobUri(result.assets[0].uri);
+                          setCharacterAvatar(safeUri);
                         }
                       }}
                     >
@@ -8803,7 +9105,7 @@ export default function GroupInfoScreen() {
                                 }}
                               >
                                 {/* Character Avatar */}
-                                {character.avatar && (
+                                {!!character.avatar && (
                                   <Image
                                     source={{ uri: character.avatar }}
                                     style={styles.characterCardAvatar}
@@ -8818,7 +9120,7 @@ export default function GroupInfoScreen() {
                                         styles.characterCardName,
                                         character.themeColor && { color: character.themeColor }
                                       ]}>{character.name}</Text>
-                                      {character.subtitle && (
+                                      {!!character.subtitle && (
                                         <Text style={styles.characterCardSubtitle}>{character.subtitle}</Text>
                                       )}
                                     </View>
@@ -8846,22 +9148,22 @@ export default function GroupInfoScreen() {
 
                                   {/* Attributes (Gender, Age, Height, Language) */}
                                   <View style={styles.characterCardAttributes}>
-                                    {character.gender && (
+                                    {!!character.gender && (
                                       <View style={styles.attributeBadge}>
                                         <Text style={styles.attributeBadgeText}>{character.gender}</Text>
                                       </View>
                                     )}
-                                    {character.age && (
+                                    {!!character.age && (
                                       <View style={styles.attributeBadge}>
                                         <Text style={styles.attributeBadgeText}>{character.age} yrs</Text>
                                       </View>
                                     )}
-                                    {character.height && (
+                                    {!!character.height && (
                                       <View style={styles.attributeBadge}>
                                         <Text style={styles.attributeBadgeText}>{character.height}</Text>
                                       </View>
                                     )}
-                                    {character.language && (
+                                    {!!character.language && (
                                       <View style={styles.attributeBadge}>
                                         <Text style={styles.attributeBadgeText}>{character.language}</Text>
                                       </View>
@@ -8869,7 +9171,7 @@ export default function GroupInfoScreen() {
                                   </View>
 
                                   {/* Description */}
-                                  {character.description && (
+                                  {!!character.description && (
                                     <Text style={styles.characterCardDescription} numberOfLines={2}>
                                       {character.description}
                                     </Text>
@@ -8995,11 +9297,118 @@ export default function GroupInfoScreen() {
         </View>
       </Modal>
 
+      {/* Community Nickname Modal */}
+      <Modal
+        visible={showNicknameModal}
+        animationType="slide"
+        transparent={true}
+        presentationStyle="overFullScreen"
+        onRequestClose={() => setShowNicknameModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={styles.adminModalContainer}>
+            <View style={[styles.adminModalContent, { maxHeight: '60%' }]}>
+              {/* Header */}
+              <View style={styles.adminModalHeader}>
+                <Text style={[styles.adminModalTitle, { color: '#8B2EF0' }]}>Community Nickname</Text>
+                <TouchableOpacity onPress={() => setShowNicknameModal(false)}>
+                  <Ionicons name="close" size={28} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ padding: 20 }}>
+                <Text style={{ color: '#aaa', fontSize: 14, marginBottom: 12 }}>
+                  Set a different name to use in this community. Leave empty to use your global profile name.
+                </Text>
+
+                {/* Current global name */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, backgroundColor: '#252525', padding: 12, borderRadius: 10 }}>
+                  <Ionicons name="globe-outline" size={18} color="#8B2EF0" />
+                  <Text style={{ color: '#888', fontSize: 13, marginLeft: 8 }}>Global name: </Text>
+                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>
+                    {currentUser?.name || currentUser?.displayName || 'User'}
+                  </Text>
+                </View>
+
+                {/* Nickname input */}
+                <TextInput
+                  style={{
+                    backgroundColor: '#252525',
+                    borderRadius: 12,
+                    padding: 14,
+                    fontSize: 16,
+                    color: '#fff',
+                    borderWidth: 1,
+                    borderColor: communityNickname ? '#8B2EF0' : '#333',
+                    marginBottom: 8,
+                  }}
+                  placeholder="Enter community nickname..."
+                  placeholderTextColor="#666"
+                  value={nicknameInput}
+                  onChangeText={setNicknameInput}
+                  maxLength={30}
+                  autoFocus={true}
+                />
+                <Text style={{ color: '#666', fontSize: 12, textAlign: 'right', marginBottom: 20 }}>
+                  {nicknameInput.length}/30
+                </Text>
+
+                {/* Save / Remove buttons */}
+                <View style={{ flexDirection: 'row', gap: 12 }}>
+                  {communityNickname ? (
+                    <TouchableOpacity
+                      style={{
+                        flex: 1,
+                        backgroundColor: '#2a1a1a',
+                        padding: 14,
+                        borderRadius: 12,
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: '#ff4b6e',
+                      }}
+                      onPress={() => {
+                        setNicknameInput('');
+                        handleSaveNickname();
+                      }}
+                      disabled={nicknameSaving}
+                    >
+                      <Text style={{ color: '#ff4b6e', fontWeight: '700', fontSize: 15 }}>
+                        {nicknameSaving ? 'Removing...' : 'Remove Nickname'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#8B2EF0',
+                      padding: 14,
+                      borderRadius: 12,
+                      alignItems: 'center',
+                      opacity: nicknameSaving ? 0.6 : 1,
+                    }}
+                    onPress={handleSaveNickname}
+                    disabled={nicknameSaving}
+                  >
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>
+                      {nicknameSaving ? 'Saving...' : 'Save Nickname'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* Admin Panel Modal */}
       <Modal
         visible={showAdminPanel}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowAdminPanel(false)}
       >
         <View style={styles.adminModalContainer}>
@@ -9139,6 +9548,7 @@ export default function GroupInfoScreen() {
         visible={showShareModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowShareModal(false)}
       >
         <View style={styles.adminModalContainer}>
@@ -9209,6 +9619,7 @@ export default function GroupInfoScreen() {
         visible={showMembersModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowMembersModal(false)}
       >
         <View style={styles.adminModalContainer}>
@@ -9245,7 +9656,19 @@ export default function GroupInfoScreen() {
                         style={styles.memberAvatar}
                       />
                       <View style={styles.memberInfo}>
-                        <Text style={styles.memberName}>{member.name}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={styles.memberName}>{member.name}</Text>
+                          {!!member.communityNickname && (
+                            <View style={{ backgroundColor: '#8B2EF020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ color: '#8B2EF0', fontSize: 10, fontWeight: '600' }}>Nickname</Text>
+                            </View>
+                          )}
+                        </View>
+                        {!!member.communityNickname && member.globalName && (
+                          <Text style={{ color: '#666', fontSize: 11, marginTop: 1 }}>
+                            aka {member.globalName}
+                          </Text>
+                        )}
                         {member.isAdmin && (
                           <Text style={styles.memberBadge}>👑 Admin</Text>
                         )}
@@ -9297,6 +9720,7 @@ export default function GroupInfoScreen() {
         visible={showAnnouncementsModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowAnnouncementsModal(false)}
       >
         <View style={styles.adminModalContainer}>
@@ -9401,6 +9825,7 @@ export default function GroupInfoScreen() {
         visible={showFeaturedModal}
         animationType="slide"
         transparent={true}
+        presentationStyle="overFullScreen"
         onRequestClose={() => setShowFeaturedModal(false)}
       >
         <View style={styles.adminModalContainer}>
@@ -9501,20 +9926,139 @@ export default function GroupInfoScreen() {
         </View>
       </Modal>
 
+      {/* Post Options Modal (long-press) */}
+      <PostOptionsModal
+        visible={postOptionsVisible}
+        post={postOptionsTarget}
+        currentUserId={currentUser?.id}
+        onClose={() => {
+          setPostOptionsVisible(false);
+          setPostOptionsTarget(null);
+        }}
+        isPinned={postOptionsTarget ? (community?.announcements || []).includes(postOptionsTarget?.id) : false}
+        isFeatured={postOptionsTarget ? (community?.featuredPosts || []).includes(postOptionsTarget?.id) : false}
+        isAdmin={isAdmin}
+        isModerator={isModerator}
+        onDelete={(p) => handleDeletePost(p.id, p.type)}
+        onPin={(p) => handlePinAnnouncement(p.id)}
+        onUnpin={(p) => handleUnpinAnnouncement(p.id)}
+        onFeature={(p) => handleFeaturePost(p.id)}
+        onUnfeature={(p) => handleUnfeaturePost(p.id)}
+        onShare={(p) => {
+          const title = p.title || p.caption || p.text || 'Post';
+          Share.share({ message: `Check out "${title}" on Social Vibing!` });
+        }}
+        onCopyLink={(p) => {
+          const title = p.title || p.caption || p.text || 'Post';
+          Share.share({ message: `Check out "${title}" on Social Vibing!` });
+        }}
+        onReport={(p) => {
+          setReportTargetMember({ id: p.authorId, name: p.authorName });
+          setReportTargetPost(p);
+          setShowReportModal(true);
+        }}
+      />
+
       {/* Report User Modal */}
       <ReportUserModal
         visible={showReportModal}
         onClose={() => {
           setShowReportModal(false);
           setReportTargetMember(null);
+          setReportTargetPost(null);
         }}
         reportedUser={{
           id: reportTargetMember?.id,
           username: reportTargetMember?.name || 'User',
         }}
-        reportType="user"
+        reportType={reportTargetPost ? 'post' : 'user'}
+        contentId={reportTargetPost?.id || null}
+        contentType={reportTargetPost?.type || null}
+        contentPreview={reportTargetPost?.title || reportTargetPost?.caption || reportTargetPost?.text || reportTargetPost?.question || null}
+        communityId={communityId || null}
       />
-    </View>
+
+      {/* ─── Community Chat Message Options Bottom Sheet ─── */}
+      <Modal
+        visible={showMsgOptions}
+        transparent
+        animationType="slide"
+        onRequestClose={() => { setShowMsgOptions(false); setSelectedMsg(null); }}
+      >
+        <TouchableOpacity
+          style={styles.msgOptOverlay}
+          activeOpacity={1}
+          onPress={() => { setShowMsgOptions(false); setSelectedMsg(null); }}
+        >
+          <View style={styles.msgOptSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.msgOptHandle} />
+            {selectedMsg?.text ? (
+              <View style={styles.msgOptPreview}>
+                <Ionicons name="chatbubble-outline" size={14} color="#9CA3AF" style={{ marginRight: 8, marginTop: 2 }} />
+                <Text style={styles.msgOptPreviewText} numberOfLines={2}>{selectedMsg.text}</Text>
+              </View>
+            ) : null}
+
+            {/* Copy (text messages only) */}
+            {!!selectedMsg?.text && !selectedMsg?.isDeleted && (
+              <TouchableOpacity style={styles.msgOptRow} onPress={handleCopyChatMsg} activeOpacity={0.7}>
+                <View style={[styles.msgOptIcon, { backgroundColor: '#08FFE222' }]}>
+                  <Ionicons name="copy-outline" size={20} color="#08FFE2" />
+                </View>
+                <Text style={styles.msgOptLabel}>Copy</Text>
+                <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
+
+            {/* Delete own message */}
+            {selectedMsg?.senderId === currentUser?.id && !selectedMsg?.isDeleted && (
+              <TouchableOpacity style={styles.msgOptRow} onPress={handleDeleteOwnChatMsg} activeOpacity={0.7}>
+                <View style={[styles.msgOptIcon, { backgroundColor: '#EF444422' }]}>
+                  <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                </View>
+                <Text style={[styles.msgOptLabel, { color: '#EF4444' }]}>Delete</Text>
+                <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
+
+            {/* Report (others' messages) */}
+            {selectedMsg?.senderId !== currentUser?.id && !selectedMsg?.isDeleted && (
+              <TouchableOpacity
+                style={styles.msgOptRow}
+                activeOpacity={0.7}
+                onPress={() => {
+                  setShowMsgOptions(false);
+                  setTimeout(() => {
+                    setReportTargetMember({ id: selectedMsg.senderId, name: selectedMsg.sender });
+                    setReportTargetPost({
+                      id: selectedMsg.id,
+                      type: 'chat_message',
+                      text: selectedMsg.text,
+                    });
+                    setShowReportModal(true);
+                  }, 250);
+                }}
+              >
+                <View style={[styles.msgOptIcon, { backgroundColor: '#F9731622' }]}>
+                  <Ionicons name="flag-outline" size={20} color="#F97316" />
+                </View>
+                <Text style={[styles.msgOptLabel, { color: '#F97316' }]}>Report</Text>
+                <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[styles.msgOptRow, { marginTop: 8, borderTopWidth: 1, borderTopColor: '#ffffff11' }]}
+              onPress={() => { setShowMsgOptions(false); setSelectedMsg(null); }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.msgOptLabel, { color: '#9CA3AF', textAlign: 'center', flex: 1 }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+    </SafeAreaView>
   );
 }
 
@@ -9527,9 +10071,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 16,
-    paddingTop: 50,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     backgroundColor: '#0a0a0a',
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
   },
   topBarTitle: {
     color: '#fff',
@@ -9545,7 +10091,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#0a0a0a',
     borderTopWidth: 1,
     borderTopColor: '#222',
-    paddingBottom: 20,
+    paddingBottom: Platform.OS === 'ios' ? 30 : 16,
     paddingTop: 10,
     height: 90,
   },
@@ -9743,9 +10289,8 @@ const styles = StyleSheet.create({
   chatScrollContent: {
     paddingHorizontal: 16,
     paddingVertical: 16,
-    paddingBottom: 160,
+    paddingBottom: 20,
     flexGrow: 1,
-    minHeight: '100%',
   },
   chatLoadingContainer: {
     flex: 1,
@@ -9838,22 +10383,11 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
   },
   chatInputContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: '#0a0a0a',
     borderTopWidth: 1,
     borderTopColor: '#222',
     paddingBottom: Platform.OS === 'ios' ? 10 : 12,
     paddingTop: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 10,
-    minHeight: 60,
-    zIndex: 100,
   },
   messageInputContainer: {
     flexDirection: 'row',
@@ -9973,7 +10507,7 @@ const styles = StyleSheet.create({
   },
   scrollToBottomButton: {
     position: 'absolute',
-    bottom: 80, // Position above input container
+    bottom: 16,
     right: 16,
     width: 44,
     height: 44,
@@ -11116,6 +11650,7 @@ const styles = StyleSheet.create({
   accountStatsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    width: '100%',
     marginTop: 24,
     marginBottom: 20,
     paddingTop: 20,
@@ -11204,6 +11739,104 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 12,
     textAlign: 'center',
+  },
+  /* Check-in Card */
+  checkInCard: {
+    marginTop: 16,
+    backgroundColor: '#111',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#222',
+    padding: 14,
+  },
+  checkInCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  checkInCardTitle: {
+    color: '#EAEAF0',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  checkInDonePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(0,255,115,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,255,115,0.3)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  checkInDonePillText: {
+    color: '#00FF73',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  checkInPendingPill: {
+    backgroundColor: 'rgba(139,46,240,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(139,46,240,0.4)',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  checkInPendingPillText: {
+    color: '#8B2EF0',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  checkInStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 12,
+  },
+  checkInStatChip: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 3,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: '#0a0a0a',
+    borderWidth: 1,
+    borderColor: '#222',
+  },
+  checkInCoinIcon: {
+    width: 22,
+    height: 22,
+    resizeMode: 'contain',
+  },
+  checkInStatValue: {
+    color: '#EAEAF0',
+    fontWeight: '800',
+    fontSize: 15,
+  },
+  checkInStatLabel: {
+    color: '#888',
+    fontSize: 10,
+  },
+  checkInCTA: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  checkInCTADone: {
+    opacity: 0.85,
+  },
+  checkInCTAGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 14,
+  },
+  checkInCTAText: {
+    color: '#fff',
+    fontWeight: '800',
+    fontSize: 13,
   },
   accountIdContainer: {
     width: '100%',
@@ -12995,6 +13628,63 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     paddingVertical: 0,
+  },
+
+  // Community chat message options bottom sheet
+  msgOptOverlay: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  msgOptSheet: {
+    backgroundColor: '#1A1A22',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 16,
+    paddingBottom: 36,
+    paddingTop: 8,
+  },
+  msgOptHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#ffffff33',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  msgOptPreview: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#ffffff0A',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+  },
+  msgOptPreviewText: {
+    color: '#9CA3AF',
+    fontSize: 13,
+    flex: 1,
+    lineHeight: 18,
+  },
+  msgOptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 4,
+  },
+  msgOptIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  msgOptLabel: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#fff',
   },
 });
 

@@ -57,11 +57,59 @@ const MEDAL_COLORS = {
 };
 
 const FILTERS = [
-  { id: 'engagement', label: 'Engagement' },
-  { id: 'coins', label: 'Coins' },
-  { id: 'diamonds', label: 'Diamonds' },
-  { id: 'followers', label: 'Followers' },
+  { id: 'engagement', label: 'Engage', icon: 'trending-up' },
+  { id: 'coins', label: 'Coins', icon: 'logo-bitcoin' },
+  { id: 'diamonds', label: 'Gems', icon: 'diamond-outline' },
+  { id: 'followers', label: 'Followers', icon: 'people-outline' },
 ];
+
+// Animated skeleton placeholder for leaderboard items
+const SkeletonItem = () => {
+  const pulse = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 750, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 750, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  return (
+    <Animated.View style={[skeletonStyles.row, { opacity: pulse }]}>
+      <View style={skeletonStyles.rank} />
+      <View style={skeletonStyles.avatar} />
+      <View style={skeletonStyles.lines}>
+        <View style={skeletonStyles.line1} />
+        <View style={skeletonStyles.line2} />
+      </View>
+      <View style={skeletonStyles.badge} />
+    </Animated.View>
+  );
+};
+
+const SkeletonLoading = () => (
+  <View style={{ paddingHorizontal: 16, paddingTop: 8 }}>
+    {[...Array(8)].map((_, i) => <SkeletonItem key={i} />)}
+  </View>
+);
+
+const skeletonStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.card, borderRadius: 16, padding: 14, marginBottom: 10 },
+  rank: { width: 32, height: 18, borderRadius: 4, backgroundColor: COLORS.card2, marginRight: 14 },
+  avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: COLORS.card2, marginRight: 14 },
+  lines: { flex: 1, gap: 7 },
+  line1: { height: 14, borderRadius: 6, backgroundColor: COLORS.card2, width: '65%' },
+  line2: { height: 11, borderRadius: 6, backgroundColor: COLORS.card2, width: '42%' },
+  badge: { width: 68, height: 34, borderRadius: 20, backgroundColor: COLORS.card2 },
+});
+
+const getRankColor = (rank) => {
+  if (rank === 1) return COLORS.gold;
+  if (rank === 2) return COLORS.silver;
+  if (rank === 3) return COLORS.bronze;
+  if (rank <= 10) return COLORS.orange;
+  return COLORS.dim;
+};
 
 export default function GlobalLeaderboardScreen() {
   const navigation = useNavigation();
@@ -79,6 +127,13 @@ export default function GlobalLeaderboardScreen() {
   // Animation
   const scrollY = useRef(new Animated.Value(0)).current;
 
+  // Per-filter cache to avoid redundant Firestore fetches
+  const leaderboardCache = useRef({});
+
+  // Animation: sliding filter indicator + list fade-in
+  const filterIndicatorAnim = useRef(new Animated.Value(0)).current;
+  const listFadeAnim = useRef(new Animated.Value(0)).current;
+
   // Get current user - use state to track when user is loaded
   const [userLoaded, setUserLoaded] = useState(false);
   
@@ -94,70 +149,71 @@ export default function GlobalLeaderboardScreen() {
   }, []);
 
   // Fetch leaderboard data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (forceRefresh = false) => {
     // Wait for user authentication to be checked
     if (!userLoaded) return;
-    
+
     setError(null);
-    
+
+    // Return cached data immediately if available and not a manual refresh
+    if (!forceRefresh && leaderboardCache.current[activeFilter]) {
+      const cached = leaderboardCache.current[activeFilter];
+      setLeaderboard(cached.leaderboard);
+      setUserRankData(cached.userRankData);
+      setLoading(false);
+      setContentLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
     try {
-      // Fetch all users - users collection is readable by authenticated users
-      const usersQuery = query(collection(db, 'users'), limit(200));
-      const usersSnapshot = await getDocs(usersQuery);
-      
+      // Fetch all users
+      const usersSnapshot = await getDocs(query(collection(db, 'users'), limit(200)));
+
       // Check if current user is in the query results
       let currentUserInResults = false;
       if (currentUser?.id) {
         currentUserInResults = usersSnapshot.docs.some(doc => doc.id === currentUser.id);
       }
-      
-      // If current user is not in results, fetch their data separately
+
+      // If current user is not in results, fetch their data + wallet in parallel
       let currentUserDoc = null;
       let currentUserWallet = null;
-      
+
       if (currentUser?.id && !currentUserInResults) {
         try {
-          const userDocRef = doc(db, 'users', currentUser.id);
-          const userDocSnap = await getDoc(userDocRef);
-          if (userDocSnap.exists()) {
-            currentUserDoc = { id: currentUser.id, data: userDocSnap.data() };
-          }
-          
-          // Also fetch their wallet
-          try {
-            const walletDocRef = doc(db, 'wallets', currentUser.id);
-            const walletDocSnap = await getDoc(walletDocRef);
-            if (walletDocSnap.exists()) {
-              currentUserWallet = walletDocSnap.data();
-            }
-          } catch (e) {
-            console.log('Wallet read failed for current user');
-          }
+          [currentUserDoc, currentUserWallet] = await Promise.all([
+            getDoc(doc(db, 'users', currentUser.id)).then(snap =>
+              snap.exists() ? { id: currentUser.id, data: snap.data() } : null
+            ).catch(() => null),
+            getDoc(doc(db, 'wallets', currentUser.id)).then(snap =>
+              snap.exists() ? snap.data() : null
+            ).catch(() => null),
+          ]);
         } catch (e) {
-          console.log('Failed to fetch current user doc:', e.message);
+          console.log('Failed to fetch current user doc/wallet:', e.message);
         }
       }
-      
-      // Batch-fetch wallets using documentId() in-queries (10 per batch)
+
+      // Batch-fetch wallets in PARALLEL (Promise.all instead of sequential awaits)
       const allUserIds = usersSnapshot.docs.map(d => d.id);
-      const walletMap = {};
       const BATCH_SIZE = 10;
+      const batches = [];
       for (let i = 0; i < allUserIds.length; i += BATCH_SIZE) {
-        const batch = allUserIds.slice(i, i + BATCH_SIZE);
-        try {
-          const walletQuery = query(
-            collection(db, 'wallets'),
-            where(documentId(), 'in', batch)
-          );
-          const walletSnap = await getDocs(walletQuery);
-          walletSnap.docs.forEach(wDoc => {
-            walletMap[wDoc.id] = wDoc.data();
-          });
-        } catch (e) {
-          console.log(`Wallet batch read failed (offset ${i}):`, e.message);
-        }
+        batches.push(allUserIds.slice(i, i + BATCH_SIZE));
       }
-      
+
+      const walletMap = {};
+      const walletResults = await Promise.all(
+        batches.map(batch =>
+          getDocs(query(collection(db, 'wallets'), where(documentId(), 'in', batch)))
+            .catch(e => { console.log('Wallet batch failed:', e.message); return null; })
+        )
+      );
+      walletResults.forEach(snap => {
+        if (snap) snap.docs.forEach(wDoc => { walletMap[wDoc.id] = wDoc.data(); });
+      });
+
       // Add current user's wallet to map if fetched separately
       if (currentUser?.id && currentUserWallet) {
         walletMap[currentUser.id] = currentUserWallet;
@@ -273,12 +329,11 @@ export default function GlobalLeaderboardScreen() {
         }
       }
       
-      setLeaderboard(displayData);
-      
-      // Set current user rank data
+      // Resolve current user rank data into a local variable first so we can cache it
+      let resolvedRankData = null;
       if (currentUser?.id) {
         if (currentUserEntry) {
-          setUserRankData({
+          resolvedRankData = {
             rank: currentUserEntry.rank,
             value: currentUserEntry.value,
             totalUsers: activeUsers.length,
@@ -290,12 +345,12 @@ export default function GlobalLeaderboardScreen() {
               followers: currentUserEntry.followers,
               postsCount: currentUserEntry.postsCount,
             },
-          });
+          };
         } else {
           // User exists but has 0 value - still show their rank info
           const userInAllData = leaderboardData.find(u => u.userId === currentUser.id);
           if (userInAllData) {
-            setUserRankData({
+            resolvedRankData = {
               rank: 'Unranked',
               value: 0,
               totalUsers: activeUsers.length,
@@ -307,14 +362,15 @@ export default function GlobalLeaderboardScreen() {
                 followers: userInAllData.followers,
                 postsCount: userInAllData.postsCount,
               },
-            });
-          } else {
-            setUserRankData(null);
+            };
           }
         }
-      } else {
-        setUserRankData(null);
       }
+
+      // Apply state + cache in one shot
+      setLeaderboard(displayData);
+      setUserRankData(resolvedRankData);
+      leaderboardCache.current[activeFilter] = { leaderboard: displayData, userRankData: resolvedRankData };
     } catch (err) {
       console.error('Error fetching global leaderboard:', err);
       setError('Failed to load leaderboard. Please try again.');
@@ -331,51 +387,96 @@ export default function GlobalLeaderboardScreen() {
   }, [fetchData]);
 
   const onRefresh = useCallback(() => {
+    // Invalidate cache so a full re-fetch happens
+    leaderboardCache.current = {};
     setRefreshing(true);
-    fetchData();
+    fetchData(true);
   }, [fetchData]);
 
   const handleFilterChange = (filterId) => {
     if (filterId !== activeFilter) {
+      const toIndex = FILTERS.findIndex(f => f.id === filterId);
+      Animated.spring(filterIndicatorAnim, {
+        toValue: toIndex,
+        useNativeDriver: true,
+        tension: 68,
+        friction: 10,
+      }).start();
       setActiveFilter(filterId);
-      setContentLoading(true);
+      // Only show spinner if we don't already have cached data for this filter
+      if (!leaderboardCache.current[filterId]) {
+        setContentLoading(true);
+      }
     }
   };
 
+  // Fade list in whenever leaderboard data changes
+  useEffect(() => {
+    if (leaderboard.length > 0) {
+      listFadeAnim.setValue(0);
+      Animated.timing(listFadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
+    }
+  }, [leaderboard]);
+
   // Render filter tabs
-  const renderFilters = () => (
-    <View style={styles.filterContainer}>
-      {FILTERS.map((filter) => (
-        <TouchableOpacity
-          key={filter.id}
+  const renderFilters = () => {
+    const activeIndex = FILTERS.findIndex(f => f.id === activeFilter);
+    const TAB_WIDTH = (SCREEN_WIDTH - 32 - 8) / FILTERS.length; // account for margin + padding
+    return (
+      <View style={styles.filterContainer}>
+        {/* Sliding indicator */}
+        <Animated.View
           style={[
-            styles.filterButton,
-            activeFilter === filter.id && styles.filterButtonActive,
+            styles.filterIndicator,
+            {
+              width: TAB_WIDTH,
+              transform: [{
+                translateX: filterIndicatorAnim.interpolate({
+                  inputRange: [0, 1, 2, 3],
+                  outputRange: [0, TAB_WIDTH, TAB_WIDTH * 2, TAB_WIDTH * 3],
+                }),
+              }],
+            },
           ]}
-          onPress={() => handleFilterChange(filter.id)}
-        >
-          <Text
-            style={[
-              styles.filterText,
-              activeFilter === filter.id && styles.filterTextActive,
-            ]}
-          >
-            {filter.label}
-          </Text>
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
+        />
+        {FILTERS.map((filter) => {
+          const isActive = activeFilter === filter.id;
+          return (
+            <TouchableOpacity
+              key={filter.id}
+              style={styles.filterButton}
+              onPress={() => handleFilterChange(filter.id)}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name={filter.icon}
+                size={14}
+                color={isActive ? '#fff' : COLORS.dim}
+                style={{ marginBottom: 2 }}
+              />
+              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
+  };
 
   // Render user rank card
   const renderUserRankCard = () => {
     if (!userRankData) return null;
-    
+
     const { rank, value, totalUsers, userData } = userRankData;
     const valueIcon = getValueIcon();
-    
+
     return (
-      <View style={styles.userRankCard}>
+      <LinearGradient
+        colors={[COLORS.purple + '25', COLORS.magenta + '10', COLORS.card]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.userRankCard}>
         <View style={styles.userRankHeader}>
           <Text style={styles.userRankTitle}>Your Ranking</Text>
           <View style={styles.filterBadge}>
@@ -485,7 +586,7 @@ export default function GlobalLeaderboardScreen() {
             </>
           )}
         </View>
-      </View>
+      </LinearGradient>
     );
   };
 
@@ -666,12 +767,14 @@ export default function GlobalLeaderboardScreen() {
   // Render leaderboard item
   const renderLeaderboardItem = ({ item, index }) => {
     if (index < 3) return null;
-    
+
     const isCurrentUser = currentUser?.id === item.userId;
     const rank = item.rank || index + 1;
+    const rankColor = getRankColor(rank);
     const valueIcon = getValueIcon();
-    
+
     return (
+      <Animated.View style={{ opacity: listFadeAnim }}>
       <TouchableOpacity
         style={[
           styles.leaderboardItem,
@@ -681,8 +784,8 @@ export default function GlobalLeaderboardScreen() {
         activeOpacity={0.8}
       >
         <View style={styles.rankContainer}>
-          <Text style={styles.rankHash}>#</Text>
-          <Text style={styles.rankNumber}>{rank}</Text>
+          <Text style={[styles.rankHash, { color: rankColor }]}>#</Text>
+          <Text style={[styles.rankNumber, { color: rankColor }]}>{rank}</Text>
         </View>
 
         {item.photoURL ? (
@@ -716,14 +819,31 @@ export default function GlobalLeaderboardScreen() {
           <Text style={styles.valueText}>{formatValue(item.value)}</Text>
         </View>
       </TouchableOpacity>
+      </Animated.View>
     );
   };
 
   if (loading && !refreshing) {
     return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color={COLORS.purple} />
-        <Text style={styles.loadingText}>Loading leaderboard...</Text>
+      <View style={styles.container}>
+        <LinearGradient
+          colors={['#0EE7B7', '#8A2BE2']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.headerGradient, { paddingTop: insets.top + 6 }]}
+        >
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+              <Ionicons name="chevron-back" size={28} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.headerCenter}>
+              <Ionicons name="trophy" size={28} color="#fff" />
+              <Text style={styles.headerTitle}>Global Leaderboard</Text>
+            </View>
+            <View style={styles.headerRightPlaceholder} />
+          </View>
+        </LinearGradient>
+        <SkeletonLoading />
       </View>
     );
   }
@@ -778,10 +898,7 @@ export default function GlobalLeaderboardScreen() {
           scrollEventThrottle={16}
         >
           {contentLoading ? (
-            <View style={styles.contentLoadingContainer}>
-              <ActivityIndicator size="large" color={COLORS.purple} />
-              <Text style={styles.loadingText}>Loading...</Text>
-            </View>
+            <SkeletonLoading />
           ) : (
             <>
               {renderUserRankCard()}
@@ -886,18 +1003,27 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderRadius: 12,
     padding: 4,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  filterIndicator: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    bottom: 4,
+    borderRadius: 10,
+    backgroundColor: COLORS.purple,
   },
   filterButton: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: 10,
-  },
-  filterButtonActive: {
-    backgroundColor: COLORS.purple,
+    gap: 2,
   },
   filterText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '600',
     color: COLORS.dim,
   },
@@ -909,11 +1035,11 @@ const styles = StyleSheet.create({
   userRankCard: {
     marginHorizontal: 16,
     marginBottom: 16,
-    backgroundColor: COLORS.card,
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
     borderColor: COLORS.purple + '50',
+    overflow: 'hidden',
   },
   userRankHeader: {
     flexDirection: 'row',

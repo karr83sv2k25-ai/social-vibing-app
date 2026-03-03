@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { launchImageLibraryAsync, MediaTypeOptions, requestMediaLibraryPermissionsAsync } from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
+import { normalizeBlobUri } from './utils/normalizeUri';
 import { app, db } from './firebaseConfig';
 import { doc, getDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
@@ -149,8 +150,15 @@ export default function EditCommunityScreen({ route, navigation }) {
 
       const data = communitySnap.data();
 
-      // Check if user is admin
+      // Check if user is a platform-level admin (role == 'admin' or isAdmin == true)
+      const userDocRef = doc(db, 'users', currentUserId);
+      const userSnap = await getDoc(userDocRef);
+      const userData = userSnap.exists() ? userSnap.data() : {};
+      const isPlatformAdmin = userData.role === 'admin' || userData.isAdmin === true;
+
+      // Check if user is community owner/admin or platform admin
       const userIsAdmin = 
+        isPlatformAdmin ||
         data.creatorId === currentUserId ||
         data.createdBy === currentUserId ||
         data.uid === currentUserId ||
@@ -229,8 +237,9 @@ export default function EditCommunityScreen({ route, navigation }) {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        const picked = result.assets[0].uri || result.uri;
-        setter(picked);
+        const rawUri = result.assets[0].uri || result.uri;
+        const safeUri = await normalizeBlobUri(rawUri);
+        setter(safeUri);
       }
     } catch (e) {
       console.warn('ImagePicker error', e);

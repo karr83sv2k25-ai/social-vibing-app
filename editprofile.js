@@ -30,6 +30,7 @@ import CacheManager from "./cacheManager";
 import * as ImagePicker from 'expo-image-picker';
 import { uploadImageToHostinger } from './hostingerConfig';
 import { compressProfileImage } from './utils/imageCompression';
+import { sanitizeUsername, USERNAME_REGEX, changeUsername, getDisplayName, getUserHandle, getUserAvatar } from './utils/userNameHelpers';
 import VerifiedBadge from './components/VerifiedBadge';
 
 const { width } = Dimensions.get("window");
@@ -610,19 +611,25 @@ export default function EditProfileScreen({ navigation, route }) {
               <Text style={[styles.verificationText, { color: '#FF3232' }]}>Verification Rejected</Text>
             </View>
           )}
+          {userData?.verificationStatus === 'revoked' && (
+            <View style={[styles.verificationBanner, { backgroundColor: 'rgba(255, 165, 0, 0.15)' }]}>
+              <Ionicons name="warning-outline" size={14} color="#FFA500" />
+              <Text style={[styles.verificationText, { color: '#FFA500' }]}>Verification Revoked</Text>
+            </View>
+          )}
           {userData?.isVerified && (
             <View style={[styles.verificationBanner, { backgroundColor: 'rgba(8, 255, 226, 0.15)' }]}>
               <Ionicons name="shield-checkmark" size={14} color="#08FFE2" />
               <Text style={[styles.verificationText, { color: '#08FFE2' }]}>Verified 17+</Text>
             </View>
           )}
-          {!userData?.verificationStatus && !userData?.isVerified && (
+          {(!userData?.verificationStatus || userData?.verificationStatus === 'rejected' || userData?.verificationStatus === 'revoked') && !userData?.isVerified && (
             <TouchableOpacity 
               style={styles.verifyButton}
               onPress={() => navigation.navigate('AgeVerification')}
             >
               <Ionicons name="shield-outline" size={14} color="#fff" />
-              <Text style={styles.verifyButtonText}>Verify Account</Text>
+              <Text style={styles.verifyButtonText}>{userData?.verificationStatus === 'rejected' || userData?.verificationStatus === 'revoked' ? 'Re-verify Account' : 'Verify Account'}</Text>
             </TouchableOpacity>
           )}
           
@@ -722,13 +729,45 @@ export default function EditProfileScreen({ navigation, route }) {
 
                 <TouchableOpacity
                   style={[styles.modalButton, { backgroundColor: C.brand }]}
-                  onPress={() => {
-                    updateProfile({
-                      firstName: name.firstName,
-                      lastName: name.lastName,
-                      username: username,
-                      gender: gender
-                    });
+                  onPress={async () => {
+                    // Validate username before saving
+                    const sanitized = sanitizeUsername(username);
+                    if (sanitized && !USERNAME_REGEX.test(sanitized)) {
+                      Alert.alert('Invalid Username', 'Username must be 3-20 characters (lowercase letters, numbers, ., -, _)');
+                      return;
+                    }
+
+                    const oldUsername = userData?.username || '';
+                    const usernameChanged = sanitized !== sanitizeUsername(oldUsername);
+
+                    if (usernameChanged && sanitized) {
+                      // Atomically reserve new username and release old one
+                      const auth = getAuth(app);
+                      const user = auth.currentUser;
+                      if (!user) { Alert.alert('Error', 'Not logged in'); return; }
+                      const result = await changeUsername(user.uid, sanitized, oldUsername);
+                      if (!result.success) {
+                        Alert.alert('Username Error', result.error);
+                        return;
+                      }
+                      // Username already updated in Firestore by changeUsername,
+                      // so only pass the other fields to updateProfile
+                      updateProfile({
+                        firstName: name.firstName,
+                        lastName: name.lastName,
+                        gender: gender,
+                      });
+                      // Sync local username state
+                      setUsername(sanitized);
+                      setUserData(prev => ({ ...prev, username: sanitized }));
+                    } else {
+                      updateProfile({
+                        firstName: name.firstName,
+                        lastName: name.lastName,
+                        username: sanitized || oldUsername,
+                        gender: gender,
+                      });
+                    }
                     setModalVisible(false);
                   }}
                 >
