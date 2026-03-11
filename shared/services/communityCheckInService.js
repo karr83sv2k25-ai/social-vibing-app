@@ -20,6 +20,10 @@ import {
   runTransaction,
 } from 'firebase/firestore';
 import { getDocsWithRetry, getDocWithRetry } from '../../utils/firestoreHelpers';
+import LEVEL_IMAGES from '../../assets/levelImages';
+
+// Re-export so consumers can import from this file
+export { default as LEVEL_IMAGES } from '../../assets/levelImages';
 
 // ============================================
 // CONFIGURATION
@@ -32,20 +36,36 @@ export const POINTS_CONFIG = {
 };
 
 export const COINS_CONFIG = {
-  DAILY_CHECK_IN: 5,            // Base coins per check-in
-  WEEKLY_BONUS: 10,             // +10 coins on day 7
-  MONTHLY_BONUS: 50,            // +50 coins on day 30
+  DAILY_CHECK_IN: 0,            // Coins removed - earn via watching ads only
+  WEEKLY_BONUS: 0,              // Coins removed
+  MONTHLY_BONUS: 0,             // Coins removed
 };
 
-export const BADGES = [
-  { name: 'Newbie', minPoints: 0, color: '#808080', icon: '🌱', tier: 0 },
-  { name: 'Bronze', minPoints: 100, color: '#CD7F32', icon: '🥉', tier: 1 },
-  { name: 'Silver', minPoints: 500, color: '#C0C0C0', icon: '🥈', tier: 2 },
-  { name: 'Gold', minPoints: 1000, color: '#FFD700', icon: '🥇', tier: 3 },
-  { name: 'Platinum', minPoints: 2500, color: '#E5E4E2', icon: '💎', tier: 4 },
-  { name: 'Diamond', minPoints: 5000, color: '#B9F2FF', icon: '💠', tier: 5 },
-  { name: 'Master', minPoints: 10000, color: '#FF6B6B', icon: '👑', tier: 6 },
+export const LEVELS = [
+  { name: 'Brand New',          minPoints: 0,      color: '#4ECDC4', level: 1,  tier: 0,  image: LEVEL_IMAGES[1] },
+  { name: 'Newbie',             minPoints: 5,      color: '#4ECDC4', level: 2,  tier: 1,  image: LEVEL_IMAGES[2] },
+  { name: 'Apprentice',         minPoints: 10,     color: '#4ECDC4', level: 3,  tier: 2,  image: LEVEL_IMAGES[3] },
+  { name: 'Jr. Member',         minPoints: 25,     color: '#FFD700', level: 4,  tier: 3,  image: LEVEL_IMAGES[4] },
+  { name: 'Associate Member',   minPoints: 50,     color: '#C0C0C0', level: 5,  tier: 4,  image: LEVEL_IMAGES[5] },
+  { name: 'Sr. Member',         minPoints: 100,    color: '#FFD700', level: 6,  tier: 5,  image: LEVEL_IMAGES[6] },
+  { name: 'Advanced Member',    minPoints: 200,    color: '#DAA520', level: 7,  tier: 6,  image: LEVEL_IMAGES[7] },
+  { name: 'Experienced Member', minPoints: 500,    color: '#DAA520', level: 8,  tier: 7,  image: LEVEL_IMAGES[8] },
+  { name: 'Veteran Member',     minPoints: 1000,   color: '#DAA520', level: 9,  tier: 8,  image: LEVEL_IMAGES[9] },
+  { name: 'Power Member',       minPoints: 2000,   color: '#E91E8C', level: 10, tier: 9,  image: LEVEL_IMAGES[10] },
+  { name: 'Super Member',       minPoints: 3000,   color: '#9B59B6', level: 11, tier: 10, image: LEVEL_IMAGES[11] },
+  { name: 'Ultra Member',       minPoints: 5000,   color: '#9B59B6', level: 12, tier: 11, image: LEVEL_IMAGES[12] },
+  { name: 'Professional',       minPoints: 7000,   color: '#9B59B6', level: 13, tier: 12, image: LEVEL_IMAGES[13] },
+  { name: 'Expert',             minPoints: 10000,  color: '#9B59B6', level: 14, tier: 13, image: LEVEL_IMAGES[14] },
+  { name: 'Virtuoso',           minPoints: 20000,  color: '#FF4500', level: 15, tier: 14, image: LEVEL_IMAGES[15] },
+  { name: 'Champion',           minPoints: 40000,  color: '#2196F3', level: 16, tier: 15, image: LEVEL_IMAGES[16] },
+  { name: 'Master',             minPoints: 60000,  color: '#2196F3', level: 17, tier: 16, image: LEVEL_IMAGES[17] },
+  { name: 'Celebrity',          minPoints: 100000, color: '#2196F3', level: 18, tier: 17, image: LEVEL_IMAGES[18] },
+  { name: 'Legendary',          minPoints: 250000, color: '#FFD700', level: 19, tier: 18, image: LEVEL_IMAGES[19] },
+  { name: 'Ultimate',           minPoints: 500000, color: '#FF2D55', level: 20, tier: 19, image: LEVEL_IMAGES[20] },
 ];
+
+// Backward compatibility alias
+export const BADGES = LEVELS;
 
 // ============================================
 // HELPER FUNCTIONS
@@ -155,35 +175,42 @@ const getStreakCoinsBonus = (streak) => {
 };
 
 /**
- * Get user's badge based on total points
+ * Get user's level based on total points
  */
-export const getUserBadge = (totalPoints) => {
-  let badge = BADGES[0]; // Default to Newbie
-  for (const b of BADGES) {
-    if (totalPoints >= b.minPoints) {
-      badge = b;
+export const getUserLevel = (totalPoints) => {
+  let level = LEVELS[0]; // Default to Beginner
+  for (const l of LEVELS) {
+    if (totalPoints >= l.minPoints) {
+      level = l;
     }
   }
-  return badge;
+  return level;
 };
 
+// Backward compatibility alias
+export const getUserBadge = getUserLevel;
+
 /**
- * Get next badge and points needed
+ * Get next level and points needed
  */
-export const getNextBadge = (totalPoints) => {
-  const currentBadge = getUserBadge(totalPoints);
-  const nextBadgeIndex = BADGES.findIndex(b => b.name === currentBadge.name) + 1;
+export const getNextLevel = (totalPoints) => {
+  const currentLevel = getUserLevel(totalPoints);
+  const nextLevelIndex = LEVELS.findIndex(l => l.name === currentLevel.name) + 1;
   
-  if (nextBadgeIndex >= BADGES.length) {
-    return { nextBadge: null, pointsNeeded: 0 };
+  if (nextLevelIndex >= LEVELS.length) {
+    return { nextLevel: null, nextBadge: null, pointsNeeded: 0 };
   }
   
-  const nextBadge = BADGES[nextBadgeIndex];
+  const nextLevel = LEVELS[nextLevelIndex];
   return {
-    nextBadge,
-    pointsNeeded: nextBadge.minPoints - totalPoints,
+    nextLevel,
+    nextBadge: nextLevel, // backward compat
+    pointsNeeded: nextLevel.minPoints - totalPoints,
   };
 };
+
+// Backward compatibility alias
+export const getNextBadge = getNextLevel;
 
 /**
  * Compute the live (real-time) streak for a check-in record.
@@ -297,6 +324,10 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
       const walletSnap = await transaction.get(walletRef);
       const userProfileRef = doc(db, 'users', userId);
       const userProfileSnap = await transaction.get(userProfileRef);
+      // Also read community membership doc for communityNickname
+      const membershipId = `${userId}_${communityId}`;
+      const membershipRef = doc(db, 'communities_members', membershipId);
+      const membershipSnap = await transaction.get(membershipRef);
       // ========================================================
       // END OF READS — no more transaction.get() calls below
       // ========================================================
@@ -361,10 +392,16 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
         updateData.createdAt = serverTimestamp();
       }
       
-      // Denormalize displayName & photoURL for leaderboard (from the read above)
+      // Denormalize displayName & photoURL for leaderboard (from the reads above)
+      // Prefer community nickname over global displayName
+      const membershipData = membershipSnap.exists() ? membershipSnap.data() : null;
+      const communityNickname = membershipData?.communityNickname || null;
+      
       if (userProfileSnap.exists()) {
         const userProfile = userProfileSnap.data();
-        updateData.displayName = sanitizeDisplayName(userProfile.displayName || userProfile.username);
+        updateData.displayName = sanitizeDisplayName(
+          communityNickname || userProfile.displayName || userProfile.username
+        );
         updateData.photoURL = userProfile.photoURL || userProfile.profileImage || null;
       }
 
@@ -375,25 +412,27 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
       // Update check-in document
       transaction.set(checkInRef, updateData, { merge: true });
       
-      // Update wallet
-      if (walletSnap.exists()) {
-        transaction.update(walletRef, {
-          coins: increment(coinsEarned),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        transaction.set(walletRef, {
-          userId,
-          coins: coinsEarned,
-          diamonds: 0,
-          earningsBalance: 0,
-          withdrawableBalance: 0,
-          pendingEarnings: 0,
-          lifetimeEarnings: 0,
-          minimumWithdrawal: 50,
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
-        });
+      // Only update wallet if coins earned > 0
+      if (coinsEarned > 0) {
+        if (walletSnap.exists()) {
+          transaction.update(walletRef, {
+            coins: increment(coinsEarned),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          transaction.set(walletRef, {
+            userId,
+            coins: coinsEarned,
+            diamonds: 0,
+            earningsBalance: 0,
+            withdrawableBalance: 0,
+            pendingEarnings: 0,
+            lifetimeEarnings: 0,
+            minimumWithdrawal: 50,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
       }
       
       // Add to history
@@ -432,7 +471,9 @@ export const checkInToCommunity = async (db, communityId, userId, walletContext 
       
       return {
         ...result,
-        message: `Check-in successful! +${result.pointsEarned} points, +${result.coinsEarned} coins`,
+        message: result.coinsEarned > 0 
+          ? `Check-in successful! +${result.pointsEarned} points, +${result.coinsEarned} coins`
+          : `Check-in successful! +${result.pointsEarned} points`,
         badge: getUserBadge(result.totalPoints),
         nextBadge: getNextBadge(result.totalPoints),
       };
@@ -497,11 +538,44 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
       data: docSnap.data(),
     }));
     
+    // Collect ALL user IDs for community nickname lookup
+    const allUserIds = checkInData
+      .map(item => item.data.userId)
+      .filter(Boolean);
+    
     // Determine which user IDs are missing denormalized profile data
     const missingUserIds = checkInData
       .filter(item => !item.data.displayName)
       .map(item => item.data.userId)
       .filter(Boolean);
+    
+    // Batch-fetch community membership docs for community nicknames
+    const nicknameMap = {};
+    if (allUserIds.length > 0) {
+      const nickBatchSize = 10;
+      const nickBatches = [];
+      for (let i = 0; i < allUserIds.length; i += nickBatchSize) {
+        nickBatches.push(allUserIds.slice(i, i + nickBatchSize));
+      }
+      
+      const nickResults = await Promise.all(
+        nickBatches.map(batch =>
+          Promise.all(
+            batch.map(uid => {
+              const membershipId = `${uid}_${communityId}`;
+              return getDocWithRetry(doc(db, 'communities_members', membershipId), { silentFail: true })
+                .then(snap => {
+                  if (snap?.exists()) {
+                    const nickname = snap.data()?.communityNickname;
+                    if (nickname) nicknameMap[uid] = sanitizeDisplayName(nickname);
+                  }
+                })
+                .catch(() => {});
+            })
+          )
+        )
+      );
+    }
     
     // Batch-fetch only the users whose profile is NOT already in the checkIn doc
     const userDataMap = {};
@@ -540,10 +614,11 @@ export const getCommunityLeaderboard = async (db, communityId, filter = 'all', l
       const data = item.data;
       const userId = data.userId;
 
-      // Prefer denormalized displayName/photoURL from checkIn doc; fall back to fetched batch
-      const displayName = data.displayName
-        ? sanitizeDisplayName(data.displayName)
-        : (userDataMap[userId]?.displayName || 'Unknown User');
+      // Prefer community nickname > denormalized displayName > fetched user data
+      const displayName = nicknameMap[userId]
+        || (data.displayName ? sanitizeDisplayName(data.displayName) : null)
+        || userDataMap[userId]?.displayName
+        || 'Unknown User';
       const photoURL = data.photoURL != null
         ? data.photoURL
         : (userDataMap[userId]?.photoURL || null);
@@ -753,6 +828,8 @@ export default {
   POINTS_CONFIG,
   COINS_CONFIG,
   BADGES,
+  LEVELS,
+  LEVEL_IMAGES,
   getUserCheckInData,
   checkInToCommunity,
   getCommunityLeaderboard,
@@ -760,7 +837,9 @@ export default {
   getCheckInHistory,
   canCheckInToday,
   getUserBadge,
+  getUserLevel,
   getNextBadge,
+  getNextLevel,
   getLiveStreak,
   formatTimeRemaining,
 };

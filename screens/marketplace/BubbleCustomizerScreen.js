@@ -40,7 +40,7 @@ export default function BubbleCustomizerScreen({ route, navigation }) {
         setProduct({ id: productDoc.id, ...productDoc.data() });
       } else {
         Alert.alert('Error', 'Product not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Failed to fetch product:', error);
@@ -79,7 +79,7 @@ export default function BubbleCustomizerScreen({ route, navigation }) {
         'Chat bubble theme applied successfully',
         [
           { text: 'Go to Chats', onPress: () => navigation.navigate('Messages') },
-          { text: 'OK', onPress: () => navigation.goBack() },
+          { text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') },
         ]
       );
     } catch (error) {
@@ -104,7 +104,7 @@ export default function BubbleCustomizerScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color={TEXT} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Chat Bubble Preview</Text>

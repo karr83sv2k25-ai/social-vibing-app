@@ -69,7 +69,7 @@ export default function ProductCreationWizardScreen({ route, navigation }) {
 
     const pickCoverImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             allowsEditing: true,
             aspect: [1, 1],
             quality: 0.8,
@@ -83,7 +83,7 @@ export default function ProductCreationWizardScreen({ route, navigation }) {
 
     const pickPreviewImages = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            mediaTypes: ['images'],
             allowsMultipleSelection: true,
             quality: 0.8,
         });
@@ -152,7 +152,7 @@ export default function ProductCreationWizardScreen({ route, navigation }) {
 
     const handleBack = () => {
         if (step === 1) {
-            navigation.goBack();
+            navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         } else {
             setStep(step - 1);
         }

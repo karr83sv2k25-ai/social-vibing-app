@@ -293,7 +293,7 @@ export default function LoginScreen({ navigation }) {
   };
 
   const handleBack = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login');
   };
 
   // Show loading indicator while fonts are loading

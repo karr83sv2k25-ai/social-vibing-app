@@ -4,7 +4,7 @@
  * Handles uploading various file types (documents, PDFs, etc.) to Hostinger
  */
 
-import { hostingerConfig } from '../hostingerConfig';
+import { hostingerConfig, fetchWithTimeout } from '../hostingerConfig';
 import { normalizeBlobUri } from './normalizeUri';
 
 /**
@@ -39,14 +39,15 @@ export const uploadFileToHostinger = async (file, folder = 'chat_files') => {
     formData.append('api_key', hostingerConfig.apiKey);
 
     // Upload to Hostinger
-    const response = await fetch(hostingerConfig.uploadUrl, {
+    // NOTE: Do NOT set Content-Type manually — React Native must auto-generate
+    // the multipart boundary.
+    const response = await fetchWithTimeout(hostingerConfig.uploadUrl, {
       method: 'POST',
       body: formData,
       headers: {
-        'Content-Type': 'multipart/form-data',
         'X-API-Key': hostingerConfig.apiKey,
       },
-    });
+    }, 30000);
 
     if (!response.ok) {
       const errorText = await response.text();

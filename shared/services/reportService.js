@@ -618,7 +618,6 @@ export const takeActionOnReport = async (reportId, {
         batch.update(userRef, {
           isSuspended: true,
           suspendedReason: actionDetails.reason || 'Account under review',
-          suspensionReason: actionDetails.reason || 'Account under review',
           suspendedAt: serverTimestamp(),
           suspendedBy: adminId,
         });
@@ -845,6 +844,125 @@ export const getReportStatistics = async () => {
   }
 };
 
+// ==================== GET REPORTS FOR COMMUNITY (COMMUNITY STAFF) ====================
+/**
+ * Get reports that are scoped to a specific community.
+ * Community leaders/owners can use this to review reports inside their community.
+ * @param {string} communityId - Community ID
+ * @param {Object} options - Query options
+ */
+export const getReportsForCommunity = async (communityId, {
+  status = null,
+  limitCount = 50,
+} = {}) => {
+  try {
+    if (!communityId) {
+      return { success: false, error: 'Community ID is required' };
+    }
+
+    const constraints = [
+      where('communityId', '==', communityId),
+      orderBy('createdAt', 'desc'),
+      limit(limitCount),
+    ];
+
+    if (status) {
+      constraints.unshift(where('status', '==', status));
+    }
+
+    const q = query(collection(db, 'reports'), ...constraints);
+    const snapshot = await getDocs(q);
+
+    const reports = [];
+    snapshot.forEach((d) => {
+      reports.push({
+        id: d.id,
+        ...d.data(),
+        createdAt: d.data().createdAt?.toDate(),
+        updatedAt: d.data().updatedAt?.toDate(),
+        reviewedAt: d.data().reviewedAt?.toDate(),
+      });
+    });
+
+    return { success: true, reports };
+  } catch (error) {
+    console.error('❌ Error fetching community reports:', error);
+    return { success: false, error: error.message };
+  }
+};
+
+// ==================== GET COMMUNITY PENDING REPORTS COUNT ====================
+/**
+ * Get count of pending reports for a specific community (for community staff).
+ */
+export const getCommunityPendingReportsCount = async (communityId) => {
+  try {
+    if (!communityId) return { success: false, count: 0 };
+    const q = query(
+      collection(db, 'reports'),
+      where('communityId', '==', communityId),
+      where('status', '==', REPORT_STATUS.PENDING)
+    );
+    const snapshot = await getDocs(q);
+    return { success: true, count: snapshot.size };
+  } catch (error) {
+    console.error('❌ Error getting community pending reports count:', error);
+    return { success: false, count: 0, error: error.message };
+  }
+};
+
+// ==================== COMMUNITY STAFF REPORT ACTION ====================
+/**
+ * Community staff (leader/owner) can dismiss or mark a community-scoped report as reviewed.
+ * They CANNOT take platform-level actions (ban, warn globally) — only admins can.
+ * Available actions for community staff: 'dismissed', 'content_removed' (post hidden), 'reviewed'
+ *
+ * @param {string} reportId - Report ID
+ * @param {string} staffId - Community staff user ID
+ * @param {string} action - 'dismissed' | 'content_removed' | 'reviewed'
+ * @param {string} notes - Optional notes
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+export const takeCommunityStaffAction = async (reportId, staffId, action, notes = '') => {
+  try {
+    if (!reportId || !staffId || !action) {
+      return { success: false, error: 'reportId, staffId and action are all required' };
+    }
+
+    const allowedActions = ['dismissed', 'content_removed', 'reviewed'];
+    if (!allowedActions.includes(action)) {
+      return { success: false, error: `Invalid action. Allowed: ${allowedActions.join(', ')}` };
+    }
+
+    const reportRef = doc(db, 'reports', reportId);
+    const reportSnap = await getDoc(reportRef);
+    if (!reportSnap.exists()) {
+      return { success: false, error: 'Report not found' };
+    }
+
+    const newStatus = action === 'dismissed'
+      ? REPORT_STATUS.DISMISSED
+      : action === 'content_removed'
+        ? REPORT_STATUS.ACTION_TAKEN
+        : REPORT_STATUS.UNDER_REVIEW;
+
+    await updateDoc(reportRef, {
+      status: newStatus,
+      actionTaken: action,
+      communityReviewedBy: staffId,
+      communityReviewedAt: serverTimestamp(),
+      adminNotes: notes || null,
+      isResolved: action !== 'reviewed',
+      updatedAt: serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('❌ Error taking community staff action:', error);
+    return { success: false, error: error.message };
+  }
+};
+
 export default {
   REPORT_TYPES,
   REPORT_REASONS,
@@ -859,4 +977,7 @@ export default {
   getUserReportHistory,
   getReportsAgainstUser,
   getReportStatistics,
+  getReportsForCommunity,
+  getCommunityPendingReportsCount,
+  takeCommunityStaffAction,
 };

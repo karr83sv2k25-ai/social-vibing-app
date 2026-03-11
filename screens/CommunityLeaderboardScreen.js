@@ -13,7 +13,9 @@ import {
   Dimensions,
   Platform,
   RefreshControl,
+  Image,
 } from 'react-native';
+import { Asset } from 'expo-asset';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -26,12 +28,17 @@ import CachedImage from '../components/CachedImage';
 import {
   getCommunityLeaderboard,
   getUserRank,
-  getUserBadge,
+  getUserLevel,
   getLiveStreak,
-  BADGES,
+  LEVELS,
+  LEVEL_IMAGES,
 } from '../shared/services/communityCheckInService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Pre-decode all level badge PNGs as soon as this module is loaded so they
+// are ready in the image cache before the first render.
+Asset.loadAsync(Object.values(LEVEL_IMAGES)).catch(() => {});
 
 const COLORS = {
   bg: '#1A1D24',
@@ -323,7 +330,7 @@ function CommunityLeaderboardScreen() {
     if (!userRankData || !userRankData.rank) return null;
 
     const { rank, totalUsers, points, userData } = userRankData;
-    const badge = userData?.badge || getUserBadge(points || 0);
+    const badge = userData?.badge || getUserLevel(points || 0);
     const streak = userData?.currentStreak ?? 0;
 
     return (
@@ -336,8 +343,8 @@ function CommunityLeaderboardScreen() {
           <View style={styles.userRankHeader}>
             <Text style={styles.userRankTitle}>Your Ranking</Text>
             <View style={styles.userRankBadge}>
-              <Text style={styles.badgeIcon}>{badge?.icon || '🌱'}</Text>
-              <Text style={styles.badgeName}>{badge?.name || 'Newbie'}</Text>
+              <Image source={badge?.image || LEVEL_IMAGES[1]} style={styles.badgeLevelImage} />
+              <Text style={styles.badgeName}>Lvl {badge?.level || 1} - {badge?.name || 'Beginner'}</Text>
             </View>
           </View>
           <View style={styles.userRankStats}>
@@ -405,38 +412,54 @@ function CommunityLeaderboardScreen() {
               <MaterialCommunityIcons name="crown" size={32} color={COLORS.gold} />
             </View>
           )}
-          
-          {/* Avatar with colored ring */}
-          <View style={[
-            styles.avatarRing,
-            { width: ringSize, height: ringSize, borderColor: RANK_COLORS[rank] },
-            isFirst && styles.avatarRingFirst,
-          ]}>
-            {user?.photoURL ? (
-              <CachedImage
-                source={{ uri: user.photoURL }}
-                style={[styles.podiumAvatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}
-              />
-            ) : (
-              <View style={[styles.podiumAvatar, styles.avatarFallback, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
-                <Ionicons name="person" size={avatarSize * 0.5} color={COLORS.dim} />
-              </View>
-            )}
-          </View>
-          
-          {/* Medal badge */}
-          <View style={[
-            styles.medalBadge,
-            { backgroundColor: MEDAL_COLORS[rank].bg },
-            isFirst && styles.medalBadgeFirst,
-          ]}>
-            <Text style={[styles.medalText, { color: MEDAL_COLORS[rank].text }]}>{rank}</Text>
+
+          {/* Avatar + medal badge in a self-contained wrapper */}
+          <View style={{ position: 'relative' }}>
+            {/* Colored ring */}
+            <View style={[
+              styles.avatarRing,
+              { width: ringSize, height: ringSize, borderColor: RANK_COLORS[rank] },
+              isFirst && styles.avatarRingFirst,
+            ]}>
+              {user?.photoURL ? (
+                <CachedImage
+                  source={{ uri: user.photoURL }}
+                  style={[styles.podiumAvatar, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}
+                />
+              ) : (
+                <View style={[styles.podiumAvatar, styles.avatarFallback, { width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2 }]}>
+                  <Ionicons name="person" size={avatarSize * 0.5} color={COLORS.dim} />
+                </View>
+              )}
+            </View>
+
+            {/* Medal badge – anchored to bottom-right of the ring */}
+            <View style={[
+              styles.medalBadge,
+              { backgroundColor: MEDAL_COLORS[rank].bg },
+              isFirst && styles.medalBadgeFirst,
+            ]}>
+              <Text style={[styles.medalText, { color: MEDAL_COLORS[rank].text }]}>{rank}</Text>
+            </View>
           </View>
           
           {/* Username */}
           <Text style={styles.podiumName} numberOfLines={1}>
             {user?.displayName || 'User'}
           </Text>
+
+          {/* Level Badge */}
+          {(() => {
+            const podiumBadge = user?.badge || getUserLevel(user?.points || 0);
+            return (
+              <View style={styles.podiumBadgeRow}>
+                <Image source={podiumBadge?.image || LEVEL_IMAGES[1]} style={styles.podiumLevelImage} />
+                <Text style={[styles.podiumBadgeName, { color: podiumBadge?.color || COLORS.dim }]}>
+                  Lvl {podiumBadge?.level || 1}
+                </Text>
+              </View>
+            );
+          })()}
 
           {/* Points (primary metric) */}
           <Text style={[styles.podiumPoints, isFirst && styles.podiumPointsFirst]}>
@@ -455,17 +478,17 @@ function CommunityLeaderboardScreen() {
     
     return (
       <View style={styles.podiumContainer}>
-        {/* Second Place - Left */}
-        <View style={styles.podiumPosition}>
+        {/* Second Place - Left: middle height */}
+        <View style={[styles.podiumPosition, { marginBottom: 28 }]}>
           {renderPodiumUser(second, 2)}
         </View>
 
-        {/* First Place - Center (larger) */}
-        <View style={[styles.podiumPosition, styles.podiumCenterPosition]}>
+        {/* First Place - Center: highest */}
+        <View style={[styles.podiumPosition, { marginBottom: 60 }]}>
           {renderPodiumUser(first, 1)}
         </View>
 
-        {/* Third Place - Right */}
+        {/* Third Place - Right: lowest (baseline) */}
         <View style={styles.podiumPosition}>
           {renderPodiumUser(third, 3)}
         </View>
@@ -478,7 +501,7 @@ function CommunityLeaderboardScreen() {
     if (index < 3) return null; // Top 3 shown in podium
 
     const isCurrentUser = currentUser?.id === item.userId;
-    const badge = item.badge || getUserBadge(item.points || 0);
+    const badge = item.badge || getUserLevel(item.points || 0);
     const rank = item.rank || index + 1;
     const rankColor = getCommunityRankColor(rank);
     const streak = item.currentStreak || 0;
@@ -513,12 +536,20 @@ function CommunityLeaderboardScreen() {
 
         {/* User Info */}
         <View style={styles.userInfo}>
-          <Text style={[styles.userName, isCurrentUser && styles.userNameCurrentUser]} numberOfLines={1}>
-            {item.displayName || 'User'}
-          </Text>
+          <View style={styles.userNameRow}>
+            <Text style={[styles.userName, isCurrentUser && styles.userNameCurrentUser]} numberOfLines={1}>
+              {item.displayName || 'User'}
+            </Text>
+            <View style={styles.rankBadgeInline}>
+              <Image source={badge?.image || LEVEL_IMAGES[1]} style={styles.rankBadgeLevelImage} />
+              <Text style={[styles.rankBadgeLabel, { color: badge?.color || COLORS.dim }]}>
+                Lvl {badge?.level || 1}
+              </Text>
+            </View>
+          </View>
           <View style={styles.userStatsRow}>
             <Ionicons name="star-outline" size={12} color={COLORS.dim} />
-            <Text style={styles.levelText}>Lvl {badge.tier + 1}</Text>
+            <Text style={styles.levelText}>Lvl {badge.level || 1}</Text>
             <Ionicons name="trending-up" size={12} color={COLORS.dim} style={{ marginLeft: 8 }} />
             <Text style={styles.pointsSmallText}>{formatNumber(item.points || 0)} pts</Text>
           </View>
@@ -544,7 +575,7 @@ function CommunityLeaderboardScreen() {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="chevron-back" size={28} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>
@@ -570,7 +601,7 @@ function CommunityLeaderboardScreen() {
 
       {/* Header - Simplified dark style */}
       <View style={[styles.header, { paddingTop: insets.top + 6 }]}>
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="chevron-back" size={28} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
@@ -793,6 +824,12 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 12,
   },
+  badgeLevelImage: {
+    width: 22,
+    height: 22,
+    marginRight: 6,
+    resizeMode: 'contain',
+  },
   badgeIcon: {
     fontSize: 14,
     marginRight: 6,
@@ -874,7 +911,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   podiumCenterPosition: {
-    marginTop: -20, // Raise center position up
+    // elevation handled via marginBottom in JSX for proper stepped podium
   },
   podiumUserContainer: {
     alignItems: 'center',
@@ -917,7 +954,8 @@ const styles = StyleSheet.create({
   },
   medalBadge: {
     position: 'absolute',
-    bottom: 45,
+    bottom: -5,
+    right: -5,
     width: 24,
     height: 24,
     borderRadius: 12,
@@ -930,19 +968,39 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    bottom: 55,
+    bottom: -6,
+    right: -6,
   },
   medalText: {
     fontSize: 12,
     fontWeight: 'bold',
   },
   podiumName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: COLORS.text,
-    marginTop: 10,
-    maxWidth: 100,
+    marginTop: 12,
+    maxWidth: 105,
     textAlign: 'center',
+  },
+  podiumBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  podiumLevelImage: {
+    width: 18,
+    height: 18,
+    marginRight: 3,
+    resizeMode: 'contain',
+  },
+  podiumBadgeIcon: {
+    fontSize: 12,
+    marginRight: 3,
+  },
+  podiumBadgeName: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   podiumPoints: {
     fontSize: 14,
@@ -1019,6 +1077,34 @@ const styles = StyleSheet.create({
   },
   userNameCurrentUser: {
     color: COLORS.purple,
+  },
+  userNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  rankBadgeInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card2,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  rankBadgeLevelImage: {
+    width: 16,
+    height: 16,
+    marginRight: 3,
+    resizeMode: 'contain',
+  },
+  rankBadgeIcon: {
+    fontSize: 10,
+    marginRight: 3,
+  },
+  rankBadgeLabel: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   userStatsRow: {
     flexDirection: 'row',

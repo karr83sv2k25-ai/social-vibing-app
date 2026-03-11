@@ -114,7 +114,7 @@ export default function GroupAudioCallScreen() {
         } else {
           console.log('[GroupCall] No authenticated user');
           Alert.alert('Error', 'You must be logged in to join a call');
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         }
       } catch (e) {
         console.log('[Agora] Error fetching user:', e);
@@ -138,7 +138,7 @@ export default function GroupAudioCallScreen() {
           Alert.alert(
             'Configuration Required',
             'Please add your Agora App ID in agoraConfig.js\n\nGet it from: https://console.agora.io',
-            [{ text: 'OK', onPress: () => navigation.goBack() }]
+            [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
           );
           return;
         }
@@ -150,7 +150,7 @@ export default function GroupAudioCallScreen() {
           );
           if (granted !== PermissionsAndroid.RESULTS.GRANTED) {
             Alert.alert('Permission Denied', 'Microphone permission is required for voice calls');
-            navigation.goBack();
+            navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
             return;
           }
         }
@@ -223,7 +223,7 @@ export default function GroupAudioCallScreen() {
               Alert.alert(
                 'Connection Timeout',
                 'Failed to join the voice channel. Please check:\\n\\n1. Your internet connection\\n2. Agora App Certificate is DISABLED (for testing with null token)\\n3. Or generate a valid token if App Certificate is enabled',
-                [{ text: 'OK', onPress: () => navigation.goBack() }]
+                [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
               );
             }
           },
@@ -288,7 +288,7 @@ export default function GroupAudioCallScreen() {
           Alert.alert(
             'Error', 
             'Unable to join voice room. User information is missing.\n\nPlease ensure your profile is set up correctly.',
-            [{ text: 'OK', onPress: () => navigation.goBack() }]
+            [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
           );
           return;
         }
@@ -341,7 +341,7 @@ export default function GroupAudioCallScreen() {
         Alert.alert(
           'Initialization Failed', 
           errorMessage,
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
+          [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
         );
       }
     };
@@ -415,7 +415,7 @@ export default function GroupAudioCallScreen() {
           if (!data.isActive) {
             console.log('[Agora] Room ended');
             Alert.alert('Room Ended', 'The voice room has been closed', [
-              { text: 'OK', onPress: () => navigation.goBack() }
+              { text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }
             ]);
             return;
           }
@@ -438,7 +438,7 @@ export default function GroupAudioCallScreen() {
           // Room was deleted
           console.log('[Agora] Room no longer exists');
           Alert.alert('Room Ended', 'This voice room has been closed', [
-            { text: 'OK', onPress: () => navigation.goBack() }
+            { text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }
           ]);
         }
       },
@@ -604,7 +604,7 @@ export default function GroupAudioCallScreen() {
                     console.log('[Agora] Error updating message status on leave:', e);
                   }
                   
-                  navigation.goBack();
+                  navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                 },
               },
               {
@@ -628,7 +628,7 @@ export default function GroupAudioCallScreen() {
                   await agoraEngine.leaveChannel();
                 }
                 await leaveGroupCall(callId, currentUser.id);
-                navigation.goBack();
+                navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
               },
             },
           ]);
@@ -638,14 +638,14 @@ export default function GroupAudioCallScreen() {
         if (agoraEngine) {
           await agoraEngine.leaveChannel();
         }
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.log('Error leaving call:', error);
       if (agoraEngine) {
         agoraEngine.leaveChannel();
       }
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 

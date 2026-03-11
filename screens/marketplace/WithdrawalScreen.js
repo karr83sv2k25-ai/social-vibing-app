@@ -123,7 +123,7 @@ export default function WithdrawalScreen({ navigation }) {
                                 [
                                     {
                                         text: 'OK',
-                                        onPress: () => navigation.goBack(),
+                                        onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar'),
                                     },
                                 ]
                             );
@@ -274,7 +274,7 @@ export default function WithdrawalScreen({ navigation }) {
         <SafeAreaView style={styles.container}>
             {/* Header */}
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}>
+                <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
                     <Ionicons name="arrow-back" size={24} color={TEXT} />
                 </TouchableOpacity>
                 <Text style={styles.headerTitle}>Withdrawal</Text>

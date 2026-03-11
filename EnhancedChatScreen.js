@@ -502,7 +502,7 @@ export default function EnhancedChatScreen({ route, navigation }) {
       {/* Custom Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={28} color="#fff" />
           </TouchableOpacity>
           <Avatar name={user.name} size={40} source={user.avatar} />

@@ -58,7 +58,7 @@ export const AttachmentPicker = ({ visible, onClose, onImageSelected, onFileSele
 
     try {
       const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false, // Don't force cropping - send as-is
         quality: 0.5, // Reduced quality for faster upload and smaller size
         exif: false, // Don't include EXIF data to reduce size
@@ -80,7 +80,7 @@ export const AttachmentPicker = ({ visible, onClose, onImageSelected, onFileSele
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false, // Don't force cropping - send as-is
         quality: 0.5, // Reduced quality for faster upload and smaller size
         exif: false, // Don't include EXIF data to reduce size
@@ -102,7 +102,7 @@ export const AttachmentPicker = ({ visible, onClose, onImageSelected, onFileSele
 
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.6,
         exif: false,

@@ -6,7 +6,14 @@
 
 const {setGlobalOptions} = require("firebase-functions");
 const functions = require("firebase-functions");
+const {onSchedule} = require("firebase-functions/v2/scheduler");
 const {RtcTokenBuilder, RtcRole} = require("agora-token");
+const admin = require("firebase-admin");
+
+// Initialize Firebase Admin SDK (guard against duplicate initialization)
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
 const TOKEN_EXPIRATION_TIME = 86400; // 24 hours
 
@@ -171,6 +178,54 @@ exports.renewAgoraToken = functions.https.onRequest((req, res) => {
       error: "Failed to renew token",
     });
   }
+});
+
+// ==================== STORY CLEANUP FUNCTION ====================
+/**
+ * deleteExpiredStories
+ *
+ * Scheduled Cloud Function — runs every hour.
+ * Hard-deletes all documents in the `stories` collection whose
+ * `expiresAt` timestamp is in the past (i.e. older than 24 hours).
+ *
+ * Deploy: firebase deploy --only functions:deleteExpiredStories
+ */
+exports.deleteExpiredStories = onSchedule("every 1 hours", async (event) => {
+  const db = admin.firestore();
+  const now = admin.firestore.Timestamp.now();
+
+  functions.logger.info(
+      "⏰ Running deleteExpiredStories",
+      {now: now.toDate()},
+  );
+
+  const expiredQuery = db
+      .collection("stories")
+      .where("expiresAt", "<=", now);
+
+  const snapshot = await expiredQuery.get();
+
+  if (snapshot.empty) {
+    functions.logger.info("✅ No expired stories to delete");
+    return null;
+  }
+
+  // Delete in batches of 500 (Firestore limit)
+  const BATCH_SIZE = 500;
+  const docs = snapshot.docs;
+  let deleted = 0;
+
+  for (let i = 0; i < docs.length; i += BATCH_SIZE) {
+    const batch = db.batch();
+    docs.slice(i, i + BATCH_SIZE).forEach((docSnap) => {
+      batch.delete(docSnap.ref);
+    });
+    await batch.commit();
+    deleted += Math.min(BATCH_SIZE, docs.length - i);
+  }
+
+  functions.logger.info(`🗑️ Deleted ${deleted} expired stories`);
+  return null;
 });
 
 // ==================== MARKETPLACE FUNCTIONS ====================

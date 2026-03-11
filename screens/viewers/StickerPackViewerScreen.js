@@ -42,12 +42,12 @@ export default function StickerPackViewerScreen({route, navigation}) {
         setStickerPack(productData);
       } else {
         Alert.alert('Error', 'Sticker pack not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error loading sticker pack:', error);
       Alert.alert('Error', 'Failed to load sticker pack');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } finally {
       setLoading(false);
     }
@@ -117,7 +117,7 @@ export default function StickerPackViewerScreen({route, navigation}) {
         <Text style={styles.errorText}>No stickers available</Text>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
@@ -133,7 +133,7 @@ export default function StickerPackViewerScreen({route, navigation}) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={styles.headerButton}
         >
           <Ionicons name="arrow-back" size={24} color={TEXT} />

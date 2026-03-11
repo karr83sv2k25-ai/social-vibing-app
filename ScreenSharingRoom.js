@@ -49,7 +49,9 @@ import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
 export default function ScreenSharingRoom() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { communityId, groupTitle, roomId: existingRoomId } = route.params || {};
+  const { communityId, groupTitle: _groupTitle, roomId: existingRoomId, community: communityParam } = route.params || {};
+  // Support navigation from CommunitySidebar which passes `community` object instead of `groupTitle`
+  const groupTitle = _groupTitle || communityParam?.name || communityParam?.title;
 
   const [currentUser, setCurrentUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false); // Room creator (not community admin)
@@ -68,6 +70,8 @@ export default function ScreenSharingRoom() {
   const [videoTitle, setVideoTitle] = useState('');
   const videoRef = useRef(null);
   const [videoStatus, setVideoStatus] = useState({});
+  const screenRoomUnsubscribeRef = useRef(null);
+  const isMountedRef = useRef(true);
   
   // Chat states
   const [showChat, setShowChat] = useState(false);
@@ -115,23 +119,34 @@ export default function ScreenSharingRoom() {
     });
 
     return () => {
+      isMountedRef.current = false;
       subscription?.remove();
+      // Clean up the Firestore room listener
+      if (screenRoomUnsubscribeRef.current) {
+        screenRoomUnsubscribeRef.current();
+        screenRoomUnsubscribeRef.current = null;
+      }
     };
   }, [communityId]);
 
   const joinScreeningRoom = async (userId, userData) => {
     try {
       // db is now imported globally
-      // Use existing roomId from params or create a new one
-      const screenRoomId = existingRoomId || `screen_${communityId}_${Date.now()}`;
+      // Use existing roomId from params, or a stable per-community room ID
+      // Using a stable ID ensures all community members share the same room
+      const screenRoomId = existingRoomId || `screen_${communityId}`;
       const screenRoomRef = doc(db, 'screening_rooms', screenRoomId);
       
       setRoomId(screenRoomId);
 
       const roomSnap = await getDoc(screenRoomRef);
+      const roomExists = roomSnap.exists();
+      const roomData = roomExists ? roomSnap.data() : null;
+      // Treat the room as new if it doesn't exist or was previously ended
+      const shouldCreateFresh = !roomExists || roomData?.isActive === false;
 
-      if (!roomSnap.exists()) {
-        // Create new screening room - creator becomes admin
+      if (shouldCreateFresh) {
+        // Create (or re-activate) the screening room - creator becomes admin
         await setDoc(screenRoomRef, {
           communityId: communityId,
           communityName: groupTitle || 'Community',
@@ -139,6 +154,8 @@ export default function ScreenSharingRoom() {
           createdAt: serverTimestamp(),
           isActive: true,
           sharingUserId: null,
+          currentVideo: null,
+          playlist: [],
           participants: [{
             userId: userId,
             userName: getDisplayName(userData),
@@ -147,12 +164,11 @@ export default function ScreenSharingRoom() {
             joinedAt: new Date().toISOString(),
           }],
         });
-        // User created the room, so they are the admin
-        setIsAdmin(true);
+        // User created/re-created the room, so they are the admin
+        if (isMountedRef.current) setIsAdmin(true);
       } else {
-        // Join existing room
-        const data = roomSnap.data();
-        const existingParticipants = data.participants || [];
+        // Join existing active room
+        const existingParticipants = roomData.participants || [];
         const userExists = existingParticipants.some(p => p.userId === userId);
 
         if (!userExists) {
@@ -168,12 +184,15 @@ export default function ScreenSharingRoom() {
         }
 
         // Check if current user is the room creator
-        setIsAdmin(data.createdBy === userId);
-        setScreenShareActive(data.sharingUserId !== null);
+        if (isMountedRef.current) {
+          setIsAdmin(roomData.createdBy === userId);
+          setScreenShareActive(roomData.sharingUserId !== null);
+        }
       }
 
-      // Listen to room updates
+      // Listen to room updates — store unsubscribe in a ref so we can clean up on unmount
       const unsubscribe = onSnapshot(screenRoomRef, (snapshot) => {
+        if (!isMountedRef.current) return;
         if (snapshot.exists()) {
           const data = snapshot.data();
           console.log('Room update received:', {
@@ -202,7 +221,8 @@ export default function ScreenSharingRoom() {
         }
       });
 
-      return () => unsubscribe();
+      // Store unsubscribe so the useEffect cleanup can cancel it on unmount
+      screenRoomUnsubscribeRef.current = unsubscribe;
     } catch (e) {
       console.log('Error joining screening room:', e);
     }
@@ -304,7 +324,7 @@ export default function ScreenSharingRoom() {
 
       // Launch video picker
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        mediaTypes: ['videos'],
         allowsEditing: false,
         quality: 1,
       });
@@ -634,7 +654,7 @@ export default function ScreenSharingRoom() {
               await Promise.allSettled(updatePromises);
               
               Alert.alert('Session Ended', 'The screening room has been closed for all participants.');
-              navigation.goBack();
+              navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
             } catch (error) {
               console.error('Error ending session:', error);
               Alert.alert('Error', 'Failed to end session. Please try again.');
@@ -685,10 +705,10 @@ export default function ScreenSharingRoom() {
                       });
                     }
                     
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   } catch (e) {
                     console.log('Error leaving room:', e);
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   }
                 },
               },
@@ -732,10 +752,10 @@ export default function ScreenSharingRoom() {
                       });
                     }
                     
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   } catch (e) {
                     console.log('Error leaving room:', e);
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   }
                 },
               },
@@ -743,11 +763,11 @@ export default function ScreenSharingRoom() {
           );
         }
       } else {
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (e) {
       console.log('Error leaving room:', e);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 

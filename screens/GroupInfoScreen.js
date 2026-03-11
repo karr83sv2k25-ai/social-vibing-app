@@ -24,7 +24,8 @@ import {
   leaveGroup,
   promoteToAdmin,
   demoteAdmin,
-  updateGroupInfo 
+  updateGroupInfo,
+  deleteGroup
 } from '../utils/groupChatHelpers';
 import { uploadImageToHostinger } from '../hostingerConfig';
 import { normalizeBlobUri } from '../utils/normalizeUri';
@@ -52,6 +53,8 @@ export default function GroupInfoScreen({ route, navigation }) {
   const [tempName, setTempName] = useState('');
   const [tempDescription, setTempDescription] = useState('');
   const [showExitModal, setShowExitModal] = useState(false);
+  const [showDeleteGroupModal, setShowDeleteGroupModal] = useState(false);
+  const [deletingGroup, setDeletingGroup] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   
   // User settings
@@ -113,7 +116,7 @@ export default function GroupInfoScreen({ route, navigation }) {
     }
     
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -255,7 +258,7 @@ export default function GroupInfoScreen({ route, navigation }) {
     try {
       await leaveGroup(conversationId, currentUserId);
       setShowExitModal(false);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       Alert.alert('Left Group', 'You have left the group');
     } catch (error) {
       Alert.alert('Error', 'Failed to leave group');
@@ -305,6 +308,21 @@ export default function GroupInfoScreen({ route, navigation }) {
     );
   };
 
+  const handleDeleteGroup = async () => {
+    if (deletingGroup) return;
+    setDeletingGroup(true);
+    try {
+      await deleteGroup(conversationId, currentUserId);
+      setShowDeleteGroupModal(false);
+      navigation.popToTop();
+    } catch (error) {
+      console.error('Error deleting group:', error);
+      Alert.alert('Error', 'Failed to delete the group. Please try again.');
+    } finally {
+      setDeletingGroup(false);
+    }
+  };
+
   const handleExportChat = async () => {
     try {
       Alert.alert('Exporting...', 'Please wait while we prepare your chat export');
@@ -335,7 +353,7 @@ export default function GroupInfoScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Group Info</Text>
@@ -643,6 +661,16 @@ export default function GroupInfoScreen({ route, navigation }) {
             <Ionicons name="flag" size={22} color={DANGER} />
             <Text style={styles.dangerText}>Report Group</Text>
           </TouchableOpacity>
+
+          {isAdmin && (
+            <TouchableOpacity
+              style={[styles.dangerButton, styles.deleteGroupButton]}
+              onPress={() => setShowDeleteGroupModal(true)}
+            >
+              <Ionicons name="trash" size={22} color="#fff" />
+              <Text style={styles.deleteGroupText}>Delete Group</Text>
+            </TouchableOpacity>
+          )}
         </View>
         
         <View style={{ height: 40 }} />
@@ -676,6 +704,45 @@ export default function GroupInfoScreen({ route, navigation }) {
                 onPress={confirmExitGroup}
               >
                 <Text style={styles.confirmButtonText}>Exit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Delete Group Confirmation Modal */}
+      <Modal
+        visible={showDeleteGroupModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !deletingGroup && setShowDeleteGroupModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="trash" size={48} color={DANGER} />
+            <Text style={styles.modalTitle}>Delete Group?</Text>
+            <Text style={styles.modalText}>
+              This will permanently delete "{groupData?.groupName || 'this group'}" and all its messages. This action cannot be undone.
+            </Text>
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setShowDeleteGroupModal(false)}
+                disabled={deletingGroup}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={handleDeleteGroup}
+                disabled={deletingGroup}
+              >
+                {deletingGroup
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.confirmButtonText}>Delete</Text>
+                }
               </TouchableOpacity>
             </View>
           </View>
@@ -959,6 +1026,17 @@ const styles = StyleSheet.create({
     fontWeight: '600'
   },
   confirmButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700'
+  },
+  deleteGroupButton: {
+    backgroundColor: DANGER,
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    marginTop: 8
+  },
+  deleteGroupText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '700'

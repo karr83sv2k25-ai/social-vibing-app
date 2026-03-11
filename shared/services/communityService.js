@@ -269,9 +269,10 @@ export const featurePost = async (db, communityId, postId, userId) => {
 
     const communityData = communityDoc.data();
     
-    // Check if user is creator or moderator
-    if (communityData.creatorId !== userId && !communityData.moderators?.includes(userId)) {
-      return { success: false, error: 'Only moderators can feature posts' };
+    // Check if user is creator, admin, moderator, leader, or curator (same as announcements)
+    const isStaff = isCommunityStaff(communityData, userId);
+    if (!isStaff) {
+      return { success: false, error: 'Only community staff can feature posts' };
     }
 
     const currentFeatured = communityData.featuredPosts || [];
@@ -287,12 +288,26 @@ export const featurePost = async (db, communityId, postId, userId) => {
       updatedAt: serverTimestamp()
     });
 
-    // Update post to mark as featured
-    await updateDoc(doc(db, 'posts', postId), {
-      isFeatured: true,
-      featuredAt: serverTimestamp(),
-      featuredBy: userId
-    });
+    // Update post in the community subcollection (correct path, same as announcements)
+    try {
+      await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+        isFeatured: true,
+        featuredAt: serverTimestamp(),
+        featuredBy: userId
+      });
+    } catch {
+      // Post may be a blog — try blog subcollection
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+          isFeatured: true,
+          featuredAt: serverTimestamp(),
+          featuredBy: userId
+        });
+      } catch {
+        // Post doc update is non-critical — the featuredPosts array is the source of truth
+        console.warn('Could not mark post/blog doc as featured');
+      }
+    }
 
     console.log('✅ Post featured');
     return { success: true };
@@ -313,9 +328,10 @@ export const unfeaturePost = async (db, communityId, postId, userId) => {
 
     const communityData = communityDoc.data();
     
-    // Check if user is creator or moderator
-    if (communityData.creatorId !== userId && !communityData.moderators?.includes(userId)) {
-      return { success: false, error: 'Only moderators can unfeature posts' };
+    // Check if user is creator, admin, moderator, leader, or curator (same as announcements)
+    const isStaff = isCommunityStaff(communityData, userId);
+    if (!isStaff) {
+      return { success: false, error: 'Only community staff can unfeature posts' };
     }
 
     // Remove from featured posts
@@ -324,12 +340,24 @@ export const unfeaturePost = async (db, communityId, postId, userId) => {
       updatedAt: serverTimestamp()
     });
 
-    // Update post to unmark as featured
-    await updateDoc(doc(db, 'posts', postId), {
-      isFeatured: false,
-      featuredAt: null,
-      featuredBy: null
-    });
+    // Update post in subcollection to remove featured flag (same as announcements)
+    try {
+      await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+        isFeatured: false,
+        featuredAt: null,
+        featuredBy: null
+      });
+    } catch {
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+          isFeatured: false,
+          featuredAt: null,
+          featuredBy: null
+        });
+      } catch {
+        console.warn('Could not unmark post/blog doc as featured');
+      }
+    }
 
     console.log('✅ Post unfeatured');
     return { success: true };
@@ -354,10 +382,16 @@ export const getFeaturedPosts = async (db, communityId, limitCount = 10) => {
       return { success: true, data: [] };
     }
 
-    // Fetch featured posts
+    // Fetch featured posts from community subcollection (same path as announcements)
     const featured = await Promise.all(
       featuredIds.slice(0, limitCount).map(async (postId) => {
-        const postDoc = await getDoc(doc(db, 'posts', postId));
+        // Try posts subcollection first
+        let postDoc = await getDoc(doc(db, 'communities', communityId, 'posts', postId));
+        if (postDoc.exists()) {
+          return { id: postId, ...postDoc.data() };
+        }
+        // Fall back to blogs subcollection
+        postDoc = await getDoc(doc(db, 'communities', communityId, 'blogs', postId));
         if (postDoc.exists()) {
           return { id: postId, ...postDoc.data() };
         }
@@ -454,17 +488,28 @@ export const leaveCommunity = async (db, communityId, userId) => {
 // ==================== ADD MODERATOR ====================
 export const addModerator = async (db, communityId, userId, targetUserId) => {
   try {
-    const communityDoc = await getDoc(doc(db, 'communities', communityId));
-    
+    const [communityDoc, actorDoc] = await Promise.all([
+      getDoc(doc(db, 'communities', communityId)),
+      getDoc(doc(db, 'users', userId)),
+    ]);
+
     if (!communityDoc.exists()) {
       return { success: false, error: 'Community not found' };
     }
 
     const communityData = communityDoc.data();
-    
-    // Only creator can add moderators
-    if (communityData.creatorId !== userId) {
-      return { success: false, error: 'Only community creator can add moderators' };
+    const actorData = actorDoc.exists() ? actorDoc.data() : {};
+    const isPlatformAdmin = actorData.role === 'admin' || actorData.isAdmin === true;
+    const isOwner = communityData.creatorId === userId || communityData.createdBy === userId;
+    const isLeader = Array.isArray(communityData.leaders) && communityData.leaders.includes(userId);
+
+    if (!isOwner && !isLeader && !isPlatformAdmin) {
+      return { success: false, error: 'Only community owners, leaders, or admins can add moderators' };
+    }
+
+    // Prevent adding a user already in moderators
+    if ((communityData.moderators || []).includes(targetUserId)) {
+      return { success: false, error: 'User is already a moderator' };
     }
 
     await updateDoc(doc(db, 'communities', communityId), {
@@ -483,21 +528,27 @@ export const addModerator = async (db, communityId, userId, targetUserId) => {
 // ==================== REMOVE MODERATOR ====================
 export const removeModerator = async (db, communityId, userId, targetUserId) => {
   try {
-    const communityDoc = await getDoc(doc(db, 'communities', communityId));
-    
+    const [communityDoc, actorDoc] = await Promise.all([
+      getDoc(doc(db, 'communities', communityId)),
+      getDoc(doc(db, 'users', userId)),
+    ]);
+
     if (!communityDoc.exists()) {
       return { success: false, error: 'Community not found' };
     }
 
     const communityData = communityDoc.data();
-    
-    // Only creator can remove moderators
-    if (communityData.creatorId !== userId) {
-      return { success: false, error: 'Only community creator can remove moderators' };
+    const actorData = actorDoc.exists() ? actorDoc.data() : {};
+    const isPlatformAdmin = actorData.role === 'admin' || actorData.isAdmin === true;
+    const isOwner = communityData.creatorId === userId || communityData.createdBy === userId;
+    const isLeader = Array.isArray(communityData.leaders) && communityData.leaders.includes(userId);
+
+    if (!isOwner && !isLeader && !isPlatformAdmin) {
+      return { success: false, error: 'Only community owners, leaders, or admins can remove moderators' };
     }
 
     // Cannot remove creator
-    if (targetUserId === communityData.creatorId) {
+    if (targetUserId === communityData.creatorId || targetUserId === communityData.createdBy) {
       return { success: false, error: 'Cannot remove community creator' };
     }
 

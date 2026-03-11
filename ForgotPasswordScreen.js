@@ -95,7 +95,7 @@ export default function ForgotPasswordScreen({ navigation }) {
         [
           {
             text: 'Back to Login',
-            onPress: () => navigation.goBack(),
+            onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login'),
           },
           {
             text: 'OK',
@@ -147,7 +147,7 @@ export default function ForgotPasswordScreen({ navigation }) {
   };
 
   const handleBack = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login');
   };
 
   const handleResendEmail = () => {
@@ -276,7 +276,7 @@ export default function ForgotPasswordScreen({ navigation }) {
             {/* 🔗 Back to Login Link */}
             <TouchableOpacity
               style={styles.backToLogin}
-              onPress={() => navigation.goBack()}>
+              onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login')}>
               <Ionicons name="arrow-back" size={16} color="#FF06C8" />
               <Text style={styles.backToLoginText}>Back to Login</Text>
             </TouchableOpacity>

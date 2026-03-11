@@ -36,6 +36,14 @@
 				<string>exp+social-vibing</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.app.socialvibing</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>socialvibing</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>2</string>

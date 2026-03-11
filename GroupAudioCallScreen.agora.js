@@ -304,7 +304,7 @@ export default function GroupAudioCallScreen() {
           if (agoraEngine) {
             agoraEngine.leaveChannel();
           }
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         },
       },
     ]);
@@ -371,7 +371,7 @@ export default function GroupAudioCallScreen() {
       <SafeAreaView style={styles.safeArea}>
         {/* Top Bar */}
         <View style={styles.topBar}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.closeButton}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.closeButton}>
             <Ionicons name="close" size={28} color="#fff" />
           </TouchableOpacity>
           <View style={styles.participantCount}>

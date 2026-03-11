@@ -62,7 +62,7 @@ export default function CommunityCreateGroupScreen({ navigation, route }) {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -206,7 +206,7 @@ export default function CommunityCreateGroupScreen({ navigation, route }) {
         {
           text: 'OK',
           onPress: () => {
-            navigation.goBack();
+            navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
           }
         }
       ]);
@@ -224,7 +224,7 @@ export default function CommunityCreateGroupScreen({ navigation, route }) {
       <LinearGradient colors={[BG, '#0F0F14', BG]} style={styles.gradient}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Create Group in {communityName || 'Community'}</Text>

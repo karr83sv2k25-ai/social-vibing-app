@@ -52,12 +52,12 @@ export default function ComicReaderScreen({route, navigation}) {
         // This should be verified server-side, but we'll trust the navigation
       } else {
         Alert.alert('Error', 'Comic not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error loading comic:', error);
       Alert.alert('Error', 'Failed to load comic');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } finally {
       setLoading(false);
     }
@@ -103,7 +103,7 @@ export default function ComicReaderScreen({route, navigation}) {
         <Text style={styles.errorText}>Comic pages not available</Text>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
@@ -122,7 +122,7 @@ export default function ComicReaderScreen({route, navigation}) {
       {showControls && (
         <View style={styles.topControls}>
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
             style={styles.controlButton}
           >
             <Ionicons name="close" size={28} color={TEXT} />

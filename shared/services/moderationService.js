@@ -598,7 +598,7 @@ export const unfeaturePost = async (db, actorId, communityId, postId, reason = '
 
 export const featureChatRoom = async (db, actorId, communityId, roomId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.FEATURE_ROOM);
-  await updateDoc(doc(db, 'chatRooms', roomId), {
+  await updateDoc(doc(db, 'communities', communityId, 'groups', roomId), {
     isFeatured: true,
     featuredAt: serverTimestamp(),
     featuredBy: actorId,
@@ -609,14 +609,14 @@ export const featureChatRoom = async (db, actorId, communityId, roomId, reason =
 
 export const unfeatureChatRoom = async (db, actorId, communityId, roomId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNFEATURE_ROOM);
-  await updateDoc(doc(db, 'chatRooms', roomId), { isFeatured: false, featuredAt: null, featuredBy: null });
+  await updateDoc(doc(db, 'communities', communityId, 'groups', roomId), { isFeatured: false, featuredAt: null, featuredBy: null });
   await logAction(db, { action: MOD_ACTIONS.UNFEATURE_ROOM, communityId, targetRoomId: roomId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
 
 export const disableChatRoom = async (db, actorId, communityId, roomId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DISABLE_ROOM);
-  await updateDoc(doc(db, 'chatRooms', roomId), {
+  await updateDoc(doc(db, 'communities', communityId, 'groups', roomId), {
     isDisabled: true,
     disabledAt: serverTimestamp(),
     disabledBy: actorId,
@@ -628,7 +628,12 @@ export const disableChatRoom = async (db, actorId, communityId, roomId, reason =
 
 export const enableChatRoom = async (db, actorId, communityId, roomId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.ENABLE_ROOM);
-  await updateDoc(doc(db, 'chatRooms', roomId), { isDisabled: false, disabledAt: null, disabledBy: null });
+  await updateDoc(doc(db, 'communities', communityId, 'groups', roomId), {
+    isDisabled: false,
+    disabledAt: null,
+    disabledBy: null,
+    disabledReason: null,
+  });
   await logAction(db, { action: MOD_ACTIONS.ENABLE_ROOM, communityId, targetRoomId: roomId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
@@ -1333,6 +1338,62 @@ export const getUserModerationHistory = async (db, targetUserId, limitCount = 20
     };
   } catch (e) {
     return { success: false, error: e.message };
+  }
+};
+
+/**
+ * Fetch moderation history for a specific staff member in a community.
+ * Returns actions they performed plus role-change events (promotions / demotions) targeting them.
+ * Requires composite Firestore indexes:
+ *   moderationLogs: communityId ASC + performedBy ASC + createdAt DESC
+ *   moderationLogs: communityId ASC + targetUserId ASC + createdAt DESC
+ */
+export const getStaffModerationHistory = async (db, communityId, staffUserId, limitCount = 50) => {
+  const ROLE_CHANGE_ACTIONS = new Set([
+    MOD_ACTIONS.PROMOTE_TO_LEADER,
+    MOD_ACTIONS.PROMOTE_TO_CURATOR,
+    MOD_ACTIONS.DEMOTE_LEADER,
+    MOD_ACTIONS.DEMOTE_CURATOR,
+    MOD_ACTIONS.ACCEPT_PROMOTION,
+  ]);
+
+  try {
+    const [performedSnap, roleChangeSnap] = await Promise.all([
+      getDocs(query(
+        collection(db, 'moderationLogs'),
+        where('communityId', '==', communityId),
+        where('performedBy', '==', staffUserId),
+        orderBy('createdAt', 'desc'),
+        limit(limitCount),
+      )),
+      getDocs(query(
+        collection(db, 'moderationLogs'),
+        where('communityId', '==', communityId),
+        where('targetUserId', '==', staffUserId),
+        orderBy('createdAt', 'desc'),
+        limit(20),
+      )),
+    ]);
+
+    const performedLogs = performedSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const performedIds = new Set(performedLogs.map(l => l.id));
+
+    // Include role-change events where this user was the target (they got promoted / demoted)
+    const roleChangeLogs = roleChangeSnap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(l => !performedIds.has(l.id) && ROLE_CHANGE_ACTIONS.has(l.action));
+
+    const all = [...performedLogs, ...roleChangeLogs]
+      .sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() ?? new Date(0);
+        const bTime = b.createdAt?.toDate?.() ?? new Date(0);
+        return bTime - aTime;
+      })
+      .slice(0, limitCount);
+
+    return { success: true, data: all, actionCount: performedLogs.length };
+  } catch (e) {
+    return { success: false, error: e.message, data: [], actionCount: 0 };
   }
 };
 

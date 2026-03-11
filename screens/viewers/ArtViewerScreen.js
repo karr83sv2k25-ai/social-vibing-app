@@ -43,12 +43,12 @@ export default function ArtViewerScreen({route, navigation}) {
         setArt(productData);
       } else {
         Alert.alert('Error', 'Artwork not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error loading artwork:', error);
       Alert.alert('Error', 'Failed to load artwork');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } finally {
       setLoading(false);
     }
@@ -131,7 +131,7 @@ export default function ArtViewerScreen({route, navigation}) {
         <Text style={styles.errorText}>Artwork not available</Text>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
@@ -148,7 +148,7 @@ export default function ArtViewerScreen({route, navigation}) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={styles.headerButton}
         >
           <Ionicons name="close" size={28} color={TEXT} />

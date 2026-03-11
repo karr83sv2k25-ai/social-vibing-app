@@ -212,7 +212,6 @@ export const getUserHandle = (userData) => {
   const uname = userData.username || userData.user_name || '';
   if (uname.trim()) return `@${uname.trim()}`;
   if (userData.handle) return userData.handle;
-  if (userData.email) return `@${userData.email.split('@')[0]}`;
   return '@user';
 };
 

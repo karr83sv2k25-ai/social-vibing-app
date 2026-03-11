@@ -32,6 +32,26 @@ export const normalizeImageUri = (uri, folder) => {
   // Hostinger base URL with a blob URI).
   if (/^https?:\/\//i.test(trimmed)) {
     if (trimmed.includes('blob:')) return null;
+
+    // Detect broken Hostinger URLs:
+    //  1. Just the base uploads directory (no filename) e.g. ".../uploads" or ".../uploads/"
+    //  2. Extension-less filenames (old data stored without .jpg/.png etc.)
+    //     e.g. ".../uploads/images/user_profiles/69a0f22acd4"
+    // These files don't exist on the server and cause endless CachedImage retries.
+    const isHostinger = trimmed.includes('socialvibingapp.karr83anime.com/uploads');
+    if (isHostinger) {
+      // Strip query string for the extension check
+      const pathPart = trimmed.split('?')[0];
+      const lastSegment = pathPart.split('/').pop();
+
+      // Bare uploads path (no file segment, or empty last segment)
+      if (!lastSegment || lastSegment === 'uploads') return null;
+
+      // Must have a known media extension
+      const hasExtension = /\.(jpe?g|png|gif|webp|mp4|mov|avi|webm|mp3|m4a|aac|wav|3gp|caf|pdf|doc[x]?|xls[x]?|zip|rar)$/i.test(pathPart);
+      if (!hasExtension) return null;
+    }
+
     return trimmed;
   }
 

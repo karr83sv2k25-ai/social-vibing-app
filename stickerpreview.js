@@ -30,7 +30,7 @@ export default function StickerPreviewScreen({ route, navigation }) {
         <View style={styles.topRow}>
           <TouchableOpacity
             style={styles.topBtn}
-            onPress={() => navigation.goBack()}>
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="chevron-back" size={20} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity style={styles.topBtn}>

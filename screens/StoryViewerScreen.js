@@ -98,7 +98,7 @@ export default function StoryViewerScreen({ navigation, route }) {
       setStoryIndex(0);
       setImageLoaded(false);
     } else {
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   }, [storyIndex, groupIndex, currentGroup, storyGroups, navigation]);
 
@@ -169,7 +169,7 @@ export default function StoryViewerScreen({ navigation, route }) {
   // ── early-exit guard ───────────────────────────────────────────────────────
   if (!currentGroup || !currentStory) {
     // Nothing to show
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     return null;
   }
 
@@ -289,7 +289,7 @@ export default function StoryViewerScreen({ navigation, route }) {
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              onPress={() => navigation.goBack()}
+              onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
               hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
               style={styles.closeButton}
             >

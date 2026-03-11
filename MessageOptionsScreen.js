@@ -118,7 +118,7 @@ export default function MessageOptionsScreen({ navigation, route }) {
       await Promise.all(updatePromises);
       
       Alert.alert('Success', 'All conversations marked as read', [
-        { text: 'OK', onPress: () => navigation.goBack() }
+        { text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }
       ]);
     } catch (error) {
       console.error('Error marking all as read:', error);
@@ -281,7 +281,7 @@ export default function MessageOptionsScreen({ navigation, route }) {
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>

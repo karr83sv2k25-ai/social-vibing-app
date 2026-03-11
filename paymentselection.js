@@ -62,7 +62,7 @@ export default function PaymentSelectionScreen({ route, navigation }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.hBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.hBtn} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="chevron-back" size={20} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.hTitle}>Top Up coins</Text>

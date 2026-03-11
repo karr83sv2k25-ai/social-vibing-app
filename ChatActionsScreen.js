@@ -38,12 +38,12 @@ export default function ChatActionsScreen({ navigation, route }) {
   } = route.params || {};
 
   if (!chat) {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     return null;
   }
 
   const handleAction = (action, callback) => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       if (callback) callback();
     }, 100);
@@ -66,7 +66,7 @@ export default function ChatActionsScreen({ navigation, route }) {
         Alert.alert('Unmuted', `${chat.name} has been unmuted`);
       });
     } else {
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       setTimeout(() => {
         Alert.alert(
           'Mute Notifications',
@@ -128,7 +128,7 @@ export default function ChatActionsScreen({ navigation, route }) {
   };
 
   const handleDelete = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       Alert.alert(
         'Delete Conversation',
@@ -151,7 +151,7 @@ export default function ChatActionsScreen({ navigation, route }) {
   };
 
   const handleBlock = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       Alert.alert(
         'Block User',
@@ -183,14 +183,14 @@ export default function ChatActionsScreen({ navigation, route }) {
   };
 
   const handleViewProfile = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       navigation.navigate('Profile', { userId: chat.userId });
     }, 100);
   };
 
   const handleExportChat = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       Alert.alert('Export Chat', `Export conversation with ${chat.name}?\n\nThis will create a text file of your chat history.`, [
         { text: 'Cancel', style: 'cancel' },
@@ -200,7 +200,7 @@ export default function ChatActionsScreen({ navigation, route }) {
   };
 
   const handleSearchInChat = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     setTimeout(() => {
       Alert.alert('Search in Chat', 'Search feature coming soon');
     }, 100);
@@ -227,7 +227,7 @@ export default function ChatActionsScreen({ navigation, route }) {
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.closeButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Ionicons name="close" size={24} color="#fff" />
         </TouchableOpacity>

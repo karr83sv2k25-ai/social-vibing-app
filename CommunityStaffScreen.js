@@ -27,6 +27,12 @@ import { getAuth } from 'firebase/auth';
 import {
   getDoc,
   doc,
+  collection,
+  query,
+  where,
+  getDocs,
+  orderBy,
+  limit,
 } from 'firebase/firestore';
 import { app, db } from './firebaseConfig';
 import * as ModerationService from './shared/services/moderationService';
@@ -43,6 +49,42 @@ const C = {
   red:    '#FF3232',
   yellow: '#FFD700',
   gold:   '#FFB800',
+  orange: '#FF8C00',
+};
+
+// Action label + color used in the staff history modal.
+// Covers every action that counts in a Leader's or Curator's moderation history.
+const ACTION_INFO = {
+  disable_post:        { label: 'Disabled Post',        color: '#FF3232' },
+  enable_post:         { label: 'Enabled Post',         color: '#36E3C0' },
+  hide_post:           { label: 'Hid Post',             color: '#FFD700' },
+  unhide_post:         { label: 'Unhid Post',           color: '#36E3C0' },
+  feature_post:        { label: 'Featured Post',        color: '#08FFE2' },
+  unfeature_post:      { label: 'Unfeatured Post',      color: '#A2A8B3' },
+  ban_user:            { label: 'Banned User',          color: '#FF3232' },
+  unban_user:          { label: 'Unbanned User',        color: '#36E3C0' },
+  strike_user:         { label: 'Struck User',          color: '#FF8C00' },
+  unstrike_user:       { label: 'Lifted Strike',        color: '#36E3C0' },
+  disable_messages:    { label: 'Disabled Messages',    color: '#FFD700' },
+  enable_messages:     { label: 'Enabled Messages',     color: '#36E3C0' },
+  feature_room:        { label: 'Featured Chat Room',   color: '#08FFE2' },
+  unfeature_room:      { label: 'Unfeatured Room',      color: '#A2A8B3' },
+  disable_room:        { label: 'Disabled Chat Room',   color: '#FF3232' },
+  enable_room:         { label: 'Enabled Chat Room',    color: '#36E3C0' },
+  grant_title:         { label: 'Granted Title',        color: '#BF2EF0' },
+  revoke_title:        { label: 'Revoked Title',        color: '#FF3232' },
+  change_title_color:  { label: 'Changed Title Color',  color: '#BF2EF0' },
+  resolve_flag:        { label: 'Resolved Flag',        color: '#36E3C0' },
+  promote_to_leader:   { label: 'Promoted to Leader',   color: '#FFB800' },
+  promote_to_curator:  { label: 'Promoted to Curator',  color: '#08FFE2' },
+  demote_leader:       { label: 'Demoted from Leader',  color: '#FF3232' },
+  demote_curator:      { label: 'Demoted from Curator', color: '#FF3232' },
+  accept_promotion:    { label: 'Accepted Promotion',   color: '#FFB800' },
+  kick_user:           { label: 'Kicked User',          color: '#FF8C00' },
+  warn_user:           { label: 'Issued Warning',       color: '#FFD700' },
+  delete_message:      { label: 'Deleted Message',      color: '#FF3232' },
+  mute_user_in_chat:   { label: 'Muted in Chat',        color: '#FFD700' },
+  unmute_user_in_chat: { label: 'Unmuted in Chat',      color: '#36E3C0' },
 };
 
 const ROLE_META = {
@@ -93,11 +135,37 @@ export default function CommunityStaffScreen({ route, navigation }) {
   // Pending promotion (for current user)
   const [pendingPromotion, setPendingPromotion] = useState(null);
 
+  // Staff moderation history modal
+  const [historyModal, setHistoryModal] = useState({
+    visible: false, staff: null, logs: [], loading: false, actionCount: 0,
+  });
+
   const load = useCallback(async () => {
     try {
       const result = await ModerationService.getCommunityStaff(db, communityId);
       if (result.success) {
-        setStaffData(result.data);
+        // Overlay community nicknames on each staff member.
+        // Nicknames live in the top-level communities_members collection as {uid}_{communityId}.
+        const overlayNicknames = async (list) => {
+          return Promise.all(
+            list.map(async (member) => {
+              if (!member) return member;
+              const membershipId = `${member.id}_${communityId}`;
+              const nickDoc = await getDoc(doc(db, 'communities_members', membershipId));
+              const nickname = nickDoc.exists() ? nickDoc.data()?.communityNickname : null;
+              if (nickname && nickname.trim()) {
+                return { ...member, displayName: nickname.trim() };
+              }
+              return member;
+            })
+          );
+        };
+        const [owner, leaders, curators] = await Promise.all([
+          result.data.owner ? overlayNicknames([result.data.owner]).then(r => r[0]) : Promise.resolve(null),
+          overlayNicknames(result.data.leaders),
+          overlayNicknames(result.data.curators),
+        ]);
+        setStaffData({ owner, leaders, curators });
       }
 
       const role = await ModerationService.getCommunityRole(db, communityId, currentUserId);
@@ -115,11 +183,32 @@ export default function CommunityStaffScreen({ route, navigation }) {
           ...(commData.leaders || []),
           ...(commData.curators || []),
         ]);
-        const regularMembers = memberIds.filter(id => !staffIds.has(id));
-        const memberDocs = await Promise.all(
-          regularMembers.slice(0, 50).map(id => getDoc(doc(db, 'users', id)))
-        );
-        setMembers(memberDocs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() })));
+        const regularMembers = memberIds.filter(id => !staffIds.has(id)).slice(0, 50);
+        const [memberUserDocs, memberNickDocs] = await Promise.all([
+          Promise.all(regularMembers.map(id => getDoc(doc(db, 'users', id)))),
+          // Nicknames live in communities_members/{uid}_{communityId}
+          Promise.all(regularMembers.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
+        ]);
+        const resolvedMembers = memberUserDocs
+          .map((d, i) => {
+            if (!d.exists()) return null;
+            const userData = d.data();
+            const nickname = memberNickDocs[i]?.exists() ? memberNickDocs[i].data()?.communityNickname : null;
+            const baseDisplayName =
+              userData.displayName ||
+              (userData.firstName || userData.lastName
+                ? `${userData.firstName || ''} ${userData.lastName || ''}`.trim()
+                : null) ||
+              userData.username ||
+              'User';
+            return {
+              id: d.id,
+              ...userData,
+              displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
+            };
+          })
+          .filter(Boolean);
+        setMembers(resolvedMembers);
       }
 
       // Check if current user has a pending promotion
@@ -154,6 +243,26 @@ export default function CommunityStaffScreen({ route, navigation }) {
       setActionLoading(false);
     }
   };
+
+  const openStaffHistory = async (staffMember) => {
+    setHistoryModal({ visible: true, staff: staffMember, logs: [], loading: true, actionCount: 0 });
+    const result = await ModerationService.getStaffModerationHistory(
+      db, communityId, staffMember.id, 50
+    );
+    if (result.success) {
+      setHistoryModal(prev => ({
+        ...prev,
+        logs: result.data,
+        loading: false,
+        actionCount: result.actionCount,
+      }));
+    } else {
+      setHistoryModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const closeHistoryModal = () =>
+    setHistoryModal({ visible: false, staff: null, logs: [], loading: false, actionCount: 0 });
 
   const handlePromote = async () => {
     if (!promoteTarget) return;
@@ -222,7 +331,10 @@ export default function CommunityStaffScreen({ route, navigation }) {
     return (
       <View style={styles.card}>
         <Image
-          source={{ uri: item.profileImage || item.photoURL || 'https://via.placeholder.com/50' }}
+          source={item.profileImage || item.photoURL
+            ? { uri: item.profileImage || item.photoURL }
+            : require('./assets/profile.png')
+          }
           style={styles.avatar}
         />
         <View style={styles.cardInfo}>
@@ -232,14 +344,22 @@ export default function CommunityStaffScreen({ route, navigation }) {
             <Text style={[styles.roleBadgeText, { color: meta.color }]}>{meta.label}</Text>
           </View>
         </View>
-        {!isSelf && canDemote(item) && (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
           <TouchableOpacity
-            onPress={() => handleDemote(item)}
+            onPress={() => openStaffHistory(item)}
             style={styles.actionBtn}
           >
-            <Ionicons name="arrow-down-circle" size={22} color={C.red} />
+            <MaterialCommunityIcons name="history" size={20} color={C.dim} />
           </TouchableOpacity>
-        )}
+          {!isSelf && canDemote(item) && (
+            <TouchableOpacity
+              onPress={() => handleDemote(item)}
+              style={styles.actionBtn}
+            >
+              <Ionicons name="arrow-down-circle" size={22} color={C.red} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
     );
   };
@@ -266,7 +386,7 @@ export default function CommunityStaffScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Community Staff</Text>
@@ -316,6 +436,86 @@ export default function CommunityStaffScreen({ route, navigation }) {
         onRefresh={() => { setRefreshing(true); load(); }}
         refreshing={refreshing}
       />
+
+      {/* Staff History Modal */}
+      <Modal
+        visible={historyModal.visible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeHistoryModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalCard, { maxHeight: '85%' }]}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}>
+              {historyModal.staff && (
+                <Image
+                  source={historyModal.staff.profileImage || historyModal.staff.photoURL
+                    ? { uri: historyModal.staff.profileImage || historyModal.staff.photoURL }
+                    : require('./assets/profile.png')
+                  }
+                  style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10 }}
+                />
+              )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>
+                  {historyModal.staff?.displayName || 'Staff'}
+                </Text>
+                {historyModal.staff && (() => {
+                  const m = roleMeta(historyModal.staff.role);
+                  return (
+                    <View style={[styles.roleBadge, { borderColor: m.color, marginTop: 2 }]}>
+                      <MaterialCommunityIcons name={m.icon} size={11} color={m.color} />
+                      <Text style={[styles.roleBadgeText, { color: m.color }]}>{m.label}</Text>
+                    </View>
+                  );
+                })()}
+              </View>
+              {!historyModal.loading && (
+                <View style={{ alignItems: 'center', marginRight: 12 }}>
+                  <Text style={{ fontSize: 22, fontWeight: '700', color: C.cyan }}>
+                    {historyModal.actionCount}
+                  </Text>
+                  <Text style={{ fontSize: 10, color: C.dim, textTransform: 'uppercase', letterSpacing: 0.5 }}>Actions</Text>
+                </View>
+              )}
+              <TouchableOpacity onPress={closeHistoryModal} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color={C.dim} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.sectionLabel}>Moderation History</Text>
+
+            {historyModal.loading ? (
+              <ActivityIndicator size="large" color={C.cyan} style={{ marginVertical: 40 }} />
+            ) : historyModal.logs.length === 0 ? (
+              <Text style={[styles.empty, { marginTop: 16 }]}>No moderation activity yet.</Text>
+            ) : (
+              <FlatList
+                data={historyModal.logs}
+                keyExtractor={item => item.id}
+                renderItem={({ item }) => {
+                  const info = ACTION_INFO[item.action] ||
+                    { label: item.action.replace(/_/g, ' ').toUpperCase(), color: C.dim };
+                  const ts = item.createdAt?.toDate
+                    ? item.createdAt.toDate().toLocaleString()
+                    : '';
+                  return (
+                    <View style={[styles.historyItem, { borderLeftColor: info.color }]}>
+                      <Text style={[styles.historyLabel, { color: info.color }]}>{info.label}</Text>
+                      {!!item.reason && (
+                        <Text style={styles.historyReason}>"{item.reason}"</Text>
+                      )}
+                      <Text style={styles.historyMeta}>{ts}</Text>
+                    </View>
+                  );
+                }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
 
       {/* Promote Modal */}
       <Modal
@@ -381,7 +581,10 @@ export default function CommunityStaffScreen({ route, navigation }) {
                   ]}
                 >
                   <Image
-                    source={{ uri: m.profileImage || m.photoURL || 'https://via.placeholder.com/36' }}
+                    source={m.profileImage || m.photoURL
+                      ? { uri: m.profileImage || m.photoURL }
+                      : require('./assets/profile.png')
+                    }
                     style={styles.memberAvatar}
                   />
                   <Text style={styles.memberName}>{m.displayName || 'User'}</Text>
@@ -456,6 +659,11 @@ const styles = StyleSheet.create({
   roleOptionText: { fontSize: 14, fontWeight: '600' },
   searchInput:    { backgroundColor: '#111827', borderRadius: 10, padding: 10, color: C.text, marginBottom: 10, fontSize: 14 },
   memberRow:      { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 10, marginBottom: 4, gap: 10 },
+  sectionLabel:   { fontSize: 11, fontWeight: '700', color: '#A2A8B3', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 },
+  historyItem:    { borderLeftWidth: 3, paddingLeft: 10, paddingVertical: 8, marginBottom: 8, backgroundColor: '#111827', borderRadius: 8 },
+  historyLabel:   { fontSize: 13, fontWeight: '700' },
+  historyReason:  { fontSize: 12, color: '#A2A8B3', fontStyle: 'italic', marginTop: 2 },
+  historyMeta:    { fontSize: 11, color: '#A2A8B3', marginTop: 2 },
   memberRowSelected:{ backgroundColor: 'rgba(8,255,226,0.1)', borderWidth: 1, borderColor: C.cyan },
   memberAvatar:   { width: 36, height: 36, borderRadius: 18 },
   memberName:     { flex: 1, color: C.text, fontSize: 14 },

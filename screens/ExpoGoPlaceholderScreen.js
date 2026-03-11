@@ -53,7 +53,7 @@ export default function ExpoGoPlaceholderScreen({ navigation, feature = 'this fe
 
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           >
             <LinearGradient
               colors={['#7C3AED', '#5B21B6']}

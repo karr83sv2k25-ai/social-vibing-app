@@ -134,7 +134,7 @@ export default function SearchInChatScreen({ route, navigation }) {
       style={styles.resultItem}
       onPress={() => {
         // Navigate back to chat and jump to this message
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         // You can pass the messageId to scroll to it
       }}
     >
@@ -173,7 +173,7 @@ export default function SearchInChatScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         

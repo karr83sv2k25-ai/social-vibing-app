@@ -50,7 +50,7 @@ export default function ProductDetailScreen({ route, navigation }) {
 
             if (!productDoc.exists()) {
                 Alert.alert('Error', 'Product not found');
-                navigation.goBack();
+                navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                 return;
             }
 
@@ -105,7 +105,7 @@ export default function ProductDetailScreen({ route, navigation }) {
         } catch (error) {
             console.error('❌ Failed to load product:', error);
             Alert.alert('Error', 'Failed to load product details');
-            navigation.goBack();
+            navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         } finally {
             setLoading(false);
         }
@@ -313,7 +313,7 @@ export default function ProductDetailScreen({ route, navigation }) {
     return (
         <SafeAreaView style={styles.container}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={() => navigation.goBack()}>
+                <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
                     <Ionicons name="arrow-back" size={24} color={TEXT} />
                 </TouchableOpacity>
                 <View style={styles.headerRight}>

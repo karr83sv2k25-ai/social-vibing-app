@@ -1,7 +1,7 @@
 // screens/CommunityCheckInScreen.js
 // Daily check-in screen for community with streak tracking and rewards
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,11 @@ import {
   Dimensions,
   Platform,
   RefreshControl,
+  Modal,
+  FlatList,
 } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
-import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -29,12 +31,12 @@ import {
   getUserCheckInData,
   checkInToCommunity,
   canCheckInToday,
-  getUserBadge,
-  getNextBadge,
+  getUserLevel,
+  getNextLevel,
   formatTimeRemaining,
   POINTS_CONFIG,
-  COINS_CONFIG,
-  BADGES,
+  LEVELS,
+  LEVEL_IMAGES,
 } from '../shared/services/communityCheckInService';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -68,6 +70,7 @@ function CommunityCheckInScreen() {
   const [timeRemaining, setTimeRemaining] = useState(0);
   const [currentUser, setCurrentUser] = useState(null);
   const [isOnline, setIsOnline] = useState(true);
+  const [showLevelsModal, setShowLevelsModal] = useState(false);
   
   // Animation refs
   const scaleAnim = useRef(new Animated.Value(1)).current;
@@ -239,9 +242,9 @@ function CommunityCheckInScreen() {
         Alert.alert(
           '🎉 Check-in Successful!',
           `+${result.pointsEarned} Points${result.multiplier > 1 ? ` (${result.multiplier}x bonus!)` : ''}\n` +
-          `+${result.coinsEarned} Coins\n` +
+          (result.coinsEarned > 0 ? `+${result.coinsEarned} Coins\n` : '') +
           `🔥 Streak: ${result.streak} days\n\n` +
-          `${result.badge.icon} ${result.badge.name} Rank`,
+          `${result.badge.name} - Level ${result.badge.level || 1}`,
           [{ text: 'Awesome!', style: 'default' }]
         );
         
@@ -264,12 +267,66 @@ function CommunityCheckInScreen() {
     fetchData();
   }, [fetchData]);
 
-  const userBadge = checkInData ? getUserBadge(checkInData.totalPoints || 0) : BADGES[0];
-  const nextBadgeInfo = checkInData ? getNextBadge(checkInData.totalPoints || 0) : { nextBadge: BADGES[1], pointsNeeded: 100 };
-  const progressToNextBadge = nextBadgeInfo.nextBadge 
-    ? ((checkInData?.totalPoints || 0) - (BADGES.find(b => b.name === userBadge.name)?.minPoints || 0)) / 
-      (nextBadgeInfo.nextBadge.minPoints - (BADGES.find(b => b.name === userBadge.name)?.minPoints || 0)) * 100
+  const userBadge = checkInData ? getUserLevel(checkInData.totalPoints || 0) : LEVELS[0];
+  const nextBadgeInfo = checkInData ? getNextLevel(checkInData.totalPoints || 0) : { nextLevel: LEVELS[1], nextBadge: LEVELS[1], pointsNeeded: 50 };
+  const progressToNextBadge = nextBadgeInfo.nextLevel 
+    ? ((checkInData?.totalPoints || 0) - (LEVELS.find(b => b.name === userBadge.name)?.minPoints || 0)) / 
+      (nextBadgeInfo.nextLevel.minPoints - (LEVELS.find(b => b.name === userBadge.name)?.minPoints || 0)) * 100
     : 100;
+
+  const currentPoints = checkInData?.totalPoints || 0;
+
+  // Render a single level item for the modal
+  const renderLevelItem = useCallback(({ item: lvl }) => {
+    const isUnlocked = currentPoints >= lvl.minPoints;
+    const isCurrent = userBadge.level === lvl.level;
+
+    return (
+      <View style={[
+        levelsModalStyles.levelRow,
+        isCurrent && levelsModalStyles.levelRowCurrent,
+        !isUnlocked && levelsModalStyles.levelRowLocked,
+      ]}>
+        {/* Level number */}
+        <View style={[levelsModalStyles.levelNumber, { backgroundColor: isUnlocked ? lvl.color + '30' : COLORS.card2 }]}>
+          <Text style={[levelsModalStyles.levelNumberText, { color: isUnlocked ? lvl.color : COLORS.dim }]}>
+            {lvl.level}
+          </Text>
+        </View>
+
+        {/* Badge image */}
+        <View style={[levelsModalStyles.levelImageContainer, { borderColor: isUnlocked ? lvl.color : COLORS.border }]}>
+          <Image source={lvl.image} style={[levelsModalStyles.levelImage, !isUnlocked && { opacity: 0.35 }]} />
+        </View>
+
+        {/* Info */}
+        <View style={levelsModalStyles.levelInfo}>
+          <View style={levelsModalStyles.levelNameRow}>
+            <Text style={[levelsModalStyles.levelName, { color: isUnlocked ? lvl.color : COLORS.dim }]}>
+              {lvl.name}
+            </Text>
+            {isCurrent && (
+              <View style={levelsModalStyles.currentTag}>
+                <Text style={levelsModalStyles.currentTagText}>CURRENT</Text>
+              </View>
+            )}
+          </View>
+          <Text style={levelsModalStyles.levelPoints}>
+            {lvl.minPoints === 0 ? 'Starting level' : `${lvl.minPoints.toLocaleString()} pts required`}
+          </Text>
+        </View>
+
+        {/* Status */}
+        <View style={levelsModalStyles.levelStatus}>
+          {isUnlocked ? (
+            <Ionicons name="checkmark-circle" size={22} color={lvl.color} />
+          ) : (
+            <Ionicons name="lock-closed" size={18} color={COLORS.dim} />
+          )}
+        </View>
+      </View>
+    );
+  }, [currentPoints, userBadge.level]);
 
   // Generate week days for calendar
   const renderWeekCalendar = () => {
@@ -340,7 +397,7 @@ function CommunityCheckInScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
-        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Daily Check-in</Text>
@@ -407,9 +464,9 @@ function CommunityCheckInScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
-              <FontAwesome5 name="coins" size={20} color={COLORS.gold} />
-              <Text style={styles.statValue}>{checkInData?.coinsEarned || 0}</Text>
-              <Text style={styles.statLabel}>Coins Earned</Text>
+              <Ionicons name="flame" size={22} color="#FF6B6B" />
+              <Text style={styles.statValue}>{checkInData?.currentStreak || 0}</Text>
+              <Text style={styles.statLabel}>Streak</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statItem}>
@@ -423,37 +480,37 @@ function CommunityCheckInScreen() {
         {/* Week Calendar */}
         {renderWeekCalendar()}
 
-        {/* Badge Progress */}
+        {/* Level Progress */}
         <View style={styles.badgeCard}>
           <View style={styles.badgeHeader}>
-            <Text style={styles.badgeTitle}>Current Rank</Text>
-            <TouchableOpacity>
-              <Text style={styles.viewAllText}>View All Badges</Text>
+            <Text style={styles.badgeTitle}>Current Level</Text>
+            <TouchableOpacity onPress={() => setShowLevelsModal(true)}>
+              <Text style={styles.viewAllText}>View All Levels</Text>
             </TouchableOpacity>
           </View>
           
           <View style={styles.currentBadgeRow}>
             <View style={[styles.badgeCircle, { borderColor: userBadge.color }]}>
-              <Text style={styles.badgeEmoji}>{userBadge.icon}</Text>
+              <Image source={userBadge.image || LEVEL_IMAGES[1]} style={styles.badgeLevelImage} />
             </View>
             <View style={styles.badgeInfo}>
-              <Text style={[styles.badgeName, { color: userBadge.color }]}>{userBadge.name}</Text>
+              <Text style={[styles.badgeName, { color: userBadge.color }]}>Lvl {userBadge.level} - {userBadge.name}</Text>
               <Text style={styles.badgePoints}>{checkInData?.totalPoints || 0} points</Text>
             </View>
-            {nextBadgeInfo.nextBadge && (
+            {nextBadgeInfo.nextLevel && (
               <View style={styles.nextBadgeContainer}>
                 <Text style={styles.nextBadgeLabel}>Next:</Text>
-                <Text style={styles.nextBadgeEmoji}>{nextBadgeInfo.nextBadge.icon}</Text>
+                <Image source={nextBadgeInfo.nextLevel.image} style={styles.nextBadgeLevelImage} />
                 <Text style={styles.nextBadgePoints}>{nextBadgeInfo.pointsNeeded} pts</Text>
               </View>
             )}
           </View>
 
-          {nextBadgeInfo.nextBadge && (
+          {nextBadgeInfo.nextLevel && (
             <View style={styles.progressContainer}>
               <View style={styles.progressBar}>
                 <LinearGradient
-                  colors={[userBadge.color, nextBadgeInfo.nextBadge.color]}
+                  colors={[userBadge.color, nextBadgeInfo.nextLevel.color]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={[styles.progressFill, { width: `${Math.min(progressToNextBadge, 100)}%` }]}
@@ -473,8 +530,8 @@ function CommunityCheckInScreen() {
               <Text style={styles.rewardText}>+{POINTS_CONFIG.DAILY_CHECK_IN} Points</Text>
             </View>
             <View style={styles.rewardItem}>
-              <FontAwesome5 name="coins" size={16} color={COLORS.gold} />
-              <Text style={styles.rewardText}>+{COINS_CONFIG.DAILY_CHECK_IN} Coins</Text>
+              <Ionicons name="flame" size={18} color="#FF6B6B" />
+              <Text style={styles.rewardText}>Streak Tracking</Text>
             </View>
           </View>
           
@@ -483,11 +540,11 @@ function CommunityCheckInScreen() {
             <View style={styles.bonusRow}>
               <View style={styles.bonusItem}>
                 <Text style={styles.bonusLabel}>7 Days</Text>
-                <Text style={styles.bonusValue}>2x Points + {COINS_CONFIG.WEEKLY_BONUS} Coins</Text>
+                <Text style={styles.bonusValue}>2x Points Multiplier</Text>
               </View>
               <View style={styles.bonusItem}>
                 <Text style={styles.bonusLabel}>30 Days</Text>
-                <Text style={styles.bonusValue}>4x Points + {COINS_CONFIG.MONTHLY_BONUS} Coins</Text>
+                <Text style={styles.bonusValue}>4x Points Multiplier</Text>
               </View>
             </View>
           </View>
@@ -523,7 +580,7 @@ function CommunityCheckInScreen() {
                   <Text style={styles.checkInButtonText}>Check In Now</Text>
                   <View style={styles.rewardPreview}>
                     <Text style={styles.rewardPreviewText}>
-                      +{POINTS_CONFIG.DAILY_CHECK_IN} pts · +{COINS_CONFIG.DAILY_CHECK_IN} coins
+                      +{POINTS_CONFIG.DAILY_CHECK_IN} pts · Keep your streak!
                     </Text>
                   </View>
                 </>
@@ -540,6 +597,70 @@ function CommunityCheckInScreen() {
           </TouchableOpacity>
         </Animated.View>
       </View>
+
+      {/* All Levels Modal */}
+      <Modal
+        visible={showLevelsModal}
+        animationType="slide"
+        transparent={true}
+        statusBarTranslucent={true}
+        onRequestClose={() => setShowLevelsModal(false)}
+      >
+        <View style={levelsModalStyles.overlay}>
+          {/* Tap backdrop to close */}
+          <TouchableOpacity
+            style={levelsModalStyles.backdrop}
+            activeOpacity={1}
+            onPress={() => setShowLevelsModal(false)}
+          />
+          <View style={levelsModalStyles.container}>
+            {/* Drag handle */}
+            <View style={levelsModalStyles.dragHandle} />
+
+            {/* Modal Header */}
+            <View style={levelsModalStyles.header}>
+              <View style={levelsModalStyles.headerLeft}>
+                <Ionicons name="trophy" size={22} color={COLORS.gold} />
+                <Text style={levelsModalStyles.headerTitle}>All Levels</Text>
+              </View>
+              <TouchableOpacity
+                style={levelsModalStyles.closeButton}
+                onPress={() => setShowLevelsModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={24} color={COLORS.text} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Current Progress Summary */}
+            <View style={levelsModalStyles.progressSummary}>
+              <Image source={userBadge.image || LEVEL_IMAGES[1]} style={levelsModalStyles.summaryImage} />
+              <View style={levelsModalStyles.summaryInfo}>
+                <Text style={levelsModalStyles.summaryLevel}>
+                  Level {userBadge.level} — {userBadge.name}
+                </Text>
+                <Text style={levelsModalStyles.summaryPoints}>
+                  {currentPoints.toLocaleString()} points earned
+                </Text>
+              </View>
+            </View>
+
+            {/* Separator */}
+            <View style={levelsModalStyles.separator} />
+
+            {/* Levels List */}
+            <FlatList
+              data={LEVELS}
+              keyExtractor={(item) => String(item.level)}
+              renderItem={renderLevelItem}
+              style={levelsModalStyles.list}
+              contentContainerStyle={levelsModalStyles.listContent}
+              showsVerticalScrollIndicator={false}
+              initialNumToRender={20}
+            />
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -781,6 +902,11 @@ const styles = StyleSheet.create({
   badgeEmoji: {
     fontSize: 28,
   },
+  badgeLevelImage: {
+    width: 36,
+    height: 36,
+    resizeMode: 'contain',
+  },
   badgeInfo: {
     marginLeft: 14,
     flex: 1,
@@ -808,6 +934,12 @@ const styles = StyleSheet.create({
   nextBadgeEmoji: {
     fontSize: 20,
     marginVertical: 2,
+  },
+  nextBadgeLevelImage: {
+    width: 24,
+    height: 24,
+    marginVertical: 2,
+    resizeMode: 'contain',
   },
   nextBadgePoints: {
     fontSize: 10,
@@ -942,5 +1074,176 @@ const styles = StyleSheet.create({
     color: COLORS.dim,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     marginTop: 4,
+  },
+});
+
+// ============================================
+// ALL LEVELS MODAL STYLES
+// ============================================
+const levelsModalStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  backdrop: {
+    flex: 1,
+  },
+  container: {
+    backgroundColor: COLORS.bg,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 16,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: COLORS.dim,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 12,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginLeft: 10,
+  },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: COLORS.card,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  progressSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 20,
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    padding: 14,
+  },
+  summaryImage: {
+    width: 44,
+    height: 44,
+    resizeMode: 'contain',
+  },
+  summaryInfo: {
+    marginLeft: 14,
+    flex: 1,
+  },
+  summaryLevel: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: COLORS.text,
+  },
+  summaryPoints: {
+    fontSize: 13,
+    color: COLORS.dim,
+    marginTop: 2,
+  },
+  separator: {
+    height: 1,
+    backgroundColor: COLORS.border,
+    marginHorizontal: 20,
+    marginVertical: 14,
+  },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+  },
+  list: {
+    flexGrow: 1,
+  },
+  levelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+  },
+  levelRowCurrent: {
+    borderWidth: 1.5,
+    borderColor: COLORS.purple,
+    backgroundColor: COLORS.purple + '15',
+  },
+  levelRowLocked: {
+    opacity: 0.6,
+  },
+  levelNumber: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  levelNumberText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  levelImageContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    backgroundColor: COLORS.card2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  levelImage: {
+    width: 34,
+    height: 34,
+    resizeMode: 'contain',
+  },
+  levelInfo: {
+    flex: 1,
+  },
+  levelNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  levelName: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  currentTag: {
+    backgroundColor: COLORS.purple,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  currentTagText: {
+    fontSize: 9,
+    fontWeight: 'bold',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  levelPoints: {
+    fontSize: 12,
+    color: COLORS.dim,
+    marginTop: 3,
+  },
+  levelStatus: {
+    marginLeft: 8,
   },
 });

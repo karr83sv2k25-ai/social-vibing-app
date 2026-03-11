@@ -174,6 +174,14 @@ const WhatsHappeningScreen = withLazy(() => import('./whatshappening'));
 const CreateCommunityScreen = withLazy(() => import('./CreateCommunityScreen'));
 const EditCommunityScreen = withLazy(() => import('./EditCommunityScreen'));
 const ModeratorsManagementScreen = withLazy(() => import('./ModeratorsManagementScreen'));
+const CommunityAdminPortalScreen = withLazy(() => import('./screens/CommunityAdminPortalScreen'));
+const CommunityDataCenterScreen = withLazy(() => import('./screens/CommunityDataCenterScreen'));
+const CommunityAppearanceScreen = withLazy(() => import('./screens/CommunityAppearanceScreen'));
+const CommunityTitlesScreen = withLazy(() => import('./screens/CommunityTitlesScreen'));
+const CommunityJoinRequestsScreen = withLazy(() => import('./screens/CommunityJoinRequestsScreen'));
+const CommunityBlockedMembersScreen = withLazy(() => import('./screens/CommunityBlockedMembersScreen'));
+const CommunityBlockedContentScreen = withLazy(() => import('./screens/CommunityBlockedContentScreen'));
+const CommunityNotificationSettingsScreen = withLazy(() => import('./screens/CommunityNotificationSettingsScreen'));
 
 // Conditional loading for screens that require native modules (Agora)
 // These screens will only work in development builds, not in Expo Go
@@ -208,6 +216,19 @@ const SearchInChatScreen = withLazy(() => import('./screens/SearchInChatScreen')
 const StoryViewerScreen = withLazy(() => import('./screens/StoryViewerScreen'));
 
 const Stack = createStackNavigator();
+
+// Deep link config: socialvibing://community/<communityId> → GroupInfo screen
+const linking = {
+  prefixes: ['socialvibing://'],
+  config: {
+    screens: {
+      GroupInfo: {
+        path: 'community/:communityId',
+        parse: { communityId: (id) => `${id}` },
+      },
+    },
+  },
+};
 
 export default function App() {
   const [initializing, setInitializing] = React.useState(true);
@@ -408,7 +429,7 @@ export default function App() {
     <ErrorBoundary>
     <WalletProvider>
       <StatusProvider>
-        <NavigationContainer>
+        <NavigationContainer linking={linking}>
           <Stack.Navigator screenOptions={{ headerShown: false }}>
             {user == null ? (
               // Auth Screens - Only available when not authenticated
@@ -537,6 +558,14 @@ export default function App() {
                 <Stack.Screen name="CommunityLeaderboard" component={CommunityLeaderboardScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="GlobalLeaderboard" component={GlobalLeaderboardScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CommunityCheckIn" component={CommunityCheckInScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityAdminPortal" component={CommunityAdminPortalScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityDataCenter" component={CommunityDataCenterScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityAppearance" component={CommunityAppearanceScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityTitles" component={CommunityTitlesScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityJoinRequests" component={CommunityJoinRequestsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityBlockedMembers" component={CommunityBlockedMembersScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityBlockedContent" component={CommunityBlockedContentScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="CommunityNotificationSettings" component={CommunityNotificationSettingsScreen} options={{ headerShown: false }} />
               </>
             )}
           </Stack.Navigator>

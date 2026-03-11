@@ -38,12 +38,12 @@ export default function BookReaderScreen({route, navigation}) {
         setBook(productData);
       } else {
         Alert.alert('Error', 'Book not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error loading book:', error);
       Alert.alert('Error', 'Failed to load book');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } finally {
       setLoading(false);
     }
@@ -71,7 +71,7 @@ export default function BookReaderScreen({route, navigation}) {
         <Text style={styles.errorText}>Book content not available</Text>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
@@ -84,7 +84,7 @@ export default function BookReaderScreen({route, navigation}) {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
             style={styles.headerButton}
           >
             <Ionicons name="arrow-back" size={24} color={TEXT} />
@@ -140,7 +140,7 @@ export default function BookReaderScreen({route, navigation}) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={styles.headerButton}
         >
           <Ionicons name="arrow-back" size={24} color={TEXT} />

@@ -47,6 +47,8 @@ import {
   getDoc,
   collection,
   getDocs,
+  query,
+  where,
   updateDoc,
   increment,
   setDoc,
@@ -62,14 +64,18 @@ import CacheManager from './cacheManager';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 import { uploadImageToHostinger, uploadAudioToHostinger, uploadVideoToHostinger } from './hostingerConfig';
 import { normalizeBlobUri, normalizeImageUri } from './utils/normalizeUri';
 import { Audio, Video } from 'expo-av';
 import ReportUserModal from './components/ReportUserModal';
 import PostOptionsModal from './components/PostOptionsModal';
+import FeaturedFeed from './components/FeaturedFeed';
 import CommunitySidebar from './components/CommunitySidebar';
 import { canCheckInToday, getUserCheckInData, checkInToCommunity, COINS_CONFIG, POINTS_CONFIG } from './shared/services/communityCheckInService';
 import { useWallet } from './context/WalletContext';
+import useUserNames from './hooks/useUserNames';
 
 // Animated heart button for instant like feedback
 const AnimatedHeartButton = memo(({ isLiked, likes, onPress, size = 20 }) => {
@@ -130,6 +136,7 @@ const RenderMessages = memo(({
   setPlayingVoiceId,
   setVoiceSound,
   onLongPressMessage,
+  liveNames = {},
 }) => {
   // Memoize current user ID to avoid recalculation
   const currentUserId = useMemo(() => currentUser?.id, [currentUser?.id]);
@@ -162,11 +169,12 @@ const RenderMessages = memo(({
           setPlayingVoiceId={setPlayingVoiceId}
           setVoiceSound={setVoiceSound}
           onLongPressMessage={onLongPressMessage}
+          liveNames={liveNames}
         />
       );
     });
   }, [messages, currentUserId, currentUser, playingVideoId, playingVoiceId,
-    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress, onLongPressMessage]);
+    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress, onLongPressMessage, liveNames]);
 
   return <>{messageElements}</>;
 });
@@ -193,6 +201,7 @@ const MessageRow = memo(({
   setPlayingVoiceId,
   setVoiceSound,
   onLongPressMessage,
+  liveNames = {},
 }) => {
   return (
     <TouchableOpacity
@@ -230,7 +239,7 @@ const MessageRow = memo(({
         ]}
       >
         {!isCurrentUser && (
-          <Text style={styles.chatMessageTitle}>{msg.sender || 'User'}</Text>
+          <Text style={styles.chatMessageTitle}>{liveNames[msg.senderId] || msg.sender || 'User'}</Text>
         )}
 
         {/* Image Message */}
@@ -304,7 +313,7 @@ const MessageRow = memo(({
                   </View>
                 </View>
                 <Text style={styles.voiceChatText} numberOfLines={2} ellipsizeMode="tail">
-                  {msg.sender || 'User'} started a voice room
+                  {liveNames[msg.senderId] || msg.sender || 'User'} started a voice room
                 </Text>
                 {msg.isActive && (msg.participants?.includes(currentUser?.id) ? (
                   <View style={styles.joinedVoiceChatBadge}>
@@ -340,7 +349,7 @@ const MessageRow = memo(({
               </View>
             </View>
             <Text style={styles.screeningRoomText} numberOfLines={2} ellipsizeMode="tail">
-              {msg.sender || 'User'} started a screening room
+              {liveNames[msg.senderId] || msg.sender || 'User'} started a screening room
             </Text>
             <Text style={styles.screeningRoomParticipants}>
               🎬 {msg.participants?.length || 1} {msg.participants?.length === 1 ? 'viewer' : 'viewers'}
@@ -383,7 +392,7 @@ const MessageRow = memo(({
             </View>
 
             <Text style={styles.roleplayText} numberOfLines={2} ellipsizeMode="tail">
-              {msg.senderName || 'User'} started a roleplay session
+              {liveNames[msg.senderId] || msg.senderName || 'User'} started a roleplay session
             </Text>
 
             {/* Display Characters */}
@@ -428,7 +437,7 @@ const MessageRow = memo(({
 
                         {/* Author */}
                         <Text style={styles.roleplayCharacterAuthor}>
-                          by @{char.ownerName || msg.senderName || 'Unknown'}
+                          by @{char.ownerName || liveNames[msg.senderId] || msg.senderName || 'Unknown'}
                         </Text>
 
                         {/* Tags */}
@@ -735,7 +744,7 @@ export default function GroupInfoScreen() {
   }, [communityId, currentUser]);
   const navigation = useNavigation();
   const route = useRoute();
-  const { communityId, groupTitle, openCharacterSelector, roleplaySessionId, returnToRoleplay, initialTab } = route.params || {};
+  const { communityId, groupTitle, openCharacterSelector, roleplaySessionId, returnToRoleplay, initialTab, openModal } = route.params || {};
   const auth = getAuth(firebaseApp);
   const [selectedButton, setSelectedButton] = useState('Explore');
   const [selectedCategory, setSelectedCategory] = useState(null);
@@ -821,6 +830,15 @@ export default function GroupInfoScreen() {
     }
   }, [initialTab]);
 
+  // Auto-open modals when navigated with openModal param (e.g. from Admin Portal)
+  useEffect(() => {
+    if (openModal === 'announcements') {
+      setShowAnnouncementsModal(true);
+    } else if (openModal === 'featured') {
+      setShowFeaturedModal(true);
+    }
+  }, [openModal]);
+
   const [communitySection, setCommunitySection] = useState('all');
   const [communityGroups, setCommunityGroups] = useState([]);
   const [joinedGroupIds, setJoinedGroupIds] = useState([]);
@@ -834,6 +852,22 @@ export default function GroupInfoScreen() {
   const [blogs, setBlogs] = useState([]);
   const [posts, setPosts] = useState([]);
   const [allPosts, setAllPosts] = useState([]); // Combined blogs and image posts
+
+  // ── Live name resolution: re-fetches on every name/nickname change ─────────────
+  const _chatSenderIds = useMemo(
+    () => chatMessages.map((m) => m.senderId).filter(Boolean),
+    [chatMessages]
+  );
+  const _postAuthorIds = useMemo(
+    () => [...posts, ...allPosts].map((p) => p.authorId || p.createdById).filter(Boolean),
+    [posts, allPosts]
+  );
+  const _liveNameIds = useMemo(
+    () => [...new Set([..._chatSenderIds, ..._postAuthorIds])],
+    [_chatSenderIds, _postAuthorIds]
+  );
+  // liveNames: { [uid]: currentDisplayName } — community nickname preferred if set
+  const liveNames = useUserNames(_liveNameIds, communityId);
   const [refreshing, setRefreshing] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageCaption, setImageCaption] = useState('');
@@ -861,6 +895,14 @@ export default function GroupInfoScreen() {
   const [announcements, setAnnouncements] = useState([]);
   const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
   const [announcementsLoading, setAnnouncementsLoading] = useState(false);
+  const [showComposeAnnouncementModal, setShowComposeAnnouncementModal] = useState(false);
+  const [newAnnouncementTitle, setNewAnnouncementTitle] = useState('');
+  const [newAnnouncementBody, setNewAnnouncementBody] = useState('');
+  const [creatingAnnouncement, setCreatingAnnouncement] = useState(false);
+  const [announcementsTab, setAnnouncementsTab] = useState('pinned'); // 'pinned' | 'posts'
+  const [expandedAnnouncementId, setExpandedAnnouncementId] = useState(null);
+  const annScrollRef = useRef(null);
+  const annBodyRef = useRef(null);
   const [featuredPosts, setFeaturedPosts] = useState([]);
   const [showFeaturedModal, setShowFeaturedModal] = useState(false);
   // Report user state
@@ -875,6 +917,13 @@ export default function GroupInfoScreen() {
   const [nicknameInput, setNicknameInput] = useState('');
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [memberNicknames, setMemberNicknames] = useState({}); // { memberId: nickname }
+  // Ref mirror so closures (Firestore listeners) always read the latest nicknames
+  // without needing to be re-subscribed every time the state changes.
+  const memberNicknamesRef = useRef({});
+  // Ref mirrors for admin/mod IDs so the backup real-time listener can read
+  // them without being re-subscribed on every state change.
+  const currentAdminIdsRef = useRef([]);
+  const currentModeratorIdsRef = useRef([]);
 
   // Active audio call state
   const [activeAudioCall, setActiveAudioCall] = useState(null);
@@ -1021,14 +1070,18 @@ export default function GroupInfoScreen() {
         try {
           if (communitySnap.exists()) {
             const data = communitySnap.data();
-            // Get member count: prefer actual arrays (most accurate), then numeric counters
+            // Combine members + memberIds arrays (deduped) for the true count.
+            // Creator lives in memberIds, joiners in members — union gives the real total.
+            const _mArr = Array.isArray(data.members) ? data.members : [];
+            const _miArr = Array.isArray(data.memberIds) ? data.memberIds : [];
+            const _combined = [...new Set([..._mArr, ..._miArr])];
             let memberCount = 0;
-            if (Array.isArray(data.members)) {
-              memberCount = data.members.length;
+            if (_combined.length > 0) {
+              memberCount = _combined.length;
+            } else if (typeof data.memberCount === 'number' && data.memberCount > 0) {
+              memberCount = data.memberCount;
             } else if (Array.isArray(data.community_members)) {
               memberCount = data.community_members.length;
-            } else if (Array.isArray(data.memberIds)) {
-              memberCount = data.memberIds.length;
             } else if (typeof data.members_count === 'number') {
               memberCount = data.members_count;
             } else if (typeof data.community_members === 'number') {
@@ -1061,29 +1114,24 @@ export default function GroupInfoScreen() {
 
             setIsAdmin(Boolean(isCurrentAdmin));
             setIsModerator(Boolean(isCurrentModerator));
-            if (isCurrentAdmin) {
-              // Generate invite link for admins
-              setInviteLink(`https://socialvibing.app/community/${communityId}`);
-              setQrCodeValue(`https://socialvibing.app/community/${communityId}`);
-            }
+            // Generate invite link for all members
+            setInviteLink(`socialvibing://community/${communityId}`);
+            setQrCodeValue(`socialvibing://community/${communityId}`);
 
-            // Extract member IDs from various possible formats
+            // Extract member IDs — combine members + memberIds (deduped) so creator is always included
             let memberIds = [];
 
-            // Format 1: memberIds array
-            if (data.memberIds && Array.isArray(data.memberIds)) {
-              memberIds = data.memberIds;
-            }
-            // Format 2: members array
-            else if (data.members && Array.isArray(data.members)) {
-              memberIds = data.members;
-            }
-            // Format 3: community_members array
-            else if (data.community_members && Array.isArray(data.community_members)) {
-              memberIds = data.community_members;
-            }
-            // Format 4: Numeric keys (0, 1, 2, etc.) - extract from object
-            else {
+            const _membersField = Array.isArray(data.members) ? data.members : [];
+            const _memberIdsField = Array.isArray(data.memberIds) ? data.memberIds : [];
+            const _communityMembersField = Array.isArray(data.community_members) ? data.community_members : [];
+
+            // Union all three arrays and deduplicate
+            const _unionIds = [...new Set([..._membersField, ..._memberIdsField, ..._communityMembersField])];
+
+            if (_unionIds.length > 0) {
+              memberIds = _unionIds;
+            } else {
+              // Format 4: Numeric keys (0, 1, 2, etc.) - extract from object
               const numericKeys = Object.keys(data).filter(key => /^\d+$/.test(key) && typeof data[key] === 'string' && data[key].trim() !== '');
               if (numericKeys.length > 0) {
                 memberIds = numericKeys.map(key => data[key]).filter(Boolean);
@@ -1126,6 +1174,25 @@ export default function GroupInfoScreen() {
 
             console.log('Final member IDs to fetch:', memberIds.length, memberIds);
 
+            // Extract admin/mod IDs from community doc — done before the if/else so
+            // both branches can use them and the reactive useEffect always has them.
+            const adminIds = Array.isArray(data.adminIds)
+              ? data.adminIds
+              : Array.isArray(data.admins)
+                ? data.admins
+                : data.uid && typeof data.uid === 'string'
+                  ? [data.uid]
+                  : [];
+            const moderatorIds = Array.isArray(data.moderatorIds)
+              ? data.moderatorIds
+              : Array.isArray(data.moderators)
+                ? data.moderators
+                : [];
+            const safeAdminIds = Array.isArray(adminIds) ? adminIds : [];
+            const safeModeratorIds = Array.isArray(moderatorIds) ? moderatorIds : [];
+            setCurrentAdminIds(safeAdminIds);
+            setCurrentModeratorIds(safeModeratorIds);
+
             // Fetch members from users collection
             if (memberIds.length > 0) {
               const usersCol = collection(db, 'users');
@@ -1144,39 +1211,25 @@ export default function GroupInfoScreen() {
               );
               setMembers(memberDocs.filter(Boolean));
 
-              // Store admin and moderator IDs from community data
-              const adminIds = Array.isArray(data.adminIds)
-                ? data.adminIds
-                : Array.isArray(data.admins)
-                  ? data.admins
-                  : data.uid && typeof data.uid === 'string'
-                    ? [data.uid]
-                    : [];
-              const moderatorIds = Array.isArray(data.moderatorIds)
-                ? data.moderatorIds
-                : Array.isArray(data.moderators)
-                  ? data.moderators
-                  : [];
-
-              // Ensure adminIds and moderatorIds are always arrays
-              const safeAdminIds = Array.isArray(adminIds) ? adminIds : [];
-              const safeModeratorIds = Array.isArray(moderatorIds) ? moderatorIds : [];
-
-              // Store admin and moderator IDs in state for reactive updates
-              setCurrentAdminIds(safeAdminIds);
-              setCurrentModeratorIds(safeModeratorIds);
-
               // Fetch all members for "Who's Online" section
               const allMemberDocs = await Promise.all(
                 memberIds.map(async (uid) => {
                   try {
                     if (!uid || typeof uid !== 'string') return null;
-                    const userDoc = await getDoc(doc(usersCol, uid));
+                    const membershipId = `${uid}_${communityId}`;
+                    const [userDoc, membershipDoc] = await Promise.all([
+                      getDoc(doc(usersCol, uid)),
+                      getDoc(doc(db, 'communities_members', membershipId)),
+                    ]);
                     if (userDoc.exists()) {
                       const userData = userDoc.data();
                       const globalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
-                      // Prefer community nickname if set
-                      const nickname = memberNicknames[uid];
+                      // RC-fix: read from ref so we always get the latest even when listener
+                      // was set up before nicknames loaded.
+                      const nickname = memberNicknamesRef.current[uid];
+                      // Prefer community join date over account creation date
+                      const membershipData = membershipDoc.exists() ? membershipDoc.data() : null;
+                      const joinedAt = membershipData?.joinedAt || userData.joinedAt || userData.createdAt || null;
                       return {
                         id: userDoc.id,
                         name: nickname || globalName,
@@ -1184,7 +1237,7 @@ export default function GroupInfoScreen() {
                         communityNickname: nickname || null,
                         profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                         email: userData.email || null,
-                        joinedAt: userData.joinedAt || userData.createdAt || null,
+                        joinedAt,
                         isAdmin: safeAdminIds.includes(uid),
                         isModerator: safeModeratorIds.includes(uid),
                         currentStatus: userData.currentStatus || null,
@@ -1246,15 +1299,23 @@ export default function GroupInfoScreen() {
               // Try fetching from communities_members collection (separate collection)
               try {
                 const membersCol = collection(db, 'communities_members');
-                const q = firestore.query(
+                const q = query(
                   membersCol,
-                  firestore.where('community_id', '==', communityId)
+                  where('community_id', '==', communityId)
                 );
-                const membersSnapshot = await firestore.getDocs(q);
+                const membersSnapshot = await getDocs(q);
                 const memberUserIds = membersSnapshot.docs.map(doc => {
                   const memberData = doc.data();
                   return memberData.user_id || memberData.userId || memberData.uid;
                 }).filter(Boolean);
+
+                // Build a uid → membership doc data map to get join dates
+                const membershipDataMap = {};
+                membersSnapshot.docs.forEach(docSnap => {
+                  const mData = docSnap.data();
+                  const uid = mData.user_id || mData.userId || mData.uid;
+                  if (uid) membershipDataMap[uid] = mData;
+                });
 
                 if (memberUserIds.length > 0) {
                   const usersCol = collection(db, 'users');
@@ -1265,7 +1326,8 @@ export default function GroupInfoScreen() {
                         if (userDoc.exists()) {
                           const userData = userDoc.data();
                           const backupGlobalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
-                          const backupNickname = memberNicknames[userDoc.id];
+                          const backupNickname = memberNicknamesRef.current[userDoc.id];
+                          const membershipEntry = membershipDataMap[uid];
                           return {
                             id: userDoc.id,
                             name: backupNickname || backupGlobalName,
@@ -1273,9 +1335,9 @@ export default function GroupInfoScreen() {
                             communityNickname: backupNickname || null,
                             profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                             email: userData.email || null,
-                            joinedAt: userData.joinedAt || userData.createdAt || null,
-                            isAdmin: false,
-                            isModerator: false,
+                            joinedAt: membershipEntry?.joinedAt || userData.joinedAt || userData.createdAt || null,
+                            isAdmin: safeAdminIds.includes(userDoc.id),
+                            isModerator: safeModeratorIds.includes(userDoc.id),
                             currentStatus: userData.currentStatus || 'offline',
                           };
                         }
@@ -1318,6 +1380,8 @@ export default function GroupInfoScreen() {
                   memberStatusUnsubscribersRef.current = statusUnsubscribers;
 
                   setMembers(validMembers.slice(0, 5));
+                  setAdmins(validMembers.filter(m => m.isAdmin));
+                  setModerators(validMembers.filter(m => m.isModerator && !m.isAdmin));
                   setRecentlyJoined(validMembers.slice(0, 10));
                 } else {
                   setMembers([]);
@@ -1370,17 +1434,19 @@ export default function GroupInfoScreen() {
   useEffect(() => {
     if (allMembers.length === 0) return;
 
-    setAllMembers(prevMembers =>
-      prevMembers.map(member => ({
+    // RC-fix: update allMembers AND derive admins/mods from the freshly-mapped array,
+    // not from the stale `allMembers` state variable in the outer closure.
+    setAllMembers(prevMembers => {
+      const updated = prevMembers.map(member => ({
         ...member,
         isAdmin: currentAdminIds.includes(member.id),
-        isModerator: currentModeratorIds.includes(member.id)
-      }))
-    );
-
-    // Update derived lists
-    setAdmins(allMembers.filter(m => currentAdminIds.includes(m.id)));
-    setModerators(allMembers.filter(m => currentModeratorIds.includes(m.id) && !currentAdminIds.includes(m.id)));
+        isModerator: currentModeratorIds.includes(member.id),
+      }));
+      // Derive and apply in the same batch so React can coalesce the updates.
+      setAdmins(updated.filter(m => m.isAdmin));
+      setModerators(updated.filter(m => m.isModerator && !m.isAdmin));
+      return updated;
+    });
   }, [currentAdminIds, currentModeratorIds]);
 
   // Listen for active audio calls in this community
@@ -1429,7 +1495,7 @@ export default function GroupInfoScreen() {
 
   // Real-time listener for communities_members collection (backup if members not in community doc)
   useEffect(() => {
-    if (!communityId || allMembers.length > 0) return; // Skip if we already have members
+    if (!communityId) return;
     let unsubscribe;
 
     const setupBackupListener = async () => {
@@ -1473,7 +1539,7 @@ export default function GroupInfoScreen() {
                     if (userDoc.exists()) {
                       const userData = userDoc.data();
                       const globalName = userData.displayName || userData.name || userData.fullName || userData.username || 'User';
-                      const nickname = backupNicknames[uid] || memberNicknames[uid];
+                      const nickname = backupNicknames[uid] || memberNicknamesRef.current[uid];
                       return {
                         id: userDoc.id,
                         name: nickname || globalName,
@@ -1482,8 +1548,8 @@ export default function GroupInfoScreen() {
                         profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                         email: userData.email || null,
                         joinedAt: userData.joinedAt || userData.createdAt || null,
-                        isAdmin: false,
-                        isModerator: false,
+                        isAdmin: currentAdminIdsRef.current.includes(userDoc.id),
+                        isModerator: currentModeratorIdsRef.current.includes(userDoc.id),
                       };
                     }
                   } catch (e) {
@@ -1496,6 +1562,8 @@ export default function GroupInfoScreen() {
               if (validMembers.length > 0) {
                 setAllMembers(validMembers);
                 setMembers(validMembers.slice(0, 5));
+                setAdmins(validMembers.filter(m => m.isAdmin));
+                setModerators(validMembers.filter(m => m.isModerator && !m.isAdmin));
                 setRecentlyJoined(validMembers.slice(0, 10));
               }
             }
@@ -1617,28 +1685,83 @@ export default function GroupInfoScreen() {
     }
   }, [communityNickname, currentUser?.id]);
 
-  // Fetch all member nicknames for this community
+  // RC-fix: keep memberNicknamesRef in sync with state so all Firestore listener
+  // closures (community, backup, chat) always read the freshest nickname map
+  // without requiring a re-subscription.
+  useEffect(() => {
+    memberNicknamesRef.current = memberNicknames;
+  }, [memberNicknames]);
+
+  // Keep admin/mod ID refs in sync so the backup real-time listener closures
+  // always reflect the latest values without needing re-subscription.
+  useEffect(() => {
+    currentAdminIdsRef.current = currentAdminIds;
+  }, [currentAdminIds]);
+  useEffect(() => {
+    currentModeratorIdsRef.current = currentModeratorIds;
+  }, [currentModeratorIds]);
+
+  // RC-fix: when memberNicknames loads / updates, re-apply nicknames to every
+  // already-built member object so the UI reflects them immediately.
+  // Also re-derives admins, moderators, and recentlyJoined from the fresh list.
+  useEffect(() => {
+    if (Object.keys(memberNicknames).length === 0) return;
+    setAllMembers(prev => {
+      const updated = prev.map(m => {
+        const nick = memberNicknames[m.id];
+        return {
+          ...m,
+          name: nick || m.globalName || m.name,
+          communityNickname: nick || null,
+        };
+      });
+      // Re-derive dependent lists from the freshly-named array.
+      setAdmins(updated.filter(m => m.isAdmin));
+      setModerators(updated.filter(m => m.isModerator && !m.isAdmin));
+      setRecentlyJoined(
+        updated
+          .filter(m => !m.isAdmin && !m.isModerator)
+          .sort((a, b) => {
+            const aT = a.joinedAt?.toDate?.() || a.joinedAt || new Date(0);
+            const bT = b.joinedAt?.toDate?.() || b.joinedAt || new Date(0);
+            return bT - aT;
+          })
+          .slice(0, 10)
+      );
+      return updated;
+    });
+  }, [memberNicknames]);
+
+  // RC-fix: real-time listener for member nicknames so changes by any user
+  // (including the current user on another device) are reflected instantly.
+  // Uses onSnapshot instead of the old one-time getDocs.
   useEffect(() => {
     if (!communityId) return;
-    const fetchMemberNicknames = async () => {
+    let unsubNicknames = null;
+    (async () => {
       try {
-        const { query: fsQuery, where: fsWhere, getDocs: fsGetDocs } = await import('firebase/firestore');
+        const { query: fsQuery, where: fsWhere, onSnapshot: fsOnSnapshot } = await import('firebase/firestore');
         const membersRef = collection(db, 'communities_members');
         const q = fsQuery(membersRef, fsWhere('community_id', '==', communityId));
-        const snap = await fsGetDocs(q);
-        const nicknames = {};
-        snap.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.communityNickname && data.user_id) {
-            nicknames[data.user_id] = data.communityNickname;
-          }
+        unsubNicknames = fsOnSnapshot(q, (snap) => {
+          const nicknames = {};
+          snap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.communityNickname && data.user_id) {
+              nicknames[data.user_id] = data.communityNickname;
+            }
+          });
+          setMemberNicknames(nicknames);
+        }, (e) => {
+          console.log('Error listening to member nicknames:', e);
         });
-        setMemberNicknames(nicknames);
       } catch (e) {
-        console.log('Error fetching member nicknames:', e);
+        console.log('Error setting up member nickname listener:', e);
       }
+    })();
+    return () => {
+      if (typeof unsubNicknames === 'function') unsubNicknames();
     };
-    fetchMemberNicknames();
   }, [communityId]);
 
   // Save community nickname handler
@@ -1754,8 +1877,8 @@ export default function GroupInfoScreen() {
 
           // Calculate ranking based on total likes compared to all users
           let ranking = 0;
-          if (totalLikes > 0) {
-            // Get all users and their total likes
+          {
+            // Always calculate ranking regardless of like count
             const allUsersLikes = [];
             for (const commDoc of communities) {
               const commId = commDoc.id;
@@ -1797,6 +1920,11 @@ export default function GroupInfoScreen() {
               } catch (e) {
                 // Ignore errors
               }
+            }
+
+            // Ensure current user is in the list (even with 0 likes)
+            if (!allUsersLikes.find(u => u.userId === userId)) {
+              allUsersLikes.push({ userId, likes: 0 });
             }
 
             // Sort by likes descending
@@ -1983,8 +2111,9 @@ export default function GroupInfoScreen() {
               }
             }
 
-            // Check for community nickname for this sender
-            const senderNickname = senderId ? memberNicknames[senderId] : null;
+            // RC-fix: read from ref — the onSnapshot closure captures state at
+            // mount time; the ref always holds the current value.
+            const senderNickname = senderId ? memberNicknamesRef.current[senderId] : null;
 
             return {
               id: docSnap.id,
@@ -2691,7 +2820,17 @@ export default function GroupInfoScreen() {
 
   // Combine blogs and posts, sort by createdAt with pinned announcements at top
   useEffect(() => {
-    const combined = [...blogs, ...posts];
+    const uid = currentUser?.id || currentUser?.uid;
+    const isCommunityStaff = !!(community && uid && (
+      community.creatorId === uid ||
+      (community.leaders || []).includes(uid) ||
+      (community.curators || []).includes(uid)
+    ));
+    // Non-staff cannot see disabled or hidden posts in the feed.
+    // Staff still see them so they can re-enable from the moderation panel.
+    const combined = isCommunityStaff
+      ? [...blogs, ...posts]
+      : [...blogs, ...posts].filter(p => !p.isDisabled && !p.isHidden);
     const announcementIds = community?.announcements || [];
     const featuredIds = community?.featuredPosts || [];
     
@@ -2722,7 +2861,7 @@ export default function GroupInfoScreen() {
       return 0;
     });
     setAllPosts(combined);
-  }, [blogs, posts, community?.announcements, community?.featuredPosts]);
+  }, [blogs, posts, community?.announcements, community?.featuredPosts, community?.creatorId, community?.leaders, community?.curators, currentUser]);
 
   // Fetch drafts from Firestore
   useEffect(() => {
@@ -2891,7 +3030,7 @@ export default function GroupInfoScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.8,
       });
@@ -2916,7 +3055,7 @@ export default function GroupInfoScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        mediaTypes: ['videos'],
         allowsEditing: true,
         quality: 0.8,
         videoMaxDuration: 60, // 60 seconds max
@@ -4935,7 +5074,7 @@ export default function GroupInfoScreen() {
 
             // Launch camera
             const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'],
               allowsEditing: true,
               aspect: [4, 3],
               quality: 0.8,
@@ -4959,7 +5098,7 @@ export default function GroupInfoScreen() {
 
             // Launch image picker
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
+              mediaTypes: ['images'],
               allowsEditing: true,
               aspect: [4, 3],
               quality: 0.8,
@@ -5027,22 +5166,30 @@ export default function GroupInfoScreen() {
                 }
 
                 const communityData = communitySnap.data();
-                let updatedMembers = [];
 
-                // Handle members array
-                if (Array.isArray(communityData.members)) {
-                  updatedMembers = communityData.members.filter(id => id !== userId);
-                }
+                // Remove from both members and memberIds arrays
+                const updatedMembers = Array.isArray(communityData.members)
+                  ? communityData.members.filter(id => id !== userId) : [];
+                const updatedMemberIds = Array.isArray(communityData.memberIds)
+                  ? communityData.memberIds.filter(id => id !== userId) : undefined;
 
-                // Decrement member count
-                const currentCount = communityData.members_count ||
-                  (Array.isArray(communityData.members) ? communityData.members.length : 0);
+                // Compute true current count using the same combined union logic, then subtract 1
+                const _mArr = Array.isArray(communityData.members) ? communityData.members : [];
+                const _miArr = Array.isArray(communityData.memberIds) ? communityData.memberIds : [];
+                const currentCount = new Set([..._mArr, ..._miArr]).size ||
+                  communityData.memberCount || 0;
                 const newCount = Math.max(0, currentCount - 1);
 
-                transaction.update(communityRef, {
+                const leaveUpdate = {
                   members: updatedMembers,
-                  members_count: newCount
-                });
+                  memberCount: newCount,
+                  members_count: Math.max(0, (communityData.members_count || 0) - 1),
+                  updatedAt: new Date()
+                };
+                if (updatedMemberIds !== undefined) {
+                  leaveUpdate.memberIds = updatedMemberIds;
+                }
+                transaction.update(communityRef, leaveUpdate);
               });
 
               Alert.alert(
@@ -5051,7 +5198,7 @@ export default function GroupInfoScreen() {
                 [
                   {
                     text: 'OK',
-                    onPress: () => navigation.goBack()
+                    onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')
                   }
                 ]
               );
@@ -5113,13 +5260,14 @@ export default function GroupInfoScreen() {
                 }
 
                 // Decrement member count
-                const currentCount = communityData.members_count ||
+                const currentCount = communityData.memberCount ||
                   (Array.isArray(communityData.members) ? communityData.members.length : 0);
                 const newCount = Math.max(0, currentCount - 1);
 
                 transaction.update(communityRef, {
                   members: updatedMembers,
-                  members_count: newCount
+                  memberCount: newCount,
+                  updatedAt: new Date()
                 });
               });
 
@@ -5224,21 +5372,42 @@ export default function GroupInfoScreen() {
   };
 
   // Handle Copy Invite Link
-  const handleCopyInviteLink = () => {
-    Alert.alert(
-      'Invite Link',
-      inviteLink,
-      [
-        {
-          text: 'Share',
-          onPress: handleShareCommunity
-        },
-        {
-          text: 'Close',
-          style: 'cancel'
-        }
-      ]
-    );
+  const handleCopyInviteLink = async () => {
+    try {
+      if (!inviteLink) {
+        Alert.alert('Error', 'No invite link available.');
+        return;
+      }
+      await Clipboard.setStringAsync(inviteLink);
+      Alert.alert('Copied!', 'Invite link copied to clipboard.');
+    } catch (error) {
+      console.error('Error copying link:', error);
+      Alert.alert('Error', 'Failed to copy link.');
+    }
+  };
+
+  // Handle QR Code Download
+  const handleDownloadQRCode = async () => {
+    try {
+      if (!qrCodeValue) {
+        Alert.alert('Error', 'No QR code available.');
+        return;
+      }
+      const { status } = await MediaLibrary.requestPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please allow access to save the QR code to your photos.');
+        return;
+      }
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qrCodeValue)}&color=000000&bgcolor=FFFFFF&margin=2`;
+      const fileUri = FileSystem.cacheDirectory + `community_qr_${communityId}.png`;
+      const downloadRes = await FileSystem.downloadAsync(qrUrl, fileUri);
+      const asset = await MediaLibrary.createAssetAsync(downloadRes.uri);
+      await MediaLibrary.createAlbumAsync('Social Vibing', asset, false);
+      Alert.alert('Saved!', 'QR Code saved to your Photos album.');
+    } catch (error) {
+      console.error('Error downloading QR code:', error);
+      Alert.alert('Error', 'Failed to save QR code.');
+    }
   };
 
   // Handle Delete Community
@@ -5283,7 +5452,7 @@ export default function GroupInfoScreen() {
                 [
                   {
                     text: 'OK',
-                    onPress: () => navigation.goBack()
+                    onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')
                   }
                 ]
               );
@@ -5341,6 +5510,81 @@ export default function GroupInfoScreen() {
   }, [communityId, community, allPosts]);
 
   // Handle Pin Post as Announcement
+  // Sequence: hide manage sheet → then open compose (iOS can't stack transparent + opaque modal)
+  const openComposeAnnouncement = () => {
+    setShowAnnouncementsModal(false);
+    setTimeout(() => setShowComposeAnnouncementModal(true), 350);
+  };
+
+  // Sequence: close compose → then reopen manage sheet
+  const closeComposeAnnouncement = (reopenManage = true) => {
+    setShowComposeAnnouncementModal(false);
+    setNewAnnouncementTitle('');
+    setNewAnnouncementBody('');
+    if (reopenManage) setTimeout(() => setShowAnnouncementsModal(true), 350);
+  };
+
+  // Create a brand-new announcement post and auto-pin it
+  const handleCreateAnnouncement = async () => {
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only admins and moderators can create announcements');
+      return;
+    }
+    if (!newAnnouncementTitle.trim() && !newAnnouncementBody.trim()) {
+      Alert.alert('Empty Announcement', 'Please enter a title or message.');
+      return;
+    }
+    setCreatingAnnouncement(true);
+    try {
+      const firestore = await import('firebase/firestore');
+      const postsCol = collection(db, 'communities', communityId, 'posts');
+      const postData = {
+        title: newAnnouncementTitle.trim(),
+        text: newAnnouncementBody.trim(),
+        content: newAnnouncementBody.trim(),
+        authorId: currentUser?.id || auth.currentUser?.uid || '',
+        authorName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'Staff',
+        authorImage: currentUser?.profileImage || null,
+        communityId,
+        type: 'announcement',
+        isAnnouncement: true,
+        isPinned: false,
+        likes: 0,
+        comments: 0,
+        likedBy: [],
+        createdAt: firestore.serverTimestamp(),
+        createdById: currentUser?.id || auth.currentUser?.uid || '',
+        createdByName: currentUser?.communityNickname || communityNickname || currentUser?.name || 'Staff',
+      };
+      const docRef = await firestore.addDoc(postsCol, postData);
+
+      // Pin it as an announcement
+      const communityRef = doc(db, 'communities', communityId);
+      const currentAnnouncements = community?.announcements || [];
+      if (currentAnnouncements.length >= 3) {
+        await updateDoc(communityRef, {
+          announcements: firestore.arrayRemove(currentAnnouncements[0]),
+        });
+      }
+      await updateDoc(communityRef, {
+        announcements: firestore.arrayUnion(docRef.id),
+      });
+
+      setNewAnnouncementTitle('');
+      setNewAnnouncementBody('');
+      setShowComposeAnnouncementModal(false);
+      setTimeout(() => {
+        setShowAnnouncementsModal(true);
+        Alert.alert('✅ Posted', 'Announcement created and pinned!');
+      }, 350);
+    } catch (error) {
+      console.error('Error creating announcement:', error);
+      Alert.alert('Error', 'Failed to create announcement.');
+    } finally {
+      setCreatingAnnouncement(false);
+    }
+  };
+
   const handlePinAnnouncement = async (postId) => {
     if (!isAdmin && !isModerator) {
       Alert.alert('Permission Denied', 'Only admins and moderators can pin announcements');
@@ -5428,10 +5672,29 @@ export default function GroupInfoScreen() {
       const firestore = await import('firebase/firestore');
       const communityRef = doc(db, 'communities', communityId);
       
-      // Add to featured posts
+      // Add to featured posts array on community doc
       await updateDoc(communityRef, {
         featuredPosts: firestore.arrayUnion(postId)
       });
+
+      // Also mark the post doc as featured (same as announcements mark isPinned)
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+          isFeatured: true,
+          featuredAt: firestore.serverTimestamp(),
+          featuredBy: currentUser?.id
+        });
+      } catch {
+        try {
+          await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+            isFeatured: true,
+            featuredAt: firestore.serverTimestamp(),
+            featuredBy: currentUser?.id
+          });
+        } catch {
+          console.warn('Could not mark post/blog doc as featured');
+        }
+      }
 
       Alert.alert('Success', 'Post added to featured!');
     } catch (error) {
@@ -5454,6 +5717,25 @@ export default function GroupInfoScreen() {
       await updateDoc(communityRef, {
         featuredPosts: firestore.arrayRemove(postId)
       });
+
+      // Also unmark the post doc (same as announcements unmark isPinned)
+      try {
+        await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
+          isFeatured: false,
+          featuredAt: null,
+          featuredBy: null
+        });
+      } catch {
+        try {
+          await updateDoc(doc(db, 'communities', communityId, 'blogs', postId), {
+            isFeatured: false,
+            featuredAt: null,
+            featuredBy: null
+          });
+        } catch {
+          console.warn('Could not unmark post/blog doc as featured');
+        }
+      }
 
       Alert.alert('Success', 'Post removed from featured!');
     } catch (error) {
@@ -5508,14 +5790,14 @@ export default function GroupInfoScreen() {
           <TouchableOpacity onPress={() => setSidebarVisible(true)}>
             <Ionicons name="menu" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
         <Text style={styles.topBarTitle} numberOfLines={1}>{community?.name || groupTitle || 'Community'}</Text>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 15 }}>
           {isAdmin && (
-            <TouchableOpacity onPress={() => setShowAdminPanel(true)}>
+            <TouchableOpacity onPress={() => navigation.navigate('CommunityAdminPortal', { communityId, communityData: community })}>
               <MaterialIcons name="admin-panel-settings" size={24} color="#FFD700" />
             </TouchableOpacity>
           )}
@@ -5633,6 +5915,12 @@ export default function GroupInfoScreen() {
                     <Text style={{ color: communitySection === 'featured' ? '#000' : '#FFD700', fontWeight: '700', fontSize: 14 }}>Featured</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
+                    onPress={() => setCommunitySection('announcements')}
+                    style={{ backgroundColor: communitySection === 'announcements' ? '#FF6B6B' : 'transparent', borderWidth: communitySection === 'announcements' ? 0 : 1, borderColor: '#FF6B6B', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Ionicons name="megaphone" size={15} color={communitySection === 'announcements' ? '#fff' : '#FF6B6B'} />
+                    <Text style={{ color: communitySection === 'announcements' ? '#fff' : '#FF6B6B', fontWeight: '700', fontSize: 14 }}>Announcements</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     onPress={() => setCommunitySection('posts')}
                     style={{ backgroundColor: communitySection === 'posts' ? '#8B2EF0' : 'transparent', borderWidth: communitySection === 'posts' ? 0 : 1, borderColor: '#444', borderRadius: 20, paddingHorizontal: 24, paddingVertical: 8, justifyContent: 'center', marginRight: 12 }}>
                     <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Posts</Text>
@@ -5657,34 +5945,6 @@ export default function GroupInfoScreen() {
                 {/* Featured Posts Section */}
                 {communitySection === 'featured' && (
                   <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <MaterialIcons name="star" size={20} color="#FFD700" />
-                        <Text style={{ color: '#FFD700', fontSize: 16, fontWeight: '700' }}>
-                          Featured Posts {featuredPosts.length > 0 && `(${featuredPosts.length})`}
-                        </Text>
-                      </View>
-                      {(isAdmin || isModerator) && (
-                        <TouchableOpacity
-                          onPress={() => setShowFeaturedModal(true)}
-                          style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            backgroundColor: '#2a2a2a',
-                            paddingHorizontal: 12,
-                            paddingVertical: 6,
-                            borderRadius: 16,
-                            borderWidth: 1,
-                            borderColor: '#FFD700',
-                            gap: 4
-                          }}
-                        >
-                          <MaterialIcons name="settings" size={14} color="#FFD700" />
-                          <Text style={{ color: '#FFD700', fontSize: 11, fontWeight: '600' }}>Manage</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-
                     {featuredPosts.length === 0 ? (
                       <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 20, alignItems: 'center' }}>
                         <MaterialIcons name="star-border" size={40} color="#666" />
@@ -5696,169 +5956,125 @@ export default function GroupInfoScreen() {
                         )}
                       </View>
                     ) : (
-                      featuredPosts.map((postId) => {
-                        const post = allPosts.find(p => p.id === postId);
-                        if (!post) return null;
+                      <FeaturedFeed
+                        featuredPosts={featuredPosts
+                          .map((postId) => allPosts.find(p => p.id === postId))
+                          .filter(Boolean)}
+                        communityId={communityId}
+                        onPress={(post) => {
+                          handlePostOptions(post);
+                        }}
+                        isStaff={isAdmin || isModerator}
+                        onManage={() => setShowFeaturedModal(true)}
+                      />
+                    )}
+                  </View>
+                )}
 
-                        const isLiked = Array.isArray(post.likedBy) && currentUser?.id
-                          ? post.likedBy.includes(currentUser.id)
-                          : false;
-                        const likeKey = `${post.type}-${post.id}`;
-                        const likeBusy = likeProcessingIds.includes(likeKey);
-                        
+                {/* Announcements Section */}
+                {(communitySection === 'announcements' || communitySection === 'all') && (
+                  <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
+                    {/* Header */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ backgroundColor: '#FF6B6B22', borderRadius: 8, padding: 6 }}>
+                          <Ionicons name="megaphone" size={18} color="#FF6B6B" />
+                        </View>
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Announcements</Text>
+                        {announcements.length > 0 && (
+                          <View style={{ backgroundColor: '#FF6B6B', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 }}>
+                            <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>{announcements.length}</Text>
+                          </View>
+                        )}
+                      </View>
+                      {(isAdmin || isModerator) && (
+                        <TouchableOpacity
+                          onPress={() => setShowAnnouncementsModal(true)}
+                          style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#FF6B6B22', borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, gap: 4 }}
+                        >
+                          <Ionicons name="settings-outline" size={14} color="#FF6B6B" />
+                          <Text style={{ color: '#FF6B6B', fontSize: 12, fontWeight: '600' }}>Manage</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+
+                    {announcements.length === 0 ? (
+                      <View style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 28, alignItems: 'center' }}>
+                        <Ionicons name="megaphone-outline" size={44} color="#444" />
+                        <Text style={{ color: '#888', fontSize: 15, fontWeight: '600', marginTop: 10 }}>No announcements yet</Text>
+                        <Text style={{ color: '#555', fontSize: 12, marginTop: 6, textAlign: 'center' }}>Important updates from staff will appear here</Text>
+                        {(isAdmin || isModerator) && (
+                          <Text style={{ color: '#666', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
+                            Long-press any post and select "Pin as Announcement"
+                          </Text>
+                        )}
+                      </View>
+                    ) : (
+                      announcements.map((post, index) => {
+                        const isExpanded = expandedAnnouncementId === (post.id || index);
+                        const announcementText = post.text || post.content || post.title || '';
                         return (
-                          <TouchableOpacity
-                            key={post.id}
-                            style={{ backgroundColor: '#1e1e1e', borderRadius: 12, padding: 12, marginBottom: 12, borderWidth: 2, borderColor: '#FFD700' }}
-                            onLongPress={() => handlePostOptions(post)}
-                            activeOpacity={0.9}
-                          >
-                            {/* Featured Badge */}
-                            <View style={{ position: 'absolute', top: 8, right: 8, backgroundColor: '#FFD700', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, flexDirection: 'row', alignItems: 'center', gap: 4, zIndex: 1 }}>
-                              <MaterialIcons name="star" size={12} color="#000" />
-                              <Text style={{ color: '#000', fontSize: 10, fontWeight: '700' }}>FEATURED</Text>
-                            </View>
-
-                            {/* Author Info */}
-                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                {post.authorImage ? (
-                                  <Image
-                                    source={{ uri: post.authorImage }}
-                                    style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10 }}
-                                  />
-                                ) : (
-                                  <View style={{ width: 44, height: 44, borderRadius: 22, marginRight: 10, backgroundColor: '#E1E8ED', justifyContent: 'center', alignItems: 'center' }}>
-                                    <Ionicons name="person" size={30} color="#657786" />
-                                  </View>
-                                )}
-                                <View>
-                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{post.authorName || 'User'}</Text>
-                                  <Text style={{ color: '#888', fontSize: 12 }}>
-                                    {post.createdAt
-                                      ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                      : 'Recently'
-                                    }
-                                  </Text>
+                        <TouchableOpacity
+                          key={post.id || index}
+                          onPress={() => setExpandedAnnouncementId(isExpanded ? null : (post.id || index))}
+                          onLongPress={() => handlePostOptions(post)}
+                          activeOpacity={0.8}
+                          style={{
+                            backgroundColor: '#1a1a1a',
+                            borderRadius: 14,
+                            marginBottom: 12,
+                            overflow: 'hidden',
+                            borderLeftWidth: 4,
+                            borderLeftColor: '#FF6B6B',
+                          }}
+                        >
+                          <View style={{ padding: 14 }}>
+                            {/* Badge + Date row */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <View style={{ backgroundColor: '#FF6B6B', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                  <Ionicons name="megaphone" size={11} color="#fff" />
+                                  <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>ANNOUNCEMENT</Text>
                                 </View>
                               </View>
-                              {renderFollowButton(post.authorId)}
+                              {post.createdAt && (
+                                <Text style={{ color: '#555', fontSize: 11 }}>
+                                  {new Date(post.createdAt?.seconds ? post.createdAt.seconds * 1000 : post.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                                </Text>
+                              )}
                             </View>
 
-                            {/* Blog Post - Show Title and Content */}
-                            {post.type === 'blog' && (
+                            {/* Full content (expanded) or preview (collapsed) */}
+                            {announcementText ? (
                               <>
-                                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 8 }}>
-                                  {post.title}
-                                </Text>
-                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }} numberOfLines={3}>
-                                  {post.content}
-                                </Text>
-                              </>
-                            )}
-
-                            {/* Image Post - Show Image and Caption */}
-                            {post.type === 'image' && (
-                              <>
-                                {!!post.imageUri && (
-                                  <Image
-                                    source={{ uri: post.imageUri }}
-                                    style={{ width: '100%', height: 250, borderRadius: 12, marginBottom: 12, resizeMode: 'cover' }}
-                                  />
-                                )}
-                                {!!post.caption && (
-                                  <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-                                    {post.caption}
-                                  </Text>
-                                )}
-                              </>
-                            )}
-
-                            {/* Community Share - Show shared community */}
-                            {post.type === 'community_share' && (
-                              <>
-                                <Text style={{ color: '#ccc', fontSize: 13, lineHeight: 18, marginBottom: 12 }}>
-                                  {post.text}
-                                </Text>
-                                <TouchableOpacity
-                                  style={{
-                                    backgroundColor: '#252525',
-                                    borderRadius: 12,
-                                    padding: 14,
-                                    flexDirection: 'row',
-                                    alignItems: 'center',
-                                    marginBottom: 12,
-                                    borderWidth: 1,
-                                    borderColor: '#333',
-                                  }}
-                                  onPress={() => {
-                                    if (post.communityId) {
-                                      navigation.navigate('Community', {
-                                        openCommunityId: post.communityId,
-                                        openCommunityData: {
-                                          id: post.communityId,
-                                          community_id: post.communityId,
-                                          name: post.communityName,
-                                          community_title: post.communityName,
-                                          profileImage: post.communityImage,
-                                          img: post.communityImage ? { uri: post.communityImage } : null,
-                                          description: post.communityDescription,
-                                          community_members: post.memberCount || 0,
-                                        }
-                                      });
-                                    }
-                                  }}
+                                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '400', lineHeight: 22, marginBottom: 6 }}
+                                  numberOfLines={isExpanded ? undefined : 3}
                                 >
-                                  {post.communityImage ? (
-                                    <Image
-                                      source={{ uri: post.communityImage }}
-                                      style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12 }}
-                                    />
-                                  ) : (
-                                    <View style={{ width: 56, height: 56, borderRadius: 28, marginRight: 12, backgroundColor: '#333', justifyContent: 'center', alignItems: 'center' }}>
-                                      <Ionicons name="people" size={28} color="#666" />
-                                    </View>
-                                  )}
-                                  <View style={{ flex: 1 }}>
-                                    <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700', marginBottom: 4 }}>
-                                      {post.communityName || 'Community'}
-                                    </Text>
-                                    {post.communityDescription ? (
-                                      <Text style={{ color: '#888', fontSize: 13, marginBottom: 4 }} numberOfLines={2}>
-                                        {post.communityDescription}
-                                      </Text>
-                                    ) : null}
-                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                      <Ionicons name="people" size={14} color="#666" />
-                                      <Text style={{ color: '#666', fontSize: 12 }}>
-                                        {post.memberCount || 0} members
-                                      </Text>
-                                    </View>
-                                  </View>
-                                  <Ionicons name="chevron-forward" size={20} color="#666" />
-                                </TouchableOpacity>
+                                  {announcementText}
+                                </Text>
+                                {!isExpanded && announcementText.length > 120 && (
+                                  <Text style={{ color: '#FF6B6B', fontSize: 12, fontWeight: '600', marginBottom: 4 }}>Tap to read more</Text>
+                                )}
                               </>
-                            )}
+                            ) : null}
 
-                            {/* Action Buttons */}
-                            <View style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#222' }}>
-                              <AnimatedHeartButton
-                                isLiked={isLiked}
-                                likes={post.likes}
-                                onPress={() => handleToggleLike(post)}
-                              />
-                              <TouchableOpacity
-                                style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                                onPress={() => handleCommentPress(post)}
-                              >
-                                <Ionicons name="chatbubble-outline" size={20} color="#888" />
-                                <Text style={{ color: '#888', fontSize: 12 }}>{post.comments || 0}</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity onPress={() => handleSharePost(post)}>
-                                <Ionicons name="share-social-outline" size={20} color="#888" />
-                              </TouchableOpacity>
+                            {/* Author */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                              <Ionicons name="person-circle-outline" size={14} color="#888" />
+                              <Text style={{ color: '#777', fontSize: 12 }}>
+                                {liveNames[post.authorId || post.createdById] || post.createdByName || post.authorName || 'Staff'}
+                              </Text>
                             </View>
-                          </TouchableOpacity>
+                          </View>
+
+                          {/* Thumbnail image if present */}
+                          {(post.imageUrl || post.images?.[0]) && (
+                            <Image
+                              source={{ uri: post.imageUrl || post.images[0] }}
+                              style={{ width: '100%', height: 160, resizeMode: 'cover' }}
+                            />
+                          )}
+                        </TouchableOpacity>
                         );
                       })
                     )}
@@ -5903,27 +6119,46 @@ export default function GroupInfoScreen() {
                       <View style={{ gap: 12 }}>
                         {communityGroups.map((group) => {
                           const isJoined = joinedGroupIds.includes(group.id);
+                          const uid = currentUser?.id || currentUser?.uid;
+                          const _isCommunityStaff = !!(community && uid && (
+                            community.creatorId === uid ||
+                            (community.leaders || []).includes(uid) ||
+                            (community.curators || []).includes(uid)
+                          ));
+                          // Non-staff should not see disabled groups at all
+                          if (group.isDisabled && !_isCommunityStaff) return null;
                           return (
                             <TouchableOpacity
                               key={group.id}
                               style={{
-                                backgroundColor: '#1e1e1e',
+                                backgroundColor: group.isDisabled ? '#1a1010' : '#1e1e1e',
                                 borderRadius: 12,
                                 padding: 14,
                                 flexDirection: 'row',
                                 alignItems: 'center',
                                 borderWidth: 1,
-                                borderColor: isJoined ? '#8B2EF0' : '#333',
+                                borderColor: group.isDisabled ? '#8B2020' : isJoined ? '#8B2EF0' : '#333',
+                                opacity: group.isDisabled ? 0.7 : 1,
                               }}
                               activeOpacity={0.7}
-                              onPress={() => navigation.navigate('CommunityGroupChat', {
-                                communityId: communityId,
-                                groupId: group.id,
-                                groupName: group.name,
-                                groupImage: group.groupImage,
-                                groupEmoji: group.theme?.emoji,
-                                groupColor: group.theme?.color,
-                              })}
+                              onPress={() => {
+                                if (group.isDisabled) {
+                                  Alert.alert(
+                                    'Group Disabled',
+                                    'This group has been temporarily disabled by a moderator.',
+                                    [{ text: 'OK' }]
+                                  );
+                                  return;
+                                }
+                                navigation.navigate('CommunityGroupChat', {
+                                  communityId: communityId,
+                                  groupId: group.id,
+                                  groupName: group.name,
+                                  groupImage: group.groupImage,
+                                  groupEmoji: group.theme?.emoji,
+                                  groupColor: group.theme?.color,
+                                });
+                              }}
                             >
                               {/* Group Image/Emoji */}
                               <View style={{
@@ -5958,7 +6193,18 @@ export default function GroupInfoScreen() {
                                   }}>
                                     {group.name}
                                   </Text>
-                                  {isJoined && (
+                                  {group.isDisabled ? (
+                                    <View style={{
+                                      backgroundColor: '#8B2020',
+                                      paddingHorizontal: 8,
+                                      paddingVertical: 3,
+                                      borderRadius: 10,
+                                    }}>
+                                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>
+                                        DISABLED
+                                      </Text>
+                                    </View>
+                                  ) : isJoined && (
                                     <View style={{
                                       backgroundColor: '#8B2EF0',
                                       paddingHorizontal: 8,
@@ -6043,7 +6289,7 @@ export default function GroupInfoScreen() {
                   <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: 20 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
                       <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>Posts</Text>
-                      <TouchableOpacity>
+                      <TouchableOpacity onPress={() => setCommunitySection('posts')}>
                         <Text style={{ color: '#8B2EF0', fontSize: 13, fontWeight: '600' }}>View all  →</Text>
                       </TouchableOpacity>
                     </View>
@@ -6105,7 +6351,7 @@ export default function GroupInfoScreen() {
                                   </View>
                                 )}
                                 <View>
-                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{post.authorName || 'User'}</Text>
+                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{liveNames[post.authorId] || (post.authorId && memberNicknames[post.authorId]) || post.authorName || 'User'}</Text>
                                   <Text style={{ color: '#888', fontSize: 12 }}>
                                     {post.createdAt
                                       ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -6304,7 +6550,7 @@ export default function GroupInfoScreen() {
                                 </View>
                               )}
                               <View style={{ flex: 1 }}>
-                                <Text style={styles.postAuthor}>{firstPost.authorName || 'Unknown'}</Text>
+                                <Text style={styles.postAuthor}>{liveNames[firstPost.authorId] || (firstPost.authorId && memberNicknames[firstPost.authorId]) || firstPost.authorName || 'Unknown'}</Text>
                                 <Text style={styles.postTime}>
                                   {firstPost.createdAt ? new Date(firstPost.createdAt.seconds * 1000).toLocaleDateString() : ''}
                                 </Text>
@@ -6376,7 +6622,7 @@ export default function GroupInfoScreen() {
                                     </View>
                                   )}
                                   <Text style={{ color: '#fff', fontSize: 12, marginLeft: 6, flex: 1 }} numberOfLines={1}>
-                                    {post.authorName || 'Unknown'}
+                                    {liveNames[post.authorId] || (post.authorId && memberNicknames[post.authorId]) || post.authorName || 'Unknown'}
                                   </Text>
                                 </View>
 
@@ -6817,11 +7063,6 @@ export default function GroupInfoScreen() {
                     {/* Stats row */}
                     <View style={styles.checkInStatsRow}>
                       <View style={styles.checkInStatChip}>
-                        <Image source={require('./assets/goldicon.png')} style={styles.checkInCoinIcon} />
-                        <Text style={styles.checkInStatValue}>{walletData?.coins ?? 0}</Text>
-                        <Text style={styles.checkInStatLabel}>Coins</Text>
-                      </View>
-                      <View style={styles.checkInStatChip}>
                         <Ionicons name="flame" size={20} color="#FF6B6B" />
                         <Text style={styles.checkInStatValue}>{checkInStreak}</Text>
                         <Text style={styles.checkInStatLabel}>Streak</Text>
@@ -6853,7 +7094,6 @@ export default function GroupInfoScreen() {
                             Alert.alert(
                               '🎉 Check-in Successful!',
                               `+${result.pointsEarned} Points${result.multiplier > 1 ? ` (${result.multiplier}x bonus!)` : ''}\n` +
-                              `+${result.coinsEarned} Coins\n` +
                               `🔥 Streak: ${result.streak} days`,
                               [{ text: 'Awesome!' }]
                             );
@@ -6884,7 +7124,7 @@ export default function GroupInfoScreen() {
                             <Text style={[styles.checkInCTAText, hasCheckedIn && { color: '#00FF73' }]}>
                               {hasCheckedIn
                                 ? 'Checked In ✓'
-                                : `Check In · +${COINS_CONFIG.DAILY_CHECK_IN} coins & +${POINTS_CONFIG.DAILY_CHECK_IN} pts`}
+                                : `Check In · +${POINTS_CONFIG.DAILY_CHECK_IN} pts`}
                             </Text>
                           </>
                         )}
@@ -7006,6 +7246,7 @@ export default function GroupInfoScreen() {
                           setPlayingVoiceId={setPlayingVoiceId}
                           setVoiceSound={setVoiceSound}
                           onLongPressMessage={handleMsgLongPress}
+                          liveNames={liveNames}
                         />
                       )}
                     </ScrollView>
@@ -8529,7 +8770,7 @@ export default function GroupInfoScreen() {
                 style={styles.featureCard}
                 onPress={() => {
                   setShowFeatureModal(false);
-                  setShowMiniScreen('voice');
+                  setTimeout(() => setShowMiniScreen('voice'), 400);
                 }}
               >
                 <LinearGradient
@@ -8547,7 +8788,7 @@ export default function GroupInfoScreen() {
                 style={styles.featureCard}
                 onPress={() => {
                   setShowFeatureModal(false);
-                  setShowMiniScreen('screening');
+                  setTimeout(() => setShowMiniScreen('screening'), 400);
                 }}
               >
                 <LinearGradient
@@ -8566,8 +8807,8 @@ export default function GroupInfoScreen() {
                 onPress={() => {
                   setShowFeatureModal(false);
                   setPendingRoleplayJoin(null); // Clear pending join info for new roleplay
-                  setShowMiniScreen('roleplay');
                   setRoleplayPage(1);
+                  setTimeout(() => setShowMiniScreen('roleplay'), 400);
                 }}
               >
                 <LinearGradient
@@ -8824,7 +9065,7 @@ export default function GroupInfoScreen() {
                       style={styles.avatarSelector}
                       onPress={async () => {
                         const result = await ImagePicker.launchImageLibraryAsync({
-                          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                          mediaTypes: ['images'],
                           allowsEditing: true,
                           aspect: [1, 1],
                           quality: 0.8,
@@ -9601,7 +9842,7 @@ export default function GroupInfoScreen() {
                     onPress={handleCopyInviteLink}
                   >
                     <MaterialIcons name="content-copy" size={20} color="#fff" />
-                    <Text style={styles.shareButtonText}>View Link</Text>
+                    <Text style={styles.shareButtonText}>Copy Link</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.shareButton, styles.shareButtonPrimary]}
@@ -9617,17 +9858,22 @@ export default function GroupInfoScreen() {
               <View style={styles.shareSection}>
                 <Text style={styles.shareSectionTitle}>QR Code</Text>
                 <View style={styles.qrCodeContainer}>
-                  <View style={styles.qrCodePlaceholder}>
-                    <MaterialCommunityIcons name="qrcode" size={120} color="#8B2EF0" />
-                    <Text style={styles.qrCodeText}>QR Code</Text>
-                    <Text style={styles.qrCodeSubtext}>
-                      Scan to join community
-                    </Text>
-                  </View>
+                  {qrCodeValue ? (
+                    <Image
+                      source={{ uri: `https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(qrCodeValue)}&color=000000&bgcolor=FFFFFF&margin=2` }}
+                      style={styles.qrCodeImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    <View style={styles.qrCodePlaceholder}>
+                      <MaterialCommunityIcons name="qrcode" size={80} color="#8B2EF0" />
+                      <Text style={styles.qrCodeSubtext}>Generating QR Code…</Text>
+                    </View>
+                  )}
                 </View>
                 <TouchableOpacity
                   style={[styles.shareButton, styles.shareButtonSecondary]}
-                  onPress={() => Alert.alert('Coming Soon', 'QR Code download will be available soon!')}
+                  onPress={handleDownloadQRCode}
                 >
                   <MaterialIcons name="download" size={20} color="#8B2EF0" />
                   <Text style={[styles.shareButtonText, { color: '#8B2EF0' }]}>Download QR Code</Text>
@@ -9739,109 +9985,543 @@ export default function GroupInfoScreen() {
         </View>
       </Modal>
 
-      {/* Announcements Management Modal */}
+      {/* ═══════════════════════════════════════════════════════════
+           ANNOUNCEMENTS MANAGEMENT MODAL – enhanced UX
+           ═══════════════════════════════════════════════════════════ */}
       <Modal
         visible={showAnnouncementsModal}
         animationType="slide"
         transparent={true}
         presentationStyle="overFullScreen"
-        onRequestClose={() => setShowAnnouncementsModal(false)}
+        onRequestClose={() => {
+          setShowAnnouncementsModal(false);
+          setAnnouncementsTab('pinned');
+        }}
       >
         <View style={styles.adminModalContainer}>
-          <View style={styles.adminModalContent}>
-            {/* Header */}
-            <View style={styles.adminModalHeader}>
-              <Text style={styles.adminModalTitle}>
-                Manage Announcements ({announcements.length}/3)
-              </Text>
-              <TouchableOpacity onPress={() => setShowAnnouncementsModal(false)}>
-                <Ionicons name="close" size={28} color="#fff" />
-              </TouchableOpacity>
+          <View style={[styles.adminModalContent, { minHeight: '55%', maxHeight: '92%' }]}>
+
+            {/* ── Drag handle ── */}
+            <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 2 }}>
+              <View style={{ width: 38, height: 4, borderRadius: 2, backgroundColor: '#444' }} />
             </View>
 
-            {/* Announcements List */}
-            <ScrollView style={styles.announcementsListContainer}>
-              <Text style={styles.announcementsSectionTitle}>Pinned Announcements</Text>
-              
-              {announcements.length === 0 ? (
-                <View style={styles.emptyAnnouncementsContainer}>
-                  <MaterialCommunityIcons name="bullhorn-outline" size={64} color="#444" />
-                  <Text style={styles.emptyAnnouncementsText}>
-                    No announcements pinned yet
-                  </Text>
-                  <Text style={styles.emptyAnnouncementsSubtext}>
-                    Long-press any post and select "Pin as Announcement"
-                  </Text>
-                </View>
-              ) : (
-                announcements.map((announcement) => (
-                  <View key={announcement.id} style={styles.announcementItem}>
-                    <View style={styles.announcementIconContainer}>
-                      <MaterialCommunityIcons name="bullhorn" size={20} color="#8B2EF0" />
-                    </View>
-                    <View style={styles.announcementContent}>
-                      <Text style={styles.announcementTitle} numberOfLines={2}>
-                        {announcement.title || announcement.caption || announcement.text || 'Announcement'}
-                      </Text>
-                      <Text style={styles.announcementDate}>
-                        {announcement.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.unpinButton}
-                      onPress={() => handleUnpinAnnouncement(announcement.id)}
-                    >
-                      <MaterialIcons name="push-pin" size={20} color="#ff4b6e" />
-                    </TouchableOpacity>
+            {/* ── Header ── */}
+            <View style={[styles.adminModalHeader, { paddingTop: 12 }]}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={{ backgroundColor: '#FF6B6B22', borderRadius: 8, padding: 7 }}>
+                    <Ionicons name="megaphone" size={18} color="#FF6B6B" />
                   </View>
-                ))
-              )}
-
-              <Text style={[styles.announcementsSectionTitle, { marginTop: 24 }]}>Available Posts</Text>
-              <Text style={styles.announcementsHelper}>
-                Tap a post to pin it as an announcement (max 3, oldest auto-removes)
-              </Text>
-
-              {allPosts.filter(post => !announcements.find(a => a.id === post.id)).length === 0 ? (
-                <View style={styles.emptyAnnouncementsContainer}>
-                  <Text style={styles.emptyAnnouncementsText}>
-                    No posts available
-                  </Text>
-                  <Text style={styles.emptyAnnouncementsSubtext}>
-                    Create a post first to pin it as an announcement
+                  <Text style={[styles.adminModalTitle, { fontSize: 18 }]}>Announcements</Text>
+                </View>
+                {/* ── Capacity slots ── */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 }}>
+                  {[0, 1, 2].map((i) => (
+                    <View
+                      key={i}
+                      style={{
+                        flex: 1,
+                        height: 5,
+                        borderRadius: 3,
+                        backgroundColor: i < announcements.length ? '#FF6B6B' : '#333',
+                      }}
+                    />
+                  ))}
+                  <Text style={{ color: '#888', fontSize: 11, marginLeft: 4 }}>
+                    {announcements.length}/3 slots used
                   </Text>
                 </View>
-              ) : (
-                allPosts
-                  .filter(post => !announcements.find(a => a.id === post.id))
-                  .slice(0, 10)
-                  .map((post) => (
-                    <TouchableOpacity
-                      key={post.id}
-                      style={styles.availablePostItem}
-                      onPress={() => handlePinAnnouncement(post.id)}
-                      disabled={false}
-                    >
-                      <View style={styles.availablePostContent}>
-                        <Text style={styles.availablePostTitle} numberOfLines={2}>
-                          {post.title || post.caption || post.text || 'Post'}
-                        </Text>
-                        <Text style={styles.availablePostDate}>
-                          {post.createdAt?.toDate?.()?.toLocaleDateString() || 'Recent'}
-                        </Text>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                {(isAdmin || isModerator) && (
+                  <TouchableOpacity
+                    onPress={() => openComposeAnnouncement()}
+                    style={{
+                      backgroundColor: '#FF6B6B',
+                      borderRadius: 20,
+                      paddingHorizontal: 14,
+                      paddingVertical: 7,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                    }}
+                  >
+                    <Ionicons name="add-circle-outline" size={15} color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 13, fontWeight: '700' }}>New</Text>
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity
+                  onPress={() => {
+                    setShowAnnouncementsModal(false);
+                    setAnnouncementsTab('pinned');
+                  }}
+                  style={{ padding: 4 }}
+                >
+                  <Ionicons name="close" size={26} color="#666" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* ── Tab bar ── */}
+            <View style={{
+              flexDirection: 'row',
+              marginHorizontal: 16,
+              marginBottom: 4,
+              backgroundColor: '#111',
+              borderRadius: 12,
+              padding: 4,
+            }}>
+              {[
+                { id: 'pinned', label: 'Pinned', count: announcements.length, icon: 'megaphone' },
+                { id: 'posts', label: 'All Posts', count: allPosts.filter(p => !announcements.find(a => a.id === p.id)).length, icon: 'document-text' },
+              ].map((tab) => (
+                <TouchableOpacity
+                  key={tab.id}
+                  onPress={() => setAnnouncementsTab(tab.id)}
+                  style={{
+                    flex: 1,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                    paddingVertical: 9,
+                    borderRadius: 10,
+                    backgroundColor: announcementsTab === tab.id ? '#1e1e1e' : 'transparent',
+                  }}
+                >
+                  <Ionicons
+                    name={tab.icon}
+                    size={14}
+                    color={announcementsTab === tab.id ? '#FF6B6B' : '#555'}
+                  />
+                  <Text style={{
+                    color: announcementsTab === tab.id ? '#FF6B6B' : '#555',
+                    fontSize: 13,
+                    fontWeight: announcementsTab === tab.id ? '700' : '500',
+                  }}>
+                    {tab.label}
+                  </Text>
+                  {tab.count > 0 && (
+                    <View style={{
+                      backgroundColor: announcementsTab === tab.id ? '#FF6B6B' : '#333',
+                      borderRadius: 10,
+                      minWidth: 18,
+                      height: 18,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      paddingHorizontal: 4,
+                    }}>
+                      <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{tab.count}</Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* ── Content area ── */}
+            <ScrollView
+              ref={annScrollRef}
+              style={styles.announcementsListContainer}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {/* ── PINNED TAB ── */}
+              {announcementsTab === 'pinned' && (
+                <>
+                  {announcements.length === 0 ? (
+                    <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                      <View style={{
+                        width: 72,
+                        height: 72,
+                        borderRadius: 36,
+                        backgroundColor: '#FF6B6B11',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 14,
+                      }}>
+                        <Ionicons name="megaphone-outline" size={36} color="#444" />
                       </View>
-                      <View style={styles.pinButton}>
-                        <MaterialCommunityIcons name="pin" size={20} color="#8B2EF0" />
-                        {announcements.length >= 3 && (
-                          <Text style={{ color: '#888', fontSize: 9, marginTop: 2 }}>Auto-remove oldest</Text>
-                        )}
-                      </View>
-                    </TouchableOpacity>
-                  ))
+                      <Text style={{ color: '#ccc', fontSize: 15, fontWeight: '700', marginBottom: 6 }}>
+                        No announcements yet
+                      </Text>
+                      <Text style={{ color: '#555', fontSize: 13, textAlign: 'center', marginBottom: 20 }}>
+                        Important updates from staff will appear here.
+                      </Text>
+                      {(isAdmin || isModerator) && (
+                        <TouchableOpacity
+                          onPress={() => openComposeAnnouncement()}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 7,
+                            backgroundColor: '#FF6B6B',
+                            paddingHorizontal: 20,
+                            paddingVertical: 11,
+                            borderRadius: 22,
+                          }}
+                        >
+                          <Ionicons name="add-circle-outline" size={17} color="#fff" />
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>
+                            Create First Announcement
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  ) : (
+                    <>
+                      {announcements.map((announcement, idx) => (
+                        <View
+                          key={announcement.id}
+                          style={{
+                            backgroundColor: '#111',
+                            borderRadius: 14,
+                            marginBottom: 10,
+                            borderWidth: 1,
+                            borderColor: '#FF6B6B33',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {/* Accent top bar */}
+                          <View style={{ height: 3, backgroundColor: '#FF6B6B' }} />
+                          <View style={{ padding: 14 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                              {/* Order badge */}
+                              <View style={{
+                                width: 26,
+                                height: 26,
+                                borderRadius: 13,
+                                backgroundColor: '#FF6B6B',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                marginTop: 1,
+                              }}>
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>#{idx + 1}</Text>
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: '#fff', fontSize: 14, fontWeight: '400', lineHeight: 20, marginBottom: 3 }}>
+                                  {announcement.text || announcement.content || announcement.caption || announcement.title || 'No content'}
+                                </Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 8 }}>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                    <Ionicons name="person-circle-outline" size={13} color="#666" />
+                                    <Text style={{ color: '#666', fontSize: 11 }}>
+                                      {liveNames[announcement.authorId || announcement.createdById] || announcement.createdByName || announcement.authorName || 'Staff'}
+                                    </Text>
+                                  </View>
+                                  {announcement.createdAt && (
+                                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                      <Ionicons name="time-outline" size={12} color="#555" />
+                                      <Text style={{ color: '#555', fontSize: 11 }}>
+                                        {announcement.createdAt?.toDate
+                                          ? announcement.createdAt.toDate().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                                          : 'Recent'}
+                                      </Text>
+                                    </View>
+                                  )}
+                                </View>
+                              </View>
+                              {/* Unpin button */}
+                              <TouchableOpacity
+                                onPress={() =>
+                                  Alert.alert(
+                                    'Unpin Announcement',
+                                    'Remove this announcement from the pinned list?',
+                                    [
+                                      { text: 'Cancel', style: 'cancel' },
+                                      { text: 'Unpin', style: 'destructive', onPress: () => handleUnpinAnnouncement(announcement.id) },
+                                    ]
+                                  )
+                                }
+                                style={{
+                                  backgroundColor: '#ff4b6e22',
+                                  borderRadius: 8,
+                                  padding: 7,
+                                }}
+                              >
+                                <Ionicons name="pin" size={16} color="#ff4b6e" />
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        </View>
+                      ))}
+                      {announcements.length < 3 && (isAdmin || isModerator) && (
+                        <TouchableOpacity
+                          onPress={() => openComposeAnnouncement()}
+                          style={{
+                            borderWidth: 1,
+                            borderColor: '#FF6B6B44',
+                            borderStyle: 'dashed',
+                            borderRadius: 14,
+                            paddingVertical: 14,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 8,
+                            marginBottom: 10,
+                          }}
+                        >
+                          <Ionicons name="add-circle-outline" size={17} color="#FF6B6B88" />
+                          <Text style={{ color: '#FF6B6B88', fontSize: 13, fontWeight: '600' }}>
+                            Add announcement ({3 - announcements.length} slot{3 - announcements.length !== 1 ? 's' : ''} left)
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  )}
+                </>
               )}
+
+              {/* ── ALL POSTS TAB ── */}
+              {announcementsTab === 'posts' && (
+                <>
+                  <Text style={{ color: '#555', fontSize: 12, marginBottom: 12, fontStyle: 'italic' }}>
+                    Tap a post to pin it as an announcement{announcements.length >= 3 ? ' — oldest will auto-remove.' : '.'}
+                  </Text>
+                  {allPosts.filter(post => !announcements.find(a => a.id === post.id)).length === 0 ? (
+                    <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                      <View style={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: 32,
+                        backgroundColor: '#1a1a1a',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        marginBottom: 12,
+                      }}>
+                        <Ionicons name="document-text-outline" size={30} color="#444" />
+                      </View>
+                      <Text style={{ color: '#999', fontSize: 14, fontWeight: '600' }}>No posts available</Text>
+                      <Text style={{ color: '#555', fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+                        Create a post first, then pin it as an announcement.
+                      </Text>
+                    </View>
+                  ) : (
+                    allPosts
+                      .filter(post => !announcements.find(a => a.id === post.id))
+                      .slice(0, 20)
+                      .map((post) => (
+                        <TouchableOpacity
+                          key={post.id}
+                          onPress={() => handlePinAnnouncement(post.id)}
+                          activeOpacity={0.75}
+                          style={{
+                            backgroundColor: '#111',
+                            borderRadius: 14,
+                            marginBottom: 10,
+                            borderWidth: 1,
+                            borderColor: '#2a2a2a',
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            overflow: 'hidden',
+                          }}
+                        >
+                          {/* Left accent */}
+                          <View style={{ width: 4, alignSelf: 'stretch', backgroundColor: '#333' }} />
+                          <View style={{ flex: 1, padding: 13 }}>
+                            {post.title ? (
+                              <Text style={{ color: '#fff', fontSize: 14, fontWeight: '700', marginBottom: 3 }} numberOfLines={1}>
+                                {post.title}
+                              </Text>
+                            ) : null}
+                            <Text style={{ color: '#999', fontSize: 13 }} numberOfLines={2}>
+                              {post.text || post.content || post.caption || 'No text content'}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
+                              <Ionicons name="person-circle-outline" size={12} color="#555" />
+                              <Text style={{ color: '#555', fontSize: 11 }}>
+                                {liveNames[post.authorId || post.createdById] || post.createdByName || post.authorName || 'Unknown'}
+                              </Text>
+                              {post.createdAt && (
+                                <Text style={{ color: '#444', fontSize: 11 }}>
+                                  · {post.createdAt?.toDate
+                                    ? post.createdAt.toDate().toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                                    : 'Recent'}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          {/* Pin CTA */}
+                          <View style={{
+                            paddingHorizontal: 14,
+                            alignItems: 'center',
+                            gap: 3,
+                          }}>
+                            <View style={{
+                              backgroundColor: '#FF6B6B22',
+                              borderRadius: 20,
+                              padding: 8,
+                            }}>
+                              <Ionicons name="pin" size={16} color="#FF6B6B" />
+                            </View>
+                            <Text style={{ color: '#FF6B6B', fontSize: 10, fontWeight: '600' }}>Pin</Text>
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                  )}
+                </>
+              )}
+
+              <View style={{ height: 20 }} />
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      {/* ═══════════════════════════════════════════════════════════
+           COMPOSE ANNOUNCEMENT MODAL – full-screen, keyboard-safe
+           ═══════════════════════════════════════════════════════════ */}
+      <Modal
+        visible={showComposeAnnouncementModal}
+        animationType="slide"
+        transparent={false}
+        presentationStyle="fullScreen"
+        onRequestClose={() => closeComposeAnnouncement()}
+      >
+        <KeyboardAvoidingView
+          style={{ flex: 1, backgroundColor: '#0a0a0a' }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {/* ── Sticky header ── */}
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingTop: Platform.OS === 'ios' ? 56 : 16,
+            paddingBottom: 14,
+            borderBottomWidth: 1,
+            borderBottomColor: '#1e1e1e',
+            backgroundColor: '#0a0a0a',
+          }}>
+            <TouchableOpacity
+              onPress={() => closeComposeAnnouncement()}
+              style={{ paddingVertical: 6, paddingRight: 16 }}
+            >
+              <Text style={{ color: '#888', fontSize: 16 }}>Cancel</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+              <Ionicons name="megaphone" size={16} color="#FF6B6B" />
+              <Text style={{ color: '#fff', fontSize: 16, fontWeight: '700' }}>New Announcement</Text>
+            </View>
+
+            <TouchableOpacity
+              onPress={handleCreateAnnouncement}
+              disabled={creatingAnnouncement || (!newAnnouncementTitle.trim() && !newAnnouncementBody.trim())}
+              style={{
+                backgroundColor:
+                  creatingAnnouncement || (!newAnnouncementTitle.trim() && !newAnnouncementBody.trim())
+                    ? '#2a2a2a' : '#FF6B6B',
+                borderRadius: 20,
+                paddingHorizontal: 18,
+                paddingVertical: 8,
+                minWidth: 68,
+                alignItems: 'center',
+              }}
+            >
+              {creatingAnnouncement ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={{
+                  color: (!newAnnouncementTitle.trim() && !newAnnouncementBody.trim()) ? '#555' : '#fff',
+                  fontWeight: '700',
+                  fontSize: 15,
+                }}>Post</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          {/* ── Capacity warning ── */}
+          {announcements.length >= 3 && (
+            <View style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+              backgroundColor: '#FF6B6B15',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderBottomWidth: 1,
+              borderBottomColor: '#FF6B6B33',
+            }}>
+              <Ionicons name="warning-outline" size={15} color="#FF6B6B" />
+              <Text style={{ color: '#FF6B6B', fontSize: 13, flex: 1 }}>
+                All 3 slots are full — the oldest announcement will be auto-removed when you post.
+              </Text>
+            </View>
+          )}
+
+          {/* ── Compose area ── */}
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={{ padding: 20 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {/* Title */}
+            <Text style={{ color: '#666', fontSize: 12, fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 }}>TITLE (OPTIONAL)</Text>
+            <TextInput
+              placeholder="E.g. Community Event Saturday"
+              placeholderTextColor="#333"
+              value={newAnnouncementTitle}
+              onChangeText={setNewAnnouncementTitle}
+              maxLength={80}
+              returnKeyType="next"
+              onSubmitEditing={() => annBodyRef.current?.focus()}
+              autoFocus={true}
+              style={{
+                backgroundColor: '#141414',
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingVertical: 12,
+                color: '#fff',
+                fontSize: 17,
+                fontWeight: '700',
+                marginBottom: 6,
+                borderWidth: 1.5,
+                borderColor: newAnnouncementTitle.length > 0 ? '#FF6B6B88' : '#222',
+              }}
+            />
+            <Text style={{ color: '#444', fontSize: 11, textAlign: 'right', marginBottom: 20 }}>
+              {newAnnouncementTitle.length}/80
+            </Text>
+
+            {/* Body */}
+            <Text style={{ color: '#666', fontSize: 12, fontWeight: '600', letterSpacing: 0.8, marginBottom: 6 }}>MESSAGE</Text>
+            <TextInput
+              ref={annBodyRef}
+              placeholder="Write your announcement here…"
+              placeholderTextColor="#333"
+              value={newAnnouncementBody}
+              onChangeText={(t) => t.length <= 500 && setNewAnnouncementBody(t)}
+              multiline
+              blurOnSubmit={false}
+              textAlignVertical="top"
+              style={{
+                backgroundColor: '#141414',
+                borderRadius: 12,
+                paddingHorizontal: 14,
+                paddingTop: 12,
+                paddingBottom: 40,
+                color: '#fff',
+                fontSize: 15,
+                lineHeight: 22,
+                marginBottom: 6,
+                borderWidth: 1.5,
+                borderColor: newAnnouncementBody.length > 0 ? '#FF6B6B88' : '#222',
+                minHeight: 160,
+              }}
+            />
+            <Text style={{
+              color: newAnnouncementBody.length > 450 ? '#ff4b6e' : '#444',
+              fontSize: 12,
+              textAlign: 'right',
+              marginBottom: 32,
+            }}>
+              {newAnnouncementBody.length}/500
+            </Text>
+          </ScrollView>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Featured Posts Management Modal */}
@@ -9955,6 +10635,7 @@ export default function GroupInfoScreen() {
         visible={postOptionsVisible}
         post={postOptionsTarget}
         currentUserId={currentUser?.id}
+        communityId={communityId}
         onClose={() => {
           setPostOptionsVisible(false);
           setPostOptionsTarget(null);
@@ -13364,6 +14045,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
+    minHeight: '40%',
     paddingBottom: 20,
   },
   adminModalHeader: {
@@ -13491,6 +14173,12 @@ const styles = StyleSheet.create({
   qrCodeContainer: {
     alignItems: 'center',
     marginBottom: 12,
+  },
+  qrCodeImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    backgroundColor: '#fff',
   },
   qrCodePlaceholder: {
     width: 200,

@@ -24,7 +24,7 @@ import {
 export const updateUserProfilePicture = async (userId, imageUri) => {
   try {
     // 1. Upload to Hostinger
-    const imageUrl = await uploadImageToHostinger(imageUri, 'profiles');
+    const imageUrl = await uploadImageToHostinger(imageUri, 'user_profiles');
 
     // 2. Update Firestore
     await updateDoc(doc(db, 'users', userId), {

@@ -5,7 +5,7 @@
  * Renders contextual options (delete, report, share, copy link, pin, feature)
  * with haptic feedback and a dark glass-like bottom sheet.
  */
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import useUserNames from '../hooks/useUserNames';
 
 const { height } = Dimensions.get('window');
 
@@ -24,6 +25,7 @@ const PostOptionsModal = ({
   visible = false,
   post = null,
   currentUserId = null,
+  communityId = null,
   onClose,
   // Core actions
   onDelete,
@@ -43,6 +45,25 @@ const PostOptionsModal = ({
   isAdmin = false,
   isModerator = false,
 }) => {
+  // Resolve live author name in case the user changed their name after posting.
+  // Hooks must be called before early returns to comply with Rules of Hooks.
+  const authorIds = useMemo(() => (post?.authorId ? [post.authorId] : []), [post?.authorId]);
+  // Pass communityId so community nickname is shown instead of global name when available.
+  const liveAuthorNames = useUserNames(authorIds, communityId);
+  const authorDisplayName = liveAuthorNames[post?.authorId] || post?.authorName || 'Unknown';
+
+  // Must be defined before any early return to comply with Rules of Hooks.
+  const handleAction = useCallback(
+    (action) => {
+      onClose?.();
+      // Small delay for modal dismiss animation
+      setTimeout(() => {
+        action.onPress?.(post);
+      }, 200);
+    },
+    [onClose, post],
+  );
+
   if (!post) return null;
 
   const isOwner = post.authorId === currentUserId;
@@ -130,17 +151,6 @@ const PostOptionsModal = ({
 
   const visibleActions = actions.filter((a) => a.show);
 
-  const handleAction = useCallback(
-    (action) => {
-      onClose?.();
-      // Small delay for modal dismiss animation
-      setTimeout(() => {
-        action.onPress?.(post);
-      }, 200);
-    },
-    [onClose, post],
-  );
-
   const renderIcon = (action) => {
     const color = action.danger ? '#EF4444' : '#fff';
     if (action.iconLib === 'material') {
@@ -163,7 +173,7 @@ const PostOptionsModal = ({
               {post.title || post.caption || post.text || post.question || 'Post Options'}
             </Text>
             <Text style={styles.headerSub}>
-              by {post.authorName || 'Unknown'}{' '}
+              by {authorDisplayName}{' '}
               {post.createdAt
                 ? `• ${new Date(
                     post.createdAt.toDate?.() || post.createdAt,

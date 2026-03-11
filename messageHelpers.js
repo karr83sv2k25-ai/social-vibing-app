@@ -1,41 +1,38 @@
 // messageHelpers.js - Helper functions for messaging functionality
-import { collection, query, where, getDocs, doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 
 /**
- * Get or create a conversation between two users
+ * Build a deterministic conversation ID from two user IDs.
+ * Sorting guarantees the same ID regardless of who initiates.
+ */
+function buildConversationId(uid1, uid2) {
+  return [uid1, uid2].sort().join('_');
+}
+
+/**
+ * Get or create a 1-on-1 conversation between two users.
+ * Uses a deterministic conversation ID to avoid collection queries
+ * (which can hit Firestore list-permission issues).
  * @param {string} currentUserId - Current user's ID
  * @param {string} otherUserId - Other user's ID
  * @returns {Promise<string>} - Conversation ID
  */
 export async function getOrCreateConversation(currentUserId, otherUserId) {
   try {
-    // Check if conversation already exists
-    const conversationsRef = collection(db, 'conversations');
-    const q = query(
-      conversationsRef,
-      where('participants', 'array-contains', currentUserId)
-    );
-    
-    const snapshot = await getDocs(q);
-    
-    // Find existing conversation with the other user
-    for (const docSnap of snapshot.docs) {
-      const participants = docSnap.data().participants;
-      // Support both array of strings and array of objects
-      const hasUser = Array.isArray(participants) && participants.length > 0 &&
-        (typeof participants[0] === 'string'
-          ? participants.includes(otherUserId)
-          : participants.some(p => p.userId === otherUserId));
-      if (hasUser) {
-        return docSnap.id;
-      }
+    const convId = buildConversationId(currentUserId, otherUserId);
+    const convRef = doc(db, 'conversations', convId);
+    const convSnap = await getDoc(convRef);
+
+    if (convSnap.exists()) {
+      return convId;
     }
-    
-    // Create new conversation if none exists
-    const newConversationRef = doc(collection(db, 'conversations'));
-    await setDoc(newConversationRef, {
+
+    // Conversation doesn't exist yet — create it
+    await setDoc(convRef, {
       participants: [currentUserId, otherUserId],
+      type: 'private',
+      createdBy: currentUserId,
       lastMessage: '',
       lastMessageTime: serverTimestamp(),
       createdAt: serverTimestamp(),
@@ -44,8 +41,8 @@ export async function getOrCreateConversation(currentUserId, otherUserId) {
         [otherUserId]: 0,
       },
     });
-    
-    return newConversationRef.id;
+
+    return convId;
   } catch (error) {
     console.error('Error getting/creating conversation:', error);
     throw error;
@@ -68,7 +65,7 @@ export async function startConversation(currentUserId, otherUserId, otherUserDat
     navigation.navigate('Chat', {
       user: {
         name: otherUserData.username || otherUserData.name || 'User',
-        handle: otherUserData.email || '@user',
+        handle: otherUserData.username ? `@${otherUserData.username}` : (otherUserData.handle || '@user'),
         avatar: otherUserData.profilePicture ? { uri: otherUserData.profilePicture } : null,
         userId: otherUserId,
       },

@@ -35,7 +35,7 @@ export const compressImage = async (uri, options = {}) => {
       }
     );
 
-    console.log(`📦 Image compressed: Original - ${safeUri.length} chars, Compressed - ${manipulatedImage.uri.length} chars`);
+    console.log(`📦 Image compressed successfully (quality=${quality}, maxWidth=${maxWidth}px)`);
     
     return manipulatedImage.uri;
   } catch (error) {

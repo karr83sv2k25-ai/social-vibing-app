@@ -36,7 +36,7 @@ export default function KingMediaImageGenScreen({ navigation }) {
                 'Login Required',
                 'Please login to King Media to use AI Image Generator',
                 [
-                    { text: 'Cancel', onPress: () => navigation.goBack() },
+                    { text: 'Cancel', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') },
                     { text: 'Login', onPress: () => navigation.navigate('KingMediaLogin') }
                 ]
             );
@@ -122,7 +122,7 @@ export default function KingMediaImageGenScreen({ navigation }) {
                 colors={['#10B981', '#06B6D4']}
                 style={styles.header}
             >
-                <TouchableOpacity onPress={() => navigation.goBack()}>
+                <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
                     <Ionicons name="arrow-back" size={24} color="#fff" />
                 </TouchableOpacity>
                 <View style={styles.headerContent}>

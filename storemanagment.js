@@ -24,7 +24,7 @@ export default function StoreManagementScreen({ navigation }) {
     <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 32 }}>
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Store Management</Text>

@@ -72,7 +72,7 @@ export default function CallScreen() {
         }
       } catch (error) {
         console.error('Error loading call:', error);
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     };
 
@@ -245,10 +245,10 @@ export default function CallScreen() {
         agoraEngine.leaveChannel();
       }
       await endCall(callId, callDuration);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error ending call:', error);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 
@@ -258,7 +258,7 @@ export default function CallScreen() {
       agoraEngine.leaveChannel();
     }
     Alert.alert('Call Ended', message, [
-      { text: 'OK', onPress: () => navigation.goBack() },
+      { text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') },
     ]);
   };
 

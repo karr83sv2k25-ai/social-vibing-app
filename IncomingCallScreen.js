@@ -101,7 +101,7 @@ export default function IncomingCallScreen() {
     const unsubscribe = listenToCallStatus(callData.id, (updatedCall) => {
       if (!updatedCall) {
         // Call was deleted/cancelled
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
@@ -109,7 +109,7 @@ export default function IncomingCallScreen() {
 
       // If caller ended the call
       if (updatedCall.status === CALL_STATUS.ENDED || updatedCall.status === CALL_STATUS.DECLINED) {
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     });
 
@@ -137,7 +137,7 @@ export default function IncomingCallScreen() {
       });
     } catch (error) {
       console.error('Error answering call:', error);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 
@@ -145,10 +145,10 @@ export default function IncomingCallScreen() {
     try {
       Vibration.cancel();
       await declineCall(callData.id);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error declining call:', error);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 

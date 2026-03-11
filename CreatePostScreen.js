@@ -38,7 +38,7 @@ export default function CreatePostScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 1.0,
       aspect: [4, 3],
@@ -66,7 +66,7 @@ export default function CreatePostScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+      mediaTypes: ['videos'],
       allowsMultipleSelection: true,
       quality: 1.0,
     });
@@ -100,7 +100,7 @@ export default function CreatePostScreen({ navigation }) {
       
       await AsyncStorage.setItem('post_drafts', JSON.stringify(drafts));
       Alert.alert('Success', 'Post saved to drafts');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       Alert.alert('Error', 'Failed to save draft');
     }
@@ -212,7 +212,7 @@ export default function CreatePostScreen({ navigation }) {
       await addDoc(collection(db, 'posts'), postData);
 
       Alert.alert('Success', 'Post published successfully!');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error publishing post:', error);
       Alert.alert('Error', 'Failed to publish post. Please try again.');
@@ -225,7 +225,7 @@ export default function CreatePostScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Post</Text>

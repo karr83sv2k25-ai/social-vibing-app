@@ -1,10 +1,7 @@
 ---
 name: react-native-expo
-description: |
-  Build React Native 0.76+ apps with Expo SDK 52-54. Covers mandatory New Architecture (0.82+/SDK 55+), React 19 changes, SDK 54 breaking changes (expo-av, expo-file-system, Reanimated v4), and Swift iOS template. Prevents 16 documented errors.
-
-  Use when building Expo apps, migrating to New Architecture, upgrading to SDK 54+, or fixing Fabric, TurboModule, propTypes, expo-updates crashes, or Swift AppDelegate errors.
-user-invocable: true
+description: Build React Native 0.76+ apps with Expo SDK 52-54, including New Architecture, React 19, SDK 54 breaking changes, and Swift template migration guidance.
+user-invokable: true
 ---
 
 # React Native Expo (0.76-0.82+ / SDK 52+)
@@ -13,6 +10,25 @@ user-invocable: true
 **Last Updated**: 2026-01-21
 **Dependencies**: Node.js 20.19.4+, Expo CLI, Xcode 16.1+ (iOS)
 **Latest Versions**: react-native@0.81.5, expo@~54.0.31, react@19.2.3
+
+---
+
+## Social Vibing Repository Conventions
+
+This workspace follows a specific Expo + Firebase architecture. When applying this skill here, prefer these repository rules:
+
+- Stack navigation is defined in `App.js`; bottom tabs are defined in `tabbarview.js`.
+- Root-level screens use lowercase/camelcase filenames, while screens inside `screens/` use PascalCase.
+- The app uses Context (`WalletContext`, `StatusContext`) rather than Redux.
+- Firebase is initialized once in `firebaseConfig.js`; reuse `app` and `db` imports instead of re-initializing.
+- Firestore access should go through `utils/firestoreHelpers.js` for retry/timeout/offline fallbacks.
+- Frequently reused Firestore-backed data should be cached through `cacheManager.js`.
+- Network images should use `components/CachedImage.js` (`expo-image`) instead of raw network `Image`.
+- Loading states should use shared skeletons from `components/SkeletonLoaders.js`.
+- Media uploads must use Hostinger helpers; do not introduce Firebase Storage into this app.
+- Native-only modules such as Agora and `react-native-iap` must be guarded with `isExpoGo()` and should degrade gracefully in Expo Go.
+- Android edge-to-edge is effectively always on in SDK 54, so maintain safe-area aware layouts.
+- Keep Firestore moderation schemas compatible with the companion admin app; do not rename or reshape shared admin fields.
 
 ---
 

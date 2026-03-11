@@ -108,11 +108,11 @@ export default function RewardCenterScreen({ navigation }) {
   );
 
   const milestoneCards = [
-    { title: "Complete 5 Chats", coins: 20, gems: 1, progress: null },
-    { title: "Win 3 Battles", coins: 40, gems: 2, progress: null },
+    { title: "Complete 5 Chats", coins: 0, gems: 1, progress: null },
+    { title: "Win 3 Battles", coins: 0, gems: 2, progress: null },
     {
       title: "Login 7 Days",
-      coins: 60,
+      coins: 0,
       gems: 3,
       progress: streak >= 7 ? "done" : `${streak}/7 days`,
     },
@@ -125,7 +125,7 @@ export default function RewardCenterScreen({ navigation }) {
     >
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Reward Center</Text>
@@ -263,7 +263,7 @@ export default function RewardCenterScreen({ navigation }) {
               />
             </View>
             <Text style={styles.streakProgressSub}>
-              {nextMilestone.days - streak} more days for +{nextMilestone.bonus} coins
+              {nextMilestone.days - streak} more days to unlock {nextMilestone.label}
             </Text>
           </View>
         </View>
@@ -284,7 +284,7 @@ export default function RewardCenterScreen({ navigation }) {
             <Text style={styles.watchTitle}>Watch Video and</Text>
           </View>
           <View style={{ flexDirection: "row", alignItems: "center" }}>
-            <Text style={styles.watchEarn}>Earn 10</Text>
+            <Text style={styles.watchEarn}>Earn {DAILY_TASKS.WATCH_AD.reward || 5}</Text>
             <Image source={require("./assets/goldicon.png")} style={[styles.rewardIcon, { marginLeft: 6 }]} />
             <Text style={styles.watchEarn}>Coins</Text>
           </View>

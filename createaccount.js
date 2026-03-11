@@ -85,7 +85,7 @@ export default function CreateAccountScreen({ navigation }) {
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}>
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login')}>
           <Ionicons name="arrow-back" size={18} color="#FFFFFF" />
         </TouchableOpacity>
       </View>

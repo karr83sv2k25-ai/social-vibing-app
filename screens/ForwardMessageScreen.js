@@ -134,7 +134,7 @@ export default function ForwardMessageScreen({ route, navigation }) {
         [
           {
             text: 'OK',
-            onPress: () => navigation.goBack()
+            onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')
           }
         ]
       );
@@ -188,7 +188,7 @@ export default function ForwardMessageScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="close" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Forward to...</Text>

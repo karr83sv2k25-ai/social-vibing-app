@@ -73,18 +73,44 @@ const compressImage = async (uri) => {
 };
 
 /**
+ * Wrap a fetch call with an AbortController timeout.
+ * Returns a standard Response or throws on timeout / network error.
+ */
+export const fetchWithTimeout = (url, options = {}, timeoutMs = 30000) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return fetch(url, { ...options, signal: controller.signal })
+    .then(res => { clearTimeout(timer); return res; })
+    .catch(err => {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        throw new Error(`Upload timed out after ${timeoutMs / 1000}s – server may be down`);
+      }
+      throw err;
+    });
+};
+
+/**
  * Retry a function up to `maxAttempts` times with exponential backoff.
  */
 const withRetry = async (fn, maxAttempts = 3, baseDelayMs = 1500) => {
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await fn();
+      const response = await fn();
+      // Retry on server errors (5xx) as well
+      if (response && typeof response.ok !== 'undefined' && !response.ok) {
+        const errorText = await response.text().catch(() => 'Unknown');
+        const err = new Error(`HTTP ${response.status}: ${errorText}`);
+        err.status = response.status;
+        throw err;
+      }
+      return response;
     } catch (err) {
       lastError = err;
       if (attempt < maxAttempts) {
         const delay = baseDelayMs * attempt; // 1.5s, 3s, 4.5s …
-        console.log(`⚠️ Upload attempt ${attempt} failed, retrying in ${delay}ms…`);
+        console.log(`⚠️ Upload attempt ${attempt} failed (${err.message}), retrying in ${delay}ms…`);
         await new Promise(res => setTimeout(res, delay));
       }
     }
@@ -129,29 +155,34 @@ export const uploadImageToHostinger = async (uri, folder = 'general') => {
     formData.append('api_key', hostingerConfig.apiKey);
 
     // Upload to Hostinger (with retry)
-    const response = await withRetry(() => fetch(hostingerConfig.uploadUrl, {
+    // NOTE: Do NOT set Content-Type manually — React Native must auto-generate
+    // the multipart boundary. Setting it manually strips the boundary and the
+    // server cannot parse the body.
+    const response = await withRetry(() => fetchWithTimeout(hostingerConfig.uploadUrl, {
       method: 'POST',
       body: formData,
       headers: {
-        'Content-Type': 'multipart/form-data',
         'X-API-Key': hostingerConfig.apiKey,
       },
-    }));
+    }, 30000));
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Upload failed:', errorText);
-      throw new Error(`Upload failed: ${response.status}`);
-    }
-
+    // withRetry already throws on non-ok responses, so response is guaranteed ok here
     const data = await response.json();
     
     if (!data.success) {
       throw new Error(data.error || 'Upload failed');
     }
 
-    console.log('✅ Image uploaded to Hostinger:', data.data.url);
-    return data.data.url;
+    const uploadedUrl = data.data?.url;
+    // Guard: server must return a full URL with a recognisable image extension.
+    // This prevents extension-less/broken URLs from being stored in Firestore.
+    if (!uploadedUrl || !/^https?:\/\//i.test(uploadedUrl) || !/\.(jpe?g|png|gif|webp)$/i.test(uploadedUrl)) {
+      console.error('❌ Server returned invalid image URL:', uploadedUrl, 'full response:', JSON.stringify(data));
+      throw new Error('Server returned an invalid image URL. Please try again.');
+    }
+
+    console.log('✅ Image uploaded to Hostinger:', uploadedUrl);
+    return uploadedUrl;
   } catch (error) {
     console.error('❌ Error uploading image to Hostinger:', error);
     throw error;
@@ -190,14 +221,13 @@ export const uploadVideoToHostinger = async (uri, folder = 'general') => {
     formData.append('folder', folder);
     formData.append('api_key', hostingerConfig.apiKey);
 
-    const response = await fetch(hostingerConfig.uploadUrl, {
+    const response = await fetchWithTimeout(hostingerConfig.uploadUrl, {
       method: 'POST',
       body: formData,
       headers: {
-        'Content-Type': 'multipart/form-data',
         'X-API-Key': hostingerConfig.apiKey,
       },
-    });
+    }, 60000); // 60s for larger video files
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -211,8 +241,14 @@ export const uploadVideoToHostinger = async (uri, folder = 'general') => {
       throw new Error(data.error || 'Upload failed');
     }
 
-    console.log('✅ Video uploaded to Hostinger:', data.data.url);
-    return data.data.url;
+    const uploadedUrl = data.data?.url;
+    if (!uploadedUrl || !/^https?:\/\//i.test(uploadedUrl) || !/\.(mp4|mov|avi|webm)$/i.test(uploadedUrl)) {
+      console.error('❌ Server returned invalid video URL:', uploadedUrl, 'full response:', JSON.stringify(data));
+      throw new Error('Server returned an invalid video URL. Please try again.');
+    }
+
+    console.log('✅ Video uploaded to Hostinger:', uploadedUrl);
+    return uploadedUrl;
   } catch (error) {
     console.error('❌ Error uploading video to Hostinger:', error);
     throw error;
@@ -251,14 +287,13 @@ export const uploadAudioToHostinger = async (uri, folder = 'general') => {
     formData.append('folder', folder);
     formData.append('api_key', hostingerConfig.apiKey);
 
-    const response = await fetch(hostingerConfig.uploadUrl, {
+    const response = await fetchWithTimeout(hostingerConfig.uploadUrl, {
       method: 'POST',
       body: formData,
       headers: {
-        'Content-Type': 'multipart/form-data',
         'X-API-Key': hostingerConfig.apiKey,
       },
-    });
+    }, 30000);
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -272,8 +307,14 @@ export const uploadAudioToHostinger = async (uri, folder = 'general') => {
       throw new Error(data.error || 'Upload failed');
     }
 
-    console.log('✅ Audio uploaded to Hostinger:', data.data.url);
-    return data.data.url;
+    const uploadedUrl = data.data?.url;
+    if (!uploadedUrl || !/^https?:\/\//i.test(uploadedUrl) || !/\.(mp3|m4a|aac|wav|3gp|caf)$/i.test(uploadedUrl)) {
+      console.error('❌ Server returned invalid audio URL:', uploadedUrl, 'full response:', JSON.stringify(data));
+      throw new Error('Server returned an invalid audio URL. Please try again.');
+    }
+
+    console.log('✅ Audio uploaded to Hostinger:', uploadedUrl);
+    return uploadedUrl;
   } catch (error) {
     console.error('❌ Error uploading audio to Hostinger:', error);
     throw error;
@@ -319,9 +360,9 @@ export const checkFileSize = async (uri, type = 'image') => {
  */
 export const testHostingerConnection = async () => {
   try {
-    const response = await fetch(hostingerConfig.uploadUrl, {
+    const response = await fetchWithTimeout(hostingerConfig.uploadUrl, {
       method: 'GET',
-    });
+    }, 10000);
     
     const data = await response.json();
     

@@ -29,7 +29,7 @@ export default function TypeSpecificUploadScreen({ route, navigation }) {
   
   if (!config) {
     Alert.alert('Error', 'Invalid product type');
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     return null;
   }
   
@@ -53,7 +53,7 @@ export default function TypeSpecificUploadScreen({ route, navigation }) {
   
   const pickCoverImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: config.assets.coverImage.aspectRatio || [1, 1],
       quality: 0.8,
@@ -72,7 +72,7 @@ export default function TypeSpecificUploadScreen({ route, navigation }) {
     }
     
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsMultipleSelection: true,
       quality: 0.8,
     });
@@ -280,7 +280,7 @@ export default function TypeSpecificUploadScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color={TEXT} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>

@@ -54,7 +54,7 @@ export default function WithPhoneScreen({ navigation }) {
 
   const handleBack = () => {
     if (navigation && navigation.goBack) {
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login');
     } else {
       alert('Back pressed');
     }

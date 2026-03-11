@@ -91,6 +91,9 @@ export default function CreateCommunityScreen({ navigation }) {
   const [background, setBackground] = useState(null);
   const [themeColor, setThemeColor] = useState("#4b6cff");
   const [uploadProgress, setUploadProgress] = useState('');
+  const [tags, setTags] = useState([]);
+  const [tagInput, setTagInput] = useState('');
+  const [showTagInput, setShowTagInput] = useState(false);
 
   const isStep1Valid = useCallback(() => (
     communityName.trim().length >= 3 &&
@@ -214,6 +217,8 @@ export default function CreateCommunityScreen({ navigation }) {
         discover: discover || 'public',
         themeColor: themeColor || '#4b6cff',
         memberCount: 1,
+        members: [currentUserId],
+        members_count: 1,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         creatorId: currentUserId,
@@ -277,7 +282,7 @@ export default function CreateCommunityScreen({ navigation }) {
             <Ionicons name="arrow-back" size={22} color="#fff" />
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity onPress={() => navigation.goBack()}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="close" size={22} color="#fff" />
           </TouchableOpacity>
         )}
@@ -301,63 +306,100 @@ export default function CreateCommunityScreen({ navigation }) {
 
       {/* Step 1 */}
       {step === 1 && (
-        <View style={{ marginTop: 40 }}>
-          <TouchableOpacity style={styles.uploadBox} onPress={() => pickImage(setImage)}>
-            {image ? (
-              <Image source={{ uri: image }} style={{ width: '100%', height: 120, borderRadius: 12 }} />
-            ) : (
-              <View style={styles.uploadBoxHint}>
-                <Ionicons name="camera-outline" size={32} color="#555" />
-                <Text style={styles.uploadBoxLabel}>Profile Image (optional)</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+        <View style={{ marginTop: 24 }}>
+          {/* Square upload area with cyan border */}
+          <View style={styles.uploadBoxCenter}>
+            <TouchableOpacity style={styles.uploadBoxSquare} onPress={() => pickImage(setImage)}>
+              {image ? (
+                <Image source={{ uri: image }} style={styles.uploadBoxImage} />
+              ) : (
+                <Ionicons name="add" size={40} color="#666" />
+              )}
+            </TouchableOpacity>
+          </View>
 
-          <View style={styles.inputWrapper}>
+          {/* Community Name with cyan neon border */}
+          <View style={styles.neonInputContainer}>
+            <View style={styles.neonInputRow}>
+              <Text style={styles.neonInputLabel}>Community Name</Text>
+              <Text style={styles.neonInputCounter}>{communityName.length}/50</Text>
+            </View>
             <TextInput
-              style={[styles.input, { marginTop: 16 }]}
-              placeholder="Community Name (min 3 characters)"
-              placeholderTextColor="#555"
+              style={styles.neonInput}
+              placeholderTextColor="#444"
               maxLength={50}
               value={communityName}
               onChangeText={setCommunityName}
               returnKeyType="next"
             />
-            <Text style={styles.charCount}>{communityName.length}/50</Text>
           </View>
 
-          <View style={styles.inputWrapper}>
+          {/* Description with magenta neon border */}
+          <View style={[styles.neonInputContainer, { borderColor: '#D946EF' }]}>
+            <View style={styles.neonInputRow}>
+              <Text style={[styles.neonInputLabel, { color: '#D946EF' }]}>Describe your community  in one line</Text>
+              <Text style={[styles.neonInputCounter, { color: '#D946EF' }]}>{description.length}/200</Text>
+            </View>
             <TextInput
-              style={[styles.input, { marginTop: 12, height: 90, textAlignVertical: 'top' }]}
-              placeholder="Describe your Community in one line"
-              placeholderTextColor="#555"
+              style={[styles.neonInput, { height: 44 }]}
+              placeholderTextColor="#444"
               maxLength={200}
               multiline
               value={description}
               onChangeText={setDescription}
             />
-            <Text style={styles.charCount}>{description.length}/200</Text>
           </View>
 
+          {/* Language selector with cyan neon border */}
           <TouchableOpacity 
-            style={[styles.selectBox, styles.selectBoxRow]} 
+            style={styles.neonSelectBox}
             onPress={() => setShowLanguageModal(true)}
           >
-            <Text style={styles.selectText}>
-              Community Language: {language}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color="#666" />
+            <Text style={styles.neonSelectLabel}>Community Language</Text>
+            <View style={styles.neonSelectRight}>
+              <Text style={styles.neonSelectValue}>{language}</Text>
+              <Ionicons name="caret-down" size={14} color="#06B6D4" />
+            </View>
           </TouchableOpacity>
 
+          {/* Category selector */}
           <TouchableOpacity 
-            style={[styles.selectBox, styles.selectBoxRow]} 
+            style={styles.neonSelectBox}
             onPress={() => setShowCategoryModal(true)}
           >
-            <Text style={styles.selectText}>
-              Primary Category: {category || "Select"}
-            </Text>
-            <Ionicons name="chevron-down" size={20} color="#666" />
+            <Text style={styles.neonSelectLabel}>Primary Category</Text>
+            <View style={styles.neonSelectRight}>
+              <Text style={styles.neonSelectValue}>{category || 'Select'}</Text>
+              <Ionicons name="caret-down" size={14} color="#06B6D4" />
+            </View>
           </TouchableOpacity>
+
+          {/* Tags */}
+          <View style={styles.tagsContainer}>
+            {tags.map((tag, i) => (
+              <View key={i} style={styles.tagChip}>
+                <Text style={styles.tagChipText}>{tag}</Text>
+                <TouchableOpacity onPress={() => setTags(tags.filter((_, idx) => idx !== i))}>
+                  <Ionicons name="close-circle" size={16} color="#888" />
+                </TouchableOpacity>
+              </View>
+            ))}
+            <TouchableOpacity
+              style={styles.addTagBtn}
+              onPress={() => {
+                Alert.prompt?.('Add a Tag', 'Enter tag name:', [
+                  { text: 'Cancel', style: 'cancel' },
+                  { text: 'Add', onPress: (text) => {
+                    if (text?.trim() && tags.length < 5) {
+                      setTags([...tags, text.trim()]);
+                    }
+                  }},
+                ], 'plain-text') || Alert.alert('Add Tag', 'Tag feature requires iOS or a custom input.');
+              }}
+            >
+              <Text style={styles.addTagText}>Add a Tag</Text>
+            </TouchableOpacity>
+          </View>
 
           {communityName.trim().length > 0 && communityName.trim().length < 3 && (
             <Text style={styles.validationError}>Name must be at least 3 characters</Text>
@@ -375,7 +417,7 @@ export default function CreateCommunityScreen({ navigation }) {
               styles.nextText,
               !isStep1Valid() && styles.nextTextDisabled
             ]}>
-              Next (1/3)
+              Next [1/3]
             </Text>
           </TouchableOpacity>
         </View>
@@ -438,61 +480,70 @@ export default function CreateCommunityScreen({ navigation }) {
         </View>
       )}
 
-      {/* Step 3 */}
+      {/* Step 3 — Permissions & Privacy (Figma) */}
       {step === 3 && (
-        <View style={{ marginTop: 40 }}>
-          <Text style={styles.sectionTitle}>Permissions & Privacy</Text>
+        <View style={{ marginTop: 24 }}>
+          <Text style={styles.permSectionTitle}>Permissions & Privacy</Text>
 
-          <Text style={styles.subLabel}>Join Permissions</Text>
+          {/* Join Permission */}
+          <View style={[styles.permLabel, { borderColor: '#D946EF' }]}>
+            <Text style={[styles.permLabelText, { color: '#D946EF' }]}>Join Permission</Text>
+          </View>
+
           <TouchableOpacity
             style={[
-              styles.choice,
-              privacy === "open" && styles.choiceActive,
+              styles.permChoice,
+              privacy === 'open' && styles.permChoiceActive,
             ]}
-            onPress={() => setPrivacy("open")}
+            onPress={() => setPrivacy('open')}
           >
-            <Text style={styles.choiceText}>Open — anyone may join</Text>
+            <Text style={styles.permChoiceText}>Anyone may join without approval</Text>
           </TouchableOpacity>
+
           <TouchableOpacity
             style={[
-              styles.choice,
-              privacy === "locked" && styles.choiceActive,
+              styles.permChoice,
+              privacy === 'locked' && styles.permChoiceActive,
             ]}
-            onPress={() => setPrivacy("locked")}
+            onPress={() => setPrivacy('locked')}
           >
-            <Text style={styles.choiceText}>
-              Locked — only selected users may join
+            <Text style={styles.permChoiceText}>
+              Only selected users may join this community and community content is only available to members
             </Text>
           </TouchableOpacity>
 
-          <Text style={[styles.subLabel, { marginTop: 16 }]}>
-            Discoverability
-          </Text>
+          {/* Discoverability */}
+          <View style={[styles.permLabel, { borderColor: '#D946EF', marginTop: 20 }]}>
+            <Text style={[styles.permLabelText, { color: '#D946EF' }]}>Discoverability</Text>
+          </View>
+
           <TouchableOpacity
             style={[
-              styles.choice,
-              discover === "public" && styles.choiceActive,
+              styles.permChoice,
+              discover === 'public' && styles.permChoiceActive,
             ]}
-            onPress={() => setDiscover("public")}
+            onPress={() => setDiscover('public')}
           >
-            <Text style={styles.choiceText}>
-              Public — visible and recommended
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              styles.choice,
-              discover === "private" && styles.choiceActive,
-            ]}
-            onPress={() => setDiscover("private")}
-          >
-            <Text style={styles.choiceText}>
-              Private — only found by link or ID
+            <Text style={styles.permChoiceText}>
+              Public communities are listed under their category and can be recommended to users
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.createBtn} onPress={handleCreate} disabled={uploading}>
-            <Text style={styles.createText}>Create Community</Text>
+          <TouchableOpacity
+            style={[
+              styles.permChoice,
+              discover === 'private' && styles.permChoiceActive,
+            ]}
+            onPress={() => setDiscover('private')}
+          >
+            <Text style={styles.permChoiceText}>
+              Unlisted Communities do not appear in their category, and will not be recommended to other users. They can only be found by ID or Communities link.
+            </Text>
+          </TouchableOpacity>
+
+          {/* Create button with gold/yellow border */}
+          <TouchableOpacity style={styles.createBtnFigma} onPress={handleCreate} disabled={uploading}>
+            <Text style={styles.createBtnFigmaText}>Create</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1161,6 +1212,168 @@ const styles = StyleSheet.create({
     color: '#666',
     fontSize: 12,
     textAlign: 'center',
+  },
+  // ── Figma-matching Neon Input styles ──
+  uploadBoxCenter: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  uploadBoxSquare: {
+    width: 140,
+    height: 140,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#06B6D4',
+    backgroundColor: '#14171C',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  uploadBoxImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 14,
+  },
+  neonInputContainer: {
+    borderWidth: 1.5,
+    borderColor: '#06B6D4',
+    borderRadius: 12,
+    backgroundColor: '#14171C',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    marginBottom: 12,
+  },
+  neonInputRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
+  neonInputLabel: {
+    color: '#06B6D4',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  neonInputCounter: {
+    color: '#06B6D4',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  neonInput: {
+    color: '#fff',
+    fontSize: 15,
+    paddingVertical: 4,
+  },
+  neonSelectBox: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#06B6D4',
+    borderRadius: 12,
+    backgroundColor: '#14171C',
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  neonSelectLabel: {
+    color: '#06B6D4',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  neonSelectRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  neonSelectValue: {
+    color: '#06B6D4',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 8,
+  },
+  tagChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1c22',
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  tagChipText: {
+    color: '#ccc',
+    fontSize: 13,
+  },
+  addTagBtn: {
+    borderWidth: 1,
+    borderColor: '#9B6DFF50',
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    backgroundColor: '#9B6DFF10',
+  },
+  addTagText: {
+    color: '#ccc',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  // ── Permissions & Privacy Figma styles ──
+  permSectionTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  permLabel: {
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+    paddingVertical: 6,
+    marginBottom: 12,
+  },
+  permLabelText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  permChoice: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    backgroundColor: '#14171C',
+    borderRadius: 10,
+  },
+  permChoiceActive: {
+    backgroundColor: '#1a1d25',
+    borderLeftWidth: 3,
+    borderLeftColor: '#D946EF',
+  },
+  permChoiceText: {
+    color: '#ccc',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  createBtnFigma: {
+    marginTop: 30,
+    marginHorizontal: 30,
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+    borderRadius: 14,
+    paddingVertical: 16,
+    alignItems: 'center',
+    backgroundColor: '#F59E0B10',
+  },
+  createBtnFigmaText: {
+    color: '#F59E0B',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

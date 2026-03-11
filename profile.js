@@ -210,7 +210,7 @@ export default function ProfileScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [16, 7],
         quality: 0.8,
@@ -243,7 +243,7 @@ export default function ProfileScreen() {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.85,
@@ -254,7 +254,7 @@ export default function ProfileScreen() {
       const auth = getAuth(app);
       const currentUser = auth.currentUser;
       const uri = result.assets[0].uri;
-      const url = await uploadImageToHostinger(uri, 'profile_images');
+      const url = await uploadImageToHostinger(uri, 'user_profiles');
       if (url) {
         await updateDoc(doc(db, 'users', currentUser.uid), { profileImage: url });
         setUserData(prev => ({ ...prev, profileImage: url }));
@@ -484,7 +484,6 @@ export default function ProfileScreen() {
         clearTimeout(fallbackFetch); // Cancel fallback if onSnapshot works
         if (snap.exists()) {
           const data = snap.data();
-          console.log('✅ Profile data loaded from Firestore');
 
           // Only update if we don't have fresher data from navigation params
           const hasFreshData = route?.params?.userData;
@@ -529,38 +528,12 @@ export default function ProfileScreen() {
       }
     );
 
-    // Real-time listener for followers count
-    const followersRef = collection(db, 'users', resolvedUserId, 'followers');
-    const unsubscribeFollowers = onSnapshot(followersRef, (snapshot) => {
-      const count = snapshot.size;
-      console.log(`👥 Followers count updated: ${count} for user ${resolvedUserId}`);
-      setFollowersCount(count);
-      // Update user document with latest count
-      updateDoc(userRef, { followersCount: count }).catch(() => { });
-    }, (error) => {
-      console.log('Error listening to followers:', error);
-    });
-
-    // Real-time listener for following count
-    const followingRef = collection(db, 'users', resolvedUserId, 'following');
-    const unsubscribeFollowing = onSnapshot(followingRef, (snapshot) => {
-      const count = snapshot.size;
-      console.log(`👤 Following count updated: ${count} for user ${resolvedUserId}`);
-      setFollowingCount(count);
-      // Update user document with latest count
-      updateDoc(userRef, { followingCount: count }).catch(() => { });
-    }, (error) => {
-      console.log('Error listening to following:', error);
-    });
-
     // Check if current user is following this profile
     let unsubscribeIsFollowing = null;
     if (!ownProfile && currentUser) {
       const myFollowingRef = doc(db, 'users', currentUser.uid, 'following', resolvedUserId);
       unsubscribeIsFollowing = onSnapshot(myFollowingRef, (docSnap) => {
-        const exists = docSnap.exists();
-        console.log(`👁️ Following status check: ${exists ? 'Following' : 'Not following'}`);
-        setIsFollowing(exists);
+        setIsFollowing(docSnap.exists());
       });
     }
 
@@ -580,8 +553,6 @@ export default function ProfileScreen() {
       clearTimeout(loadingTimeout);
       clearTimeout(fallbackFetch);
       unsubscribe();
-      unsubscribeFollowers();
-      unsubscribeFollowing();
       if (unsubscribeIsFollowing) {
         unsubscribeIsFollowing();
       }
@@ -598,9 +569,6 @@ export default function ProfileScreen() {
     if (!currentUser || !targetUserId || isOwnProfile || followLoading) return;
 
     setFollowLoading(true);
-    console.log(`🔄 Toggling follow for user: ${targetUserId}`);
-    console.log(`👤 Current user: ${currentUser.uid}`);
-    console.log(`🎯 Target user: ${targetUserId}`);
 
     try {
       const followDocRef = doc(db, 'users', currentUser.uid, 'following', targetUserId);
@@ -608,20 +576,12 @@ export default function ProfileScreen() {
       const currentUserRef = doc(db, 'users', currentUser.uid);
       const targetUserRef = doc(db, 'users', targetUserId);
 
-      console.log(`📄 Follow doc path: users/${currentUser.uid}/following/${targetUserId}`);
-      console.log(`📄 Follower doc path: users/${targetUserId}/followers/${currentUser.uid}`);
-
       if (isFollowing) {
         // Unfollow
-        console.log('❌ Unfollowing user');
         await deleteDoc(followDocRef);
         await deleteDoc(followerDocRef);
         await updateDoc(currentUserRef, { followingCount: increment(-1) });
         await updateDoc(targetUserRef, { followersCount: increment(-1) });
-
-        console.log('✅ Unfollow action completed successfully!');
-        console.log(`📋 Updated following count for ${currentUser.uid}`);
-        console.log(`📋 Updated followers count for ${targetUserId}`);
 
         // Send unfollow notification
         try {
@@ -644,7 +604,6 @@ export default function ProfileScreen() {
         setIsFollowing(false);
       } else {
         // Follow
-        console.log('✅ Following user');
         await setDoc(followDocRef, {
           userId: targetUserId,
           followedAt: new Date().toISOString(),
@@ -655,10 +614,6 @@ export default function ProfileScreen() {
         });
         await updateDoc(currentUserRef, { followingCount: increment(1) });
         await updateDoc(targetUserRef, { followersCount: increment(1) });
-
-        console.log('✅ Follow action completed successfully!');
-        console.log(`📋 Updated following count for ${currentUser.uid}`);
-        console.log(`📋 Updated followers count for ${targetUserId}`);
 
         // Send follow notification
         try {
@@ -698,15 +653,24 @@ export default function ProfileScreen() {
     setStoriesLoading(true);
 
     const storiesRef = collection(db, 'stories');
-    const storiesQuery = query(storiesRef, where('userId', '==', targetUserId));
+    const storiesQuery = query(
+      storiesRef,
+      where('userId', '==', targetUserId),
+      where('expiresAt', '>', new Date()),
+    );
 
     const unsubscribe = onSnapshot(
       storiesQuery,
       (snapshot) => {
+        const now = new Date();
         const fetchedStories = snapshot.docs
           .filter(docSnap => {
             const d = docSnap.data();
-            return !d.isRemoved && !d.isDeleted;
+            if (d.isRemoved || d.isDeleted) return false;
+            // Extra client-side guard for clock skew
+            const exp = d.expiresAt?.toDate?.() || (d.expiresAt ? new Date(d.expiresAt) : null);
+            if (exp && exp <= now) return false;
+            return true;
           })
           .map((docSnap) => {
             const data = docSnap.data();
@@ -785,7 +749,7 @@ export default function ProfileScreen() {
 
           {/* Back button for other profiles */}
           {!isOwnProfile && (
-            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
               <Ionicons name="arrow-back" size={22} color="#fff" />
             </TouchableOpacity>
           )}
@@ -934,7 +898,20 @@ export default function ProfileScreen() {
                   </>
                 )}
               </TouchableOpacity>
-              <TouchableOpacity style={styles.messageBtn} onPress={() => navigation.navigate('Chat', { userId: targetUserId })}>
+              <TouchableOpacity style={styles.messageBtn} onPress={async () => {
+                try {
+                  const { startConversation } = await import('./messageHelpers');
+                  const currentUser = getAuth(app).currentUser;
+                  if (!currentUser) {
+                    Alert.alert('Error', 'You must be logged in to send messages.');
+                    return;
+                  }
+                  await startConversation(currentUser.uid, targetUserId, userData || {}, navigation);
+                } catch (e) {
+                  console.error('Error starting conversation:', e);
+                  Alert.alert('Error', 'Failed to start conversation. Please try again.');
+                }
+              }}>
                 <Ionicons name="chatbubble-outline" size={15} color={C.text} />
                 <Text style={styles.messageBtnText}>Message</Text>
               </TouchableOpacity>
@@ -1285,7 +1262,7 @@ export default function ProfileScreen() {
             try {
               await setDoc(doc(db, 'users', currentUser.uid, 'blocked', targetUserId), { blockedAt: serverTimestamp(), reason: null });
               Alert.alert('Blocked', `${userData?.firstName || 'User'} has been blocked`);
-              navigation.goBack();
+              navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
             } catch (error) {
               Alert.alert('Error', 'Failed to block user. Please try again.');
             }

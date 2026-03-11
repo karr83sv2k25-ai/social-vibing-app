@@ -152,7 +152,7 @@ export default function DailyRewardScreen({ navigation }) {
         await unlockTask(db, userId, DAILY_TASKS.INVITE_FRIEND.id);
         Alert.alert(
           "Invite Sent! 🎉",
-          "Your invite task is now unlocked. Tap \"Claim\" to collect your coins!"
+          "Your invite task is now unlocked. Tap \"Claim\" to complete it!"
         );
       }
     } catch (err) {
@@ -192,7 +192,7 @@ export default function DailyRewardScreen({ navigation }) {
         <View style={{ flex: 1 }}>
           <Text style={s.streakToastTitle}>{streakBonus.label} Bonus!</Text>
           <Text style={s.streakToastSub}>
-            {streak}-day streak reward: +{streakBonus.bonus} coins auto-credited!
+            {streak}-day streak milestone achieved! 🔥
           </Text>
         </View>
         <TouchableOpacity onPress={() => setStreakBonus(null)}>
@@ -216,7 +216,7 @@ export default function DailyRewardScreen({ navigation }) {
     <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 40 }}>
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={s.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Daily Rewards</Text>
@@ -270,7 +270,7 @@ export default function DailyRewardScreen({ navigation }) {
         {/* Next streak milestone */}
         {nextMilestone && (
           <Text style={s.milestoneHint}>
-            🏆 {nextMilestone.days - streak} more days → {nextMilestone.label} (+{nextMilestone.bonus} coins)
+            🏆 {nextMilestone.days - streak} more days → {nextMilestone.label}
           </Text>
         )}
       </LinearGradient>
@@ -313,8 +313,8 @@ export default function DailyRewardScreen({ navigation }) {
               <Text style={[s.milestoneDay, achieved && { color: C.gold }]}>{m.days} days</Text>
               <Text style={s.milestoneName}>{m.label}</Text>
               <View style={s.milestonePill}>
-                <Ionicons name="cash" size={12} color={C.gold} />
-                <Text style={s.milestonePillText}>+{m.bonus}</Text>
+                <Ionicons name="flame" size={12} color={C.orange} />
+                <Text style={s.milestonePillText}>{achieved ? '✓' : `${m.days}d`}</Text>
               </View>
               {achieved && <Ionicons name="checkmark-circle" size={18} color={C.green} />}
             </View>
@@ -343,12 +343,21 @@ function CheckInCard({ task, streak, claiming, onClaim }) {
           <Text style={s.checkInSub}>
             {isClaimed
               ? `You’re on a ${streak}-day streak! Come back tomorrow 🔥`
-              : `Day ${streak} streak! Tap below to collect your daily coins.`}
+              : `Day ${streak} streak! Tap below to keep it going.`}
           </Text>
         </View>
         <View style={s.checkInBadge}>
-          <Ionicons name="cash" size={16} color={C.gold} />
-          <Text style={s.checkInBadgeText}>+{task.reward}</Text>
+          {task.reward > 0 ? (
+            <>
+              <Ionicons name="cash" size={16} color={C.gold} />
+              <Text style={s.checkInBadgeText}>+{task.reward}</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons name="flame" size={16} color={C.orange} />
+              <Text style={s.checkInBadgeText}>Streak</Text>
+            </>
+          )}
         </View>
       </View>
 
@@ -370,7 +379,9 @@ function CheckInCard({ task, streak, claiming, onClaim }) {
             ) : (
               <>
                 <MaterialCommunityIcons name="calendar-check" size={20} color="#1A1F27" />
-                <Text style={s.checkInBtnText}>Check In & Claim {task.reward} Coins</Text>
+                <Text style={s.checkInBtnText}>
+                  {task.reward > 0 ? `Check In & Claim ${task.reward} Coins` : 'Check In ✓'}
+                </Text>
               </>
             )}
           </LinearGradient>
@@ -476,9 +487,11 @@ function TaskRow({ task, timeMinutes, claiming, onClaim, onAction, actionLoading
                     ? <Ionicons name="checkmark" size={14} color={C.dim} />
                     : isLocked
                     ? <Ionicons name="lock-closed" size={14} color={C.dim} />
-                    : <Ionicons name="cash" size={14} color="#1A1F27" />}
+                    : task.reward > 0
+                    ? <Ionicons name="cash" size={14} color="#1A1F27" />
+                    : <Ionicons name="checkmark-circle" size={14} color="#1A1F27" />}
                   <Text style={[s.claimText, (isClaimed || isLocked) && { color: C.dim }]}>
-                    {isClaimed ? "Claimed" : isLocked ? "Locked" : `+${task.reward}`}
+                    {isClaimed ? "Claimed" : isLocked ? "Locked" : task.reward > 0 ? `+${task.reward}` : "Claim"}
                   </Text>
                 </>
               )}

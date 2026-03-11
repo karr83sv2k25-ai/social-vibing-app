@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,21 +13,25 @@ import {
   ActionSheetIOS,
   StatusBar,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { app, db } from './firebaseConfig';
 import ReportUserModal from './components/ReportUserModal';
 import ModeratorBadge from './components/ModeratorBadge';
 import AnnouncementBanner from './components/AnnouncementBanner';
+import FeaturedFeed from './components/FeaturedFeed';
 import CommunitySidebar from './components/CommunitySidebar';
 import { getUserCheckInData, getLiveStreak } from './shared/services/communityCheckInService';
 import * as CommunityService from './shared/services/communityService';
 import * as ModerationService from './shared/services/moderationService';
+import useUserNames from './hooks/useUserNames';
+import { collection, getDocs, query, where, orderBy, limit as firestoreLimit } from 'firebase/firestore';
 
 const { ROLES } = ModerationService;
 
@@ -39,6 +43,16 @@ export default function CommunityDetail({ route, navigation }) {
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [myRole, setMyRole] = useState(null);
   const [announcements, setAnnouncements] = useState([]);
+  const [showAnnouncementsModal, setShowAnnouncementsModal] = useState(false);
+  const [featuredPosts, setFeaturedPosts] = useState([]);
+  const [pinnedPosts, setPinnedPosts] = useState([]);
+
+  // Live author-name resolution for pinned posts (updates when user edits name)
+  const pinnedAuthorIds = useMemo(
+    () => pinnedPosts.map((p) => p.authorId || p.createdById).filter(Boolean),
+    [pinnedPosts]
+  );
+  const pinnedLiveNames = useUserNames(pinnedAuthorIds, communityId);
   const [userPoints, setUserPoints] = useState(0);
   const [userStreak, setUserStreak] = useState(0);
   const auth = getAuth(app);
@@ -48,66 +62,125 @@ export default function CommunityDetail({ route, navigation }) {
   const isStaff = myRole && myRole !== ROLES.MEMBER;
   const isLeaderOrAbove = [ROLES.OWNER, ROLES.ADMIN, ROLES.LEADER].includes(myRole);
 
+  // Track previous announcement IDs to avoid redundant re-fetches
+  const prevAnnouncementIdsRef = React.useRef(null);
+
   useEffect(() => {
+    if (!communityId) {
+      Alert.alert('Error', 'No community id provided');
+      setLoading(false);
+      return;
+    }
+
     let mounted = true;
 
-    const fetchCommunity = async () => {
-      if (!communityId) {
-        Alert.alert('Error', 'No community id provided');
+    // ── Helper: fetch announcement post objects when the pinned IDs change ──
+    const fetchAnnouncementPosts = async (announcementIds) => {
+      if (!mounted) return;
+      if (!announcementIds || announcementIds.length === 0) {
+        setAnnouncements([]);
+        return;
+      }
+      try {
+        const result = await CommunityService.getAnnouncements(db, communityId);
+        if (result.success && mounted) {
+          setAnnouncements(result.data);
+        }
+      } catch (e) {
+        console.log('Announcements fetch error:', e?.message);
+      }
+    };
+
+    // ── Helper: one-time side-data fetch (featured, pinned posts, role) ──
+    const fetchSideData = async () => {
+      if (!mounted) return;
+      try {
+        const featuredResult = await CommunityService.getFeaturedPosts(db, communityId, 10);
+        if (featuredResult.success && featuredResult.data.length > 0 && mounted) {
+          setFeaturedPosts(featuredResult.data);
+        }
+      } catch (e) {
+        console.log('Featured posts not available:', e?.message);
+      }
+
+      try {
+        const postsRef = collection(db, 'communities', communityId, 'posts');
+        const pinnedQuery = query(postsRef, where('isPinned', '==', true), firestoreLimit(3));
+        const pinnedSnap = await getDocs(pinnedQuery);
+        if (!pinnedSnap.empty && mounted) {
+          setPinnedPosts(pinnedSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        }
+      } catch (e) {
+        console.log('Pinned posts not available:', e?.message);
+      }
+
+      const currentUserId = auth.currentUser?.uid;
+      if (currentUserId && mounted) {
+        try {
+          const role = await ModerationService.getCommunityRole(db, communityId, currentUserId);
+          const globalRole = await ModerationService.getGlobalRole(db, currentUserId);
+          if (globalRole === 'admin' && (!role || role === ROLES.MEMBER)) {
+            setMyRole(ROLES.ADMIN);
+          } else {
+            setMyRole(role || ROLES.MEMBER);
+          }
+        } catch (e) {
+          console.log('Role fetch error:', e?.message);
+        }
+
+        try {
+          const checkInData = await getUserCheckInData(db, communityId, currentUserId);
+          if (checkInData && mounted) {
+            setUserPoints(checkInData.totalPoints || 0);
+            setUserStreak(getLiveStreak(checkInData));
+          }
+        } catch (e) {
+          console.log('Check-in data not available:', e?.message);
+        }
+      }
+    };
+
+    // ── Real-time listener on the community doc ──
+    const ref = doc(db, 'communities', communityId);
+    let sideDataFetched = false;
+
+    const unsubscribe = onSnapshot(ref, async (snap) => {
+      if (!mounted) return;
+
+      if (!snap.exists()) {
+        Alert.alert('Not found', 'Community not found');
         setLoading(false);
         return;
       }
 
-      try {
-        const ref = doc(db, 'communities', communityId);
-        const snap = await getDoc(ref);
-        if (snap.exists() && mounted) {
-          const communityData = { id: snap.id, ...snap.data() };
-          setCommunity(communityData);
-          
-          // Fetch announcements
-          const announcementResult = await CommunityService.getAnnouncements(db, communityId);
-          if (announcementResult.success && announcementResult.data.length > 0) {
-            setAnnouncements(announcementResult.data);
-          }
-          
-          const currentUserId = auth.currentUser?.uid;
-          if (currentUserId) {
-            // Use proper role resolution instead of legacy boolean
-            const role = await ModerationService.getCommunityRole(db, communityId, currentUserId);
-            // Also check global admin
-            const globalRole = await ModerationService.getGlobalRole(db, currentUserId);
-            if (globalRole === 'admin' && (!role || role === ROLES.MEMBER)) {
-              setMyRole(ROLES.ADMIN);
-            } else {
-              setMyRole(role || ROLES.MEMBER);
-            }
+      const communityData = { id: snap.id, ...snap.data() };
+      setCommunity(communityData);
+      setLoading(false);
 
-            // Fetch check-in data for sidebar stats
-            try {
-              const checkInData = await getUserCheckInData(db, communityId, currentUserId);
-              if (checkInData) {
-                setUserPoints(checkInData.totalPoints || 0);
-                setUserStreak(getLiveStreak(checkInData));
-              }
-            } catch (e) {
-              console.log('Check-in data not available:', e?.message);
-            }
-          }
-        } else if (mounted) {
-          Alert.alert('Not found', 'Community not found');
-        }
-      } catch (err) {
-        console.error('Error fetching community:', err);
-        Alert.alert('Error', 'Failed to load community');
-      } finally {
-        if (mounted) setLoading(false);
+      // Re-fetch announcement posts only when the pinned IDs array has actually changed
+      const newIds = JSON.stringify(communityData.announcements || []);
+      if (prevAnnouncementIdsRef.current !== newIds) {
+        prevAnnouncementIdsRef.current = newIds;
+        fetchAnnouncementPosts(communityData.announcements);
       }
+
+      // Fetch side data (featured, pinned posts, role) only once on first load
+      if (!sideDataFetched) {
+        sideDataFetched = true;
+        fetchSideData();
+      }
+    }, (err) => {
+      console.error('Community snapshot error:', err);
+      if (mounted) {
+        Alert.alert('Error', 'Failed to load community');
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      mounted = false;
+      unsubscribe();
     };
-
-    fetchCommunity();
-
-    return () => { mounted = false; };
   }, [communityId]);
 
   if (loading) {
@@ -139,25 +212,34 @@ export default function CommunityDetail({ route, navigation }) {
     createdAt,
     updatedAt,
     community_members,
+    members,
+    memberIds: memberIdsField,
+    memberCount: memberCountField,
+    members_count: membersCountField,
   } = community;
 
-  const memberCount = Array.isArray(community_members) ? community_members.length : (typeof community_members === 'number' ? community_members : '—');
+  // Combine members + memberIds (deduped) — the creator lives in memberIds, joiners in members.
+  // This is the only way to get the true count across all creation/join paths.
+  const _membersArr = Array.isArray(members) ? members : [];
+  const _memberIdsArr = Array.isArray(memberIdsField) ? memberIdsField : [];
+  const _combined = [...new Set([..._membersArr, ..._memberIdsArr])];
+  const memberCount = _combined.length > 0
+    ? _combined.length
+    : typeof memberCountField === 'number' && memberCountField > 0
+      ? memberCountField
+      : typeof membersCountField === 'number' && membersCountField > 0
+        ? membersCountField
+        : Array.isArray(community_members)
+          ? community_members.length
+          : (typeof community_members === 'number' ? community_members : 0);
 
   const handleReportOptions = () => {
     const options = ['Cancel', 'Report Community'];
     let destructiveIndex = 1;
     
     if (isStaff) {
-      options.splice(1, 0, 'Edit Community');
+      options.splice(1, 0, 'Admin Portal');
       destructiveIndex = 2;
-    }
-    if (isCreator) {
-      options.splice(1, 0, 'Manage Staff');
-      destructiveIndex = isStaff ? 3 : 2;
-    }
-    if (isLeaderOrAbove) {
-      options.splice(options.length - 1, 0, 'Moderation Panel');
-      destructiveIndex = options.length - 1;
     }
     
     if (Platform.OS === 'ios') {
@@ -169,12 +251,8 @@ export default function CommunityDetail({ route, navigation }) {
         },
         (buttonIndex) => {
           const label = options[buttonIndex];
-          if (label === 'Manage Staff') {
-            navigation.navigate('CommunityStaff', { communityId });
-          } else if (label === 'Edit Community') {
-            navigation.navigate('EditCommunity', { communityId });
-          } else if (label === 'Moderation Panel') {
-            navigation.navigate('CommunityModeration', { communityId });
+          if (label === 'Admin Portal') {
+            navigation.navigate('CommunityAdminPortal', { communityId, communityData: { id: communityId, name: name || community?.title, profileImage } });
           } else if (label === 'Report Community') {
             setShowReportModal(true);
           }
@@ -185,22 +263,10 @@ export default function CommunityDetail({ route, navigation }) {
         { text: 'Cancel', style: 'cancel' },
       ];
       
-      if (isCreator) {
-        alertOptions.push({
-          text: 'Manage Staff',
-          onPress: () => navigation.navigate('CommunityStaff', { communityId }),
-        });
-      }
       if (isStaff) {
         alertOptions.push({
-          text: 'Edit Community',
-          onPress: () => navigation.navigate('EditCommunity', { communityId }),
-        });
-      }
-      if (isLeaderOrAbove) {
-        alertOptions.push({
-          text: 'Moderation Panel',
-          onPress: () => navigation.navigate('CommunityModeration', { communityId }),
+          text: 'Admin Portal',
+          onPress: () => navigation.navigate('CommunityAdminPortal', { communityId, communityData: { id: communityId, name: name || community?.title, profileImage } }),
         });
       }
       alertOptions.push({
@@ -217,8 +283,9 @@ export default function CommunityDetail({ route, navigation }) {
   const coverSrc = coverImage ? { uri: coverImage } : backgroundImage ? { uri: backgroundImage } : null;
 
   return (
+    <View style={styles.container}>
     <ScrollView
-      style={styles.container}
+      style={{ flex: 1 }}
       contentContainerStyle={{ paddingBottom: 48 }}
       showsVerticalScrollIndicator={false}
     >
@@ -254,7 +321,7 @@ export default function CommunityDetail({ route, navigation }) {
         {/* Back button */}
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
         >
           <Ionicons name="chevron-back" size={22} color="#fff" />
@@ -282,6 +349,15 @@ export default function CommunityDetail({ route, navigation }) {
           )}
         </View>
       </View>
+
+      {/* ── Announcements ticker (full-width, below hero) ── */}
+      {announcements.length > 0 && (
+        <AnnouncementBanner
+          announcements={announcements}
+          variant="compact"
+          onPress={() => setShowAnnouncementsModal(true)}
+        />
+      )}
 
       {/* ── Body ── */}
       <View style={styles.body}>
@@ -328,14 +404,54 @@ export default function CommunityDetail({ route, navigation }) {
           </View>
         )}
 
-        {/* Announcements */}
-        {announcements.length > 0 && (
-          <AnnouncementBanner
-            announcements={announcements}
-            variant="banner"
-            collapsible={true}
-            onPress={() => navigation.navigate('GroupInfo', { communityId })}
-            style={{ marginTop: 12, borderRadius: 14 }}
+        {/* ── Pinned Posts ── */}
+        {pinnedPosts.length > 0 && (
+          <View style={styles.featuredSection}>
+            <View style={styles.featuredHeader}>
+              <Ionicons name="pin" size={16} color="#FF6B6B" />
+              <Text style={styles.featuredTitle}>Pinned Posts</Text>
+              <View style={styles.featuredBadge}>
+                <Text style={styles.featuredBadgeText}>{pinnedPosts.length}</Text>
+              </View>
+            </View>
+            {pinnedPosts.map((post) => (
+              <TouchableOpacity
+                key={post.id}
+                style={styles.featuredCard}
+                onPress={() => navigation.navigate('GroupInfo', { communityId, highlightPostId: post.id })}
+                activeOpacity={0.75}
+              >
+                <View style={styles.featuredCardLeft}>
+                  <View style={[styles.featuredIndicator, { backgroundColor: '#FF6B6B' }]} />
+                  <View style={styles.featuredCardContent}>
+                    <Text style={styles.featuredCardTitle} numberOfLines={2}>
+                      {post.title || post.content || post.text || 'Pinned Post'}
+                    </Text>
+                    <Text style={styles.featuredCardMeta}>
+                      {pinnedLiveNames[post.authorId || post.createdById] || post.createdByName || post.authorName || 'Staff'} · Pinned
+                    </Text>
+                  </View>
+                </View>
+                {post.imageUrl || post.images?.[0] ? (
+                  <Image
+                    source={{ uri: post.imageUrl || post.images[0] }}
+                    style={styles.featuredCardImage}
+                  />
+                ) : null}
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* ── Featured Posts Feed ── */}
+        {featuredPosts.length > 0 && (
+          <FeaturedFeed
+            featuredPosts={featuredPosts}
+            communityId={communityId}
+            onPress={(post) => navigation.navigate('GroupInfo', { communityId, highlightPostId: post.id })}
+            isStaff={isStaff}
+            onManage={() => navigation.navigate('GroupInfo', { communityId, openModal: 'featured' })}
+            style={{ marginTop: 16, paddingHorizontal: 0 }}
           />
         )}
 
@@ -427,8 +543,9 @@ export default function CommunityDetail({ route, navigation }) {
         visible={showReportModal}
         onClose={() => setShowReportModal(false)}
         reportedUser={{
-          id: community?.createdBy || communityId,
+          id: communityId,
           username: name || community?.title || 'Community',
+          name: name || community?.title || 'Community',
         }}
         reportType="community"
         contentId={communityId}
@@ -450,6 +567,61 @@ export default function CommunityDetail({ route, navigation }) {
         navigation={navigation}
       />
     </ScrollView>
+
+      {/* ── Announcements Full-Detail Modal ── */}
+      <Modal
+        visible={showAnnouncementsModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAnnouncementsModal(false)}
+      >
+        <View style={styles.announcementModalOverlay}>
+          <View style={styles.announcementModalContent}>
+            {/* Header */}
+            <View style={styles.announcementModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <MaterialCommunityIcons name="bullhorn" size={20} color="#8B2EF0" />
+                <Text style={styles.announcementModalTitle}>
+                  Announcements{announcements.length > 1 ? ` (${announcements.length})` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setShowAnnouncementsModal(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close" size={26} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ padding: 16, paddingBottom: 32 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {announcements.map((a, i) => {
+                const fullText = a.text || a.caption || a.title || 'Announcement';
+                const date = a.createdAt
+                  ? (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt.seconds ? a.createdAt.seconds * 1000 : a.createdAt)).toLocaleDateString()
+                  : null;
+                return (
+                  <View key={a.id || i} style={styles.announcementDetailCard}>
+                    <View style={styles.announcementDetailIconRow}>
+                      <View style={styles.announcementDetailIcon}>
+                        <MaterialCommunityIcons name="pin" size={14} color="#8B2EF0" />
+                      </View>
+                      {date && (
+                        <Text style={styles.announcementDetailDate}>{date}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.announcementDetailText}>{fullText}</Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    </View>
   );
 }
 
@@ -615,4 +787,141 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   quickNavLabel: { color: '#aaa', fontSize: 12, fontWeight: '500' },
+
+  /* Featured / Pinned Posts Section */
+  featuredSection: {
+    marginTop: 16,
+    backgroundColor: '#111',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 0.5,
+    borderColor: '#222',
+  },
+  featuredHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  featuredTitle: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 6,
+    flex: 1,
+  },
+  featuredBadge: {
+    backgroundColor: '#FF6B6B30',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  featuredBadgeText: {
+    color: '#FF6B6B',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  featuredCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  featuredCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 10,
+  },
+  featuredIndicator: {
+    width: 3,
+    height: 32,
+    borderRadius: 2,
+    marginRight: 10,
+  },
+  featuredCardContent: {
+    flex: 1,
+  },
+  featuredCardTitle: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  featuredCardMeta: {
+    color: '#888',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  featuredCardImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+
+  /* Announcements Modal */
+  announcementModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  announcementModalContent: {
+    backgroundColor: '#111116',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '80%',
+    minHeight: 200,
+    flex: 0,
+    borderWidth: 1,
+    borderColor: '#8B2EF030',
+  },
+  announcementModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#2a2a2a',
+  },
+  announcementModalTitle: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  announcementDetailCard: {
+    backgroundColor: '#17171C',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#8B2EF025',
+  },
+  announcementDetailIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 10,
+  },
+  announcementDetailIcon: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#8B2EF015',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  announcementDetailDate: {
+    color: '#666',
+    fontSize: 12,
+  },
+  announcementDetailText: {
+    color: '#e0e0e0',
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '400',
+  },
 });

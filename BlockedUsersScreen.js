@@ -188,7 +188,7 @@ export default function BlockedUsersScreen({ navigation }) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={styles.backButton}
           activeOpacity={0.7}
         >

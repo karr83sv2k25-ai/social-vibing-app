@@ -35,6 +35,11 @@ import {
 } from 'firebase/firestore';
 import { app, db } from './firebaseConfig';
 import * as ModerationService from './shared/services/moderationService';
+import {
+  getReportsForCommunity,
+  takeCommunityStaffAction,
+  REPORT_STATUS,
+} from './shared/services/reportService';
 
 // Module-level constant — avoids recreation on every render
 const TITLE_COLORS = ['#08FFE2', '#BF2EF0', '#FFD700', '#FF3232', '#36E3C0', '#FF8C00', '#FFFFFF'];
@@ -57,7 +62,7 @@ const C = {
 const MOD_ACTIONS = ModerationService.MOD_ACTIONS;
 const ROLES = ModerationService.ROLES;
 
-const TABS = ['Members', 'Posts', 'Rooms', 'Mod Log'];
+const TABS = ['Members', 'Posts', 'Rooms', 'Mod Log', 'Reports'];
 
 const STRIKE_OPTIONS = [
   { label: '1 Hour',   ms: ModerationService.STRIKE_DURATIONS.ONE_HOUR },
@@ -70,13 +75,13 @@ const STRIKE_OPTIONS = [
 ];
 
 export default function CommunityModerationScreen({ route, navigation }) {
-  const { communityId } = route.params || {};
+  const { communityId, initialTab = 0 } = route.params || {};
   const auth = getAuth(app);
   const currentUserId = auth.currentUser?.uid;
 
   const [myRole, setMyRole] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState(0);
+  const [activeTab, setActiveTab] = useState(Number(initialTab) || 0);
   const [actionLoading, setActionLoading] = useState(false);
 
   // Data
@@ -84,6 +89,10 @@ export default function CommunityModerationScreen({ route, navigation }) {
   const [posts, setPosts] = useState([]);
   const [rooms, setRooms] = useState([]);
   const [modLogs, setModLogs] = useState([]);
+
+  // Community reports
+  const [communityReports, setCommunityReports] = useState([]);
+  const [reportFilter, setReportFilter] = useState('all'); // all | pending | resolved
 
   // Strike modal
   const [strikeModal, setStrikeModal] = useState({ visible: false, user: null });
@@ -106,10 +115,49 @@ export default function CommunityModerationScreen({ route, navigation }) {
     if (!commDoc.exists()) return;
     const commData = commDoc.data();
     const memberIds = commData.members || [];
-    const docs = await Promise.all(
-      memberIds.slice(0, 100).map(id => getDoc(doc(db, 'users', id)))
-    );
-    setMembers(docs.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() })));
+    const batch = memberIds.slice(0, 100);
+    const [userDocs, memberDocs, strikeDocs] = await Promise.all([
+      Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
+      // Nicknames live in communities_members/{uid}_{communityId}
+      Promise.all(batch.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
+      // Community-scoped strikes live in communities/{communityId}/strikes/{userId}
+      Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'strikes', id)))),
+    ]);
+    const now = Date.now();
+    const result = userDocs
+      .map((d, i) => {
+        if (!d.exists()) return null;
+        const userData = d.data();
+        const nickname = memberDocs[i]?.exists() ? memberDocs[i].data()?.communityNickname : null;
+        const baseDisplayName =
+          userData.displayName ||
+          (userData.firstName || userData.lastName
+            ? `${userData.firstName || ''} ${userData.lastName || ''}`.trim()
+            : null) ||
+          userData.username ||
+          'User';
+        // Community-scoped strike
+        const strikeData = strikeDocs[i]?.exists() ? strikeDocs[i].data() : null;
+        let communityIsStruck = false;
+        if (strikeData?.isActive) {
+          if (!strikeData.strikeExpiresAt) {
+            communityIsStruck = true; // permanent
+          } else {
+            const expiresAt = strikeData.strikeExpiresAt?.toDate
+              ? strikeData.strikeExpiresAt.toDate().getTime()
+              : new Date(strikeData.strikeExpiresAt).getTime();
+            communityIsStruck = expiresAt > now;
+          }
+        }
+        return {
+          id: d.id,
+          ...userData,
+          displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
+          communityIsStruck,
+        };
+      })
+      .filter(Boolean);
+    setMembers(result);
   };
 
   const loadPosts = async () => {
@@ -124,17 +172,23 @@ export default function CommunityModerationScreen({ route, navigation }) {
   };
 
   const loadRooms = async () => {
-    const q = query(
-      collection(db, 'chatRooms'),
-      where('communityId', '==', communityId)
+    const snap = await getDocs(
+      collection(db, 'communities', communityId, 'groups')
     );
-    const snap = await getDocs(q);
-    setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    setRooms(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => r.isActive !== false));
   };
 
   const loadModLogs = async () => {
     const result = await ModerationService.getModerationHistory(db, communityId, 80);
     if (result.success) setModLogs(result.data);
+  };
+
+  const loadCommunityReports = async (statusFilter = 'all') => {
+    const status = statusFilter === 'all' ? null
+      : statusFilter === 'pending' ? REPORT_STATUS.PENDING
+      : REPORT_STATUS.RESOLVED;
+    const result = await getReportsForCommunity(communityId, { status, limitCount: 60 });
+    if (result.success) setCommunityReports(result.reports);
   };
 
   const load = useCallback(async () => {
@@ -144,10 +198,10 @@ export default function CommunityModerationScreen({ route, navigation }) {
       setMyRole(role);
       if (!role || role === ROLES.MEMBER) {
         Alert.alert('Access Denied', 'You must be a staff member to access this panel.');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
-      await Promise.all([loadMembers(), loadPosts(), loadRooms(), loadModLogs()]);
+      await Promise.all([loadMembers(), loadPosts(), loadRooms(), loadModLogs(), loadCommunityReports('all')]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -182,13 +236,17 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   const renderMember = ({ item }) => {
     const isSelf = item.id === currentUserId;
-    const isStruck = item.isStruck;
-    const isBanned = item.isBanned;
+    // Use community-scoped strike status; fall back to global isStruck if present
+    const isStruck = item.communityIsStruck || false;
+    const isBanned = item.isBanned || false;
 
     return (
       <View style={styles.card}>
         <Image
-          source={{ uri: item.profileImage || item.photoURL || 'https://via.placeholder.com/44' }}
+          source={item.profileImage || item.photoURL
+            ? { uri: item.profileImage || item.photoURL }
+            : require('./assets/profile.png')
+          }
           style={styles.avatar}
         />
         <View style={styles.cardInfo}>
@@ -209,7 +267,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         {!isSelf && (
           <View style={styles.actionGroup}>
             {/* Strike / Unstrike */}
-            {can(MOD_ACTIONS.STRIKE_USER) && !item.isStruck && (
+            {can(MOD_ACTIONS.STRIKE_USER) && !isStruck && (
               <ActionBtn
                 icon="timer-outline"
                 color={C.orange}
@@ -221,7 +279,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
                 tooltip="Strike"
               />
             )}
-            {can(MOD_ACTIONS.UNSTRIKE_USER) && item.isStruck && (
+            {can(MOD_ACTIONS.UNSTRIKE_USER) && isStruck && (
               <ActionBtn
                 icon="timer-off-outline"
                 color={C.green}
@@ -409,6 +467,96 @@ export default function CommunityModerationScreen({ route, navigation }) {
     );
   };
 
+  // ── Reports Tab ─────────────────────────────────────────────────────────
+
+  const STATUS_COLORS = {
+    [REPORT_STATUS.PENDING]:      C.yellow,
+    [REPORT_STATUS.UNDER_REVIEW]: C.orange,
+    [REPORT_STATUS.RESOLVED]:     C.green,
+    [REPORT_STATUS.ACTION_TAKEN]: C.cyan,
+    [REPORT_STATUS.DISMISSED]:    C.dim,
+  };
+
+  const handleReportAction = async (reportId, action) => {
+    await doAction(() => takeCommunityStaffAction(reportId, currentUserId, action, ''));
+    loadCommunityReports(reportFilter);
+  };
+
+  const renderReport = ({ item }) => {
+    const statusColor = STATUS_COLORS[item.status] || C.dim;
+    const ts = item.createdAt instanceof Date
+      ? item.createdAt.toLocaleString()
+      : '';
+    const isPending = item.status === REPORT_STATUS.PENDING ||
+                      item.status === REPORT_STATUS.UNDER_REVIEW;
+    return (
+      <View style={[styles.card, { flexDirection: 'column', alignItems: 'flex-start' }]}>
+        {/* Header row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', width: '100%', marginBottom: 6 }}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardName, { fontSize: 13 }]}>
+              {item.reasonLabel || item.reason || 'Report'}
+            </Text>
+            <Text style={[styles.logMeta, { marginTop: 2 }]}>
+              by {item.reporterUsername || 'Anonymous'} · {ts}
+            </Text>
+          </View>
+          <View style={[styles.statusBadge, { backgroundColor: `${statusColor}22`, borderColor: statusColor }]}>
+            <Text style={[styles.statusBadgeText, { color: statusColor }]}>
+              {item.status?.replace(/_/g, ' ').toUpperCase()}
+            </Text>
+          </View>
+        </View>
+
+        {/* Content preview */}
+        {!!item.contentPreview && (
+          <View style={styles.reportPreviewBox}>
+            <Text style={styles.reportPreviewText} numberOfLines={2}>{item.contentPreview}</Text>
+          </View>
+        )}
+        {!!item.description && (
+          <Text style={[styles.logReason, { marginTop: 4 }]}>"{item.description}"</Text>
+        )}
+
+        {/* Type & Content badges */}
+        <View style={[styles.statusRow, { marginTop: 6 }]}>
+          <StatusTag label={item.reportType || 'user'} color={C.brand} />
+          {item.priority === 'high' && <StatusTag label="HIGH" color={C.red} />}
+          {item.priority === 'medium' && <StatusTag label="MED" color={C.orange} />}
+        </View>
+
+        {/* Action buttons — only for unresolved reports */}
+        {isPending && can(MOD_ACTIONS.BAN_USER) && (
+          <View style={[styles.actionGroup, { marginTop: 10, maxWidth: '100%', width: '100%' }]}>
+            <TouchableOpacity
+              style={[styles.reportActionBtn, { borderColor: C.dim }]}
+              onPress={() => handleReportAction(item.id, 'reviewed')}
+            >
+              <Ionicons name="eye-outline" size={14} color={C.dim} />
+              <Text style={[styles.reportActionBtnText, { color: C.dim }]}>Mark Reviewed</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.reportActionBtn, { borderColor: C.green }]}
+              onPress={() => handleReportAction(item.id, 'dismissed')}
+            >
+              <Ionicons name="checkmark-circle-outline" size={14} color={C.green} />
+              <Text style={[styles.reportActionBtnText, { color: C.green }]}>Dismiss</Text>
+            </TouchableOpacity>
+            {(item.reportType === 'post' || item.reportType === 'comment') && (
+              <TouchableOpacity
+                style={[styles.reportActionBtn, { borderColor: C.red }]}
+                onPress={() => handleReportAction(item.id, 'content_removed')}
+              >
+                <Ionicons name="trash-outline" size={14} color={C.red} />
+                <Text style={[styles.reportActionBtnText, { color: C.red }]}>Remove Content</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </View>
+    );
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -419,14 +567,14 @@ export default function CommunityModerationScreen({ route, navigation }) {
     );
   }
 
-  const tabData = [members, posts, rooms, modLogs];
-  const tabRenderers = [renderMember, renderPost, renderRoom, renderLogEntry];
+  const tabData = [members, posts, rooms, modLogs, communityReports];
+  const tabRenderers = [renderMember, renderPost, renderRoom, renderLogEntry, renderReport];
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ marginRight: 12 }}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={{ marginRight: 12 }}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Moderation Panel</Text>
@@ -445,6 +593,32 @@ export default function CommunityModerationScreen({ route, navigation }) {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      {/* Reports filter pills — visible only on Reports tab */}
+      {activeTab === 4 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ paddingHorizontal: 16, marginBottom: 8, flexGrow: 0 }}>
+          {['all', 'pending', 'resolved'].map((f) => (
+            <TouchableOpacity
+              key={f}
+              onPress={() => {
+                setReportFilter(f);
+                loadCommunityReports(f);
+              }}
+              style={[
+                styles.durationChip,
+                reportFilter === f && { backgroundColor: C.brand, borderColor: C.brand },
+              ]}
+            >
+              <Text style={[
+                styles.durationChipText,
+                reportFilter === f && { color: '#fff' },
+              ]}>
+                {f.charAt(0).toUpperCase() + f.slice(1)}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       {/* List */}
       {actionLoading && (
@@ -705,6 +879,12 @@ const styles = StyleSheet.create({
   logAction:        { fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
   logReason:        { fontSize: 12, color: C.dim, marginTop: 2, fontStyle: 'italic' },
   logMeta:          { fontSize: 11, color: C.dim, marginTop: 2 },
+
+  // Community reports
+  reportPreviewBox: { backgroundColor: '#111827', borderRadius: 8, padding: 10, width: '100%' },
+  reportPreviewText:{ color: C.dim, fontSize: 12 },
+  reportActionBtn:  { flexDirection: 'row', alignItems: 'center', gap: 5, borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6 },
+  reportActionBtnText:{ fontSize: 12, fontWeight: '600' },
 
   // Modal
   modalOverlay:     { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },

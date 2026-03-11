@@ -56,7 +56,7 @@ export default function MembershipScreen({ navigation }) {
     <ScrollView style={s.container} contentContainerStyle={{ paddingBottom: 28 }}>
       {/* Header */}
       <View style={s.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={s.headerBtn}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={s.headerBtn}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={s.headerTitle}>Membership</Text>

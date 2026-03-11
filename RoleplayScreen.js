@@ -139,7 +139,7 @@ export default function RoleplayScreen() {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -782,7 +782,7 @@ export default function RoleplayScreen() {
               ]);
               
               Alert.alert('Session Ended', 'The roleplay session has been closed for all participants.');
-              navigation.goBack();
+              navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
             } catch (error) {
               console.error('Error ending session:', error);
               Alert.alert('Error', 'Failed to end session. Please try again.');
@@ -842,7 +842,7 @@ export default function RoleplayScreen() {
                       await updateDoc(sessionRef, updateData);
                     }
                     
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   } catch (error) {
                     console.log('Error leaving roleplay:', error);
                     Alert.alert('Error', 'Failed to leave roleplay session');
@@ -897,7 +897,7 @@ export default function RoleplayScreen() {
                       await updateDoc(sessionRef, updateData);
                     }
                     
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   } catch (error) {
                     console.log('Error leaving roleplay:', error);
                     Alert.alert('Error', 'Failed to leave roleplay session');
@@ -910,7 +910,7 @@ export default function RoleplayScreen() {
       }
     } catch (error) {
       console.log('Error checking creator status:', error);
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 
@@ -929,7 +929,7 @@ export default function RoleplayScreen() {
         {/* Header */}
         <LinearGradient colors={['#7C3AED', '#9333EA', '#A855F7']} style={styles.header}>
           <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+            <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
             <View style={styles.headerTextContainer}>
@@ -1470,7 +1470,7 @@ export default function RoleplayScreen() {
                   style: 'destructive',
                   onPress: () => {
                     setShowCharacterSelector(false);
-                    navigation.goBack();
+                    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                   }
                 }
               ]
@@ -1494,7 +1494,7 @@ export default function RoleplayScreen() {
                             style: 'destructive',
                             onPress: () => {
                               setShowCharacterSelector(false);
-                              navigation.goBack();
+                              navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                             }
                           }
                         ]

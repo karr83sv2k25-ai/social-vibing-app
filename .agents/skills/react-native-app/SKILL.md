@@ -9,6 +9,23 @@ description: Build cross-platform mobile apps with React Native. Covers navigati
 
 Create robust cross-platform mobile applications using React Native with modern development patterns including navigation, state management, API integration, and native module handling.
 
+## Social Vibing Alignment Notes
+
+When working inside this repository, prefer these project-specific conventions over generic React Native defaults:
+
+- Use Expo SDK 54 / React Native 0.81 patterns.
+- Root navigation lives in `App.js` with `createStackNavigator`; bottom tabs live in `tabbarview.js`.
+- Prefer Context over Redux. The app standard is `WalletContext` and `StatusContext`, with local component state and Firestore listeners.
+- Prefer Firebase Auth + Firestore via `firebaseConfig.js`; do not re-initialize Firebase.
+- Prefer retry/cache wrappers from `utils/firestoreHelpers.js` such as `getDocWithRetry`, `getDocsWithRetry`, and `fetchUserWithCache` instead of raw Firestore reads.
+- Use `CacheManager` for frequently reused profile/community data.
+- Use `components/CachedImage.js` for remote images instead of raw network `<Image>`.
+- Use skeleton loaders from `components/SkeletonLoaders.js` for loading states.
+- For media uploads, use Hostinger helpers from `hostingerConfig.js` / `utils/fileUpload.js`; do not add Firebase Storage uploads.
+- Guard native-only features such as Agora and IAP with `isExpoGo()` from `utils/platformCheck.js`.
+- For large lists, use optimized `FlatList` props; avoid `.map()` inside `ScrollView` for data-heavy screens.
+- Preserve existing Firestore moderation schemas and soft-delete fields used by the companion admin app.
+
 ## When to Use
 
 - Building iOS and Android apps from single codebase
@@ -71,106 +88,74 @@ export default function App() {
 }
 ```
 
-### 2. **State Management with Redux**
+### 2. **State Management with Context / local state**
 
 ```javascript
-import { createSlice, configureStore } from '@reduxjs/toolkit';
-import { useSelector, useDispatch } from 'react-redux';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 
-const itemsSlice = createSlice({
-  name: 'items',
-  initialState: { list: [], loading: false, error: null },
-  reducers: {
-    setItems: (state, action) => {
-      state.list = action.payload;
-      state.loading = false;
-    },
-    setLoading: (state) => { state.loading = true; },
-    setError: (state, action) => {
-      state.error = action.payload;
-      state.loading = false;
+const WalletContext = createContext(null);
+
+export function WalletProvider({ children }) {
+  const [wallet, setWallet] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWallet() {
+      try {
+        setLoading(true);
+        const result = await fetchWallet();
+        if (active) setWallet(result);
+      } finally {
+        if (active) setLoading(false);
+      }
     }
-  }
-});
 
-export const store = configureStore({
-  reducer: { items: itemsSlice.reducer }
-});
+    loadWallet();
+    return () => { active = false; };
+  }, []);
+
+  const value = useMemo(() => ({ wallet, loading }), [wallet, loading]);
+
+  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+}
+
+export function useWallet() {
+  return useContext(WalletContext);
+}
 
 export function HomeScreen() {
-  const dispatch = useDispatch();
-  const { list, loading, error } = useSelector(state => state.items);
-
-  React.useEffect(() => {
-    dispatch(setLoading());
-    fetch('https://api.example.com/items')
-      .then(r => r.json())
-      .then(data => dispatch(setItems(data)))
-      .catch(err => dispatch(setError(err.message)));
-  }, [dispatch]);
+  const { wallet, loading } = useWallet();
 
   if (loading) return <ActivityIndicator size="large" />;
-  if (error) return <Text>Error: {error}</Text>;
 
   return (
-    <ScrollView>
-      {list.map(item => <ItemCard key={item.id} item={item} />)}
-    </ScrollView>
+    <Text>{wallet?.coins ?? 0} coins</Text>
   );
 }
 ```
 
-### 3. **API Integration with Axios**
+### 3. **Firebase / service integration**
 
 ```javascript
-import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc } from 'firebase/firestore';
+import { db } from './firebaseConfig';
+import CacheManager from './cacheManager';
+import { getDocWithRetry, fetchUserWithCache } from './utils/firestoreHelpers';
 
-const apiClient = axios.create({
-  baseURL: 'https://api.example.com',
-  timeout: 10000
-});
+export async function loadCurrentUser(userId) {
+  return fetchUserWithCache(userId, db, CacheManager);
+}
 
-// Request interceptor for auth
-apiClient.interceptors.request.use(
-  async (config) => {
-    const token = await AsyncStorage.getItem('authToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+export async function loadCommunity(communityId) {
+  const snapshot = await getDocWithRetry(doc(db, 'communities', communityId), {
+    timeout: 8000,
+    retries: 2,
+  });
 
-// Response interceptor for token refresh
-apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      originalRequest._retry = true;
-      try {
-        const refreshToken = await AsyncStorage.getItem('refreshToken');
-        const { data } = await axios.post(
-          'https://api.example.com/auth/refresh',
-          { refreshToken }
-        );
-        await AsyncStorage.setItem('authToken', data.accessToken);
-        apiClient.defaults.headers.Authorization = `Bearer ${data.accessToken}`;
-        return apiClient(originalRequest);
-      } catch (refreshError) {
-        return Promise.reject(refreshError);
-      }
-    }
-    return Promise.reject(error);
-  }
-);
-
-export const fetchUser = () => apiClient.get('/user/profile');
-export const fetchItems = (page) => apiClient.get(`/items?page=${page}`);
-export const createItem = (data) => apiClient.post('/items', data);
+  return snapshot?.exists() ? { id: snapshot.id, ...snapshot.data() } : null;
+}
 ```
 
 ### 4. **Functional Component with Hooks**
@@ -237,9 +222,12 @@ const styles = StyleSheet.create({
 ### ✅ DO
 - Use functional components with React Hooks
 - Implement proper error handling and loading states
-- Use Redux or Context API for state management
+- Prefer Context + local state when the app already follows that pattern
 - Leverage React Navigation for routing
 - Optimize list rendering with FlatList
+- Use repository helpers for Firestore retries/caching
+- Use `CachedImage` for remote images and shared skeleton loaders for loading UI
+- Keep native-only features behind `isExpoGo()` guards in Expo projects
 - Handle platform-specific code elegantly
 - Use TypeScript for type safety
 - Test on both iOS and Android
@@ -253,6 +241,8 @@ const styles = StyleSheet.create({
 - Ignore platform differences
 - Create large monolithic components
 - Use index as key in lists
+- Add Firebase Storage for uploads in this repository
+- Bypass project Firestore helper utilities for repeated reads
 - Make synchronous operations
 - Ignore battery optimization
 - Deploy without testing on real devices

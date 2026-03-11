@@ -32,7 +32,7 @@ export default function ProductPublishScreen({ route, navigation }) {
   
   if (!config || !data) {
     Alert.alert('Error', 'Invalid product data');
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     return null;
   }
   
@@ -189,7 +189,7 @@ export default function ProductPublishScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} disabled={publishing}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} disabled={publishing}>
           <Ionicons name="arrow-back" size={24} color={TEXT} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Review & Publish</Text>

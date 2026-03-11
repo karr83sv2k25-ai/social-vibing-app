@@ -517,7 +517,7 @@ export default function WithEmailScreen({ navigation }) {
 
   const handleBack = () => {
     if (navigation?.goBack) {
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } else {
       Alert.alert('Back pressed');
     }

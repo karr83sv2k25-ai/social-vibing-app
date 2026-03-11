@@ -25,7 +25,8 @@ import {
   updateDoc, 
   serverTimestamp,
   orderBy,
-  limit
+  limit,
+  increment,
 } from 'firebase/firestore';
 import { db } from './firebaseConfig';
 import {
@@ -123,48 +124,59 @@ export default function AdminModerationScreen({ navigation }) {
 
       if (!user) {
         Alert.alert('Access Denied', 'Please login first');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
-      // Check if user is admin
-      const userDoc = await getDocs(query(collection(db, 'users'), where('__name__', '==', user.uid)));
-      if (!userDoc.empty) {
-        const userData = userDoc.docs[0].data();
+      // Check if user is admin via direct doc read (faster + no __name__ trick needed)
+      const userDocSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', user.uid)));
+      if (!userDocSnap.empty) {
+        const userData = userDocSnap.docs[0].data();
         if (userData.role === 'admin' || userData.isAdmin) {
           setIsAdmin(true);
           setLoading(false);
         } else {
+          setLoading(false);
           Alert.alert('Access Denied', 'You do not have admin privileges');
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         }
+      } else {
+        // User document doesn't exist
+        setLoading(false);
+        Alert.alert('Access Denied', 'User account not found');
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error checking admin status:', error);
+      setLoading(false);
       Alert.alert('Error', 'Failed to verify admin status');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     }
   };
 
   const fetchPendingVerifications = async () => {
     try {
       setLoading(true);
-      const q = query(
-        collection(db, 'users'),
-        where('verificationStatus', '==', 'pending'),
-        orderBy('verificationSubmittedAt', 'desc')
-      );
-      
-      const snapshot = await getDocs(q);
+      // Try with orderBy first (requires composite index); fall back to unordered if index missing.
+      let snapshot;
+      try {
+        const q = query(
+          collection(db, 'users'),
+          where('verificationStatus', '==', 'pending'),
+          orderBy('verificationSubmittedAt', 'desc')
+        );
+        snapshot = await getDocs(q);
+      } catch {
+        const q = query(
+          collection(db, 'users'),
+          where('verificationStatus', '==', 'pending')
+        );
+        snapshot = await getDocs(q);
+      }
       const verifications = [];
-      
-      snapshot.forEach(doc => {
-        verifications.push({
-          id: doc.id,
-          ...doc.data()
-        });
+      snapshot.forEach(d => {
+        verifications.push({ id: d.id, ...d.data() });
       });
-      
       setPendingVerifications(verifications);
     } catch (error) {
       console.error('Error fetching verifications:', error);
@@ -263,7 +275,7 @@ export default function AdminModerationScreen({ navigation }) {
   const handleBanUser = async (userId, reason) => {
     Alert.alert(
       'Ban User',
-      'Are you sure you want to ban this user?',
+      'Are you sure you want to permanently ban this user?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -276,9 +288,13 @@ export default function AdminModerationScreen({ navigation }) {
               
               await updateDoc(userRef, {
                 isBanned: true,
+                banType: 'permanent',
                 banReason: reason || 'Violation of community guidelines',
+                banExpiresAt: null,
                 bannedAt: serverTimestamp(),
                 bannedBy: getAuth().currentUser.uid,
+                accountStatus: 'banned',
+                updatedAt: serverTimestamp(),
               });
 
               Alert.alert('Success', 'User has been banned');
@@ -303,9 +319,13 @@ export default function AdminModerationScreen({ navigation }) {
       
       await updateDoc(userRef, {
         isBanned: false,
+        banType: null,
         banReason: null,
+        banExpiresAt: null,
+        accountStatus: 'active',
         unbannedAt: serverTimestamp(),
         unbannedBy: getAuth().currentUser.uid,
+        updatedAt: serverTimestamp(),
       });
 
       Alert.alert('Success', 'User has been unbanned');
@@ -439,10 +459,12 @@ export default function AdminModerationScreen({ navigation }) {
       const userRef = doc(db, 'users', userId);
       
       await updateDoc(userRef, {
-        warnings: serverTimestamp(), // You can make this an array to track multiple warnings
+        warningsCount: increment(1),
         lastWarning: warning || 'Community guidelines violation',
+        lastWarningDate: serverTimestamp(),
         warnedAt: serverTimestamp(),
         warnedBy: getAuth().currentUser.uid,
+        updatedAt: serverTimestamp(),
       });
 
       Alert.alert('Success', 'Warning sent to user');
@@ -485,6 +507,16 @@ export default function AdminModerationScreen({ navigation }) {
     </TouchableOpacity>
   );
 
+  const formatDate = (value) => {
+    if (!value) return 'N/A';
+    try {
+      const d = value?.toDate ? value.toDate() : new Date(value);
+      return isNaN(d.getTime()) ? 'N/A' : d.toLocaleDateString();
+    } catch {
+      return 'N/A';
+    }
+  };
+
   const renderUserItem = ({ item }) => (
     <TouchableOpacity
       style={styles.userCard}
@@ -499,15 +531,15 @@ export default function AdminModerationScreen({ navigation }) {
       <View style={styles.userInfo}>
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.userName}>
-            {item.firstName} {item.lastName}
+            {item.firstName || item.displayName || item.username || 'User'}{item.lastName ? ` ${item.lastName}` : ''}
           </Text>
           {item.isVerified && (
             <Ionicons name="shield-checkmark" size={14} color={C.cyan} style={{ marginLeft: 4 }} />
           )}
         </View>
-        <Text style={styles.userHandle}>@{item.username}</Text>
+        <Text style={styles.userHandle}>@{item.username || 'unknown'}</Text>
         <Text style={styles.userMeta}>
-          Joined: {new Date(item.createdAt).toLocaleDateString()}
+          Joined: {formatDate(item.createdAt)}
         </Text>
       </View>
       {item.isBanned && (
@@ -773,13 +805,14 @@ export default function AdminModerationScreen({ navigation }) {
                 />
                 <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
                   <Text style={styles.modalUserName}>
-                    {selectedUser.firstName} {selectedUser.lastName}
+                    {[selectedUser.firstName, selectedUser.lastName].filter(Boolean).join(' ') ||
+                      selectedUser.displayName || selectedUser.username || 'User'}
                   </Text>
                   {selectedUser.isVerified && (
                     <Ionicons name="shield-checkmark" size={20} color={C.cyan} style={{ marginLeft: 6 }} />
                   )}
                 </View>
-                <Text style={styles.modalUserHandle}>@{selectedUser.username}</Text>
+                <Text style={styles.modalUserHandle}>@{selectedUser.username || 'unknown'}</Text>
 
                 {/* Status Badges */}
                 <View style={styles.statusContainer}>
@@ -827,7 +860,7 @@ export default function AdminModerationScreen({ navigation }) {
                 <Text style={styles.sectionTitle}>Account Information</Text>
                 <Text style={styles.infoText}>Email: {selectedUser.email || 'N/A'}</Text>
                 <Text style={styles.infoText}>
-                  Joined: {new Date(selectedUser.createdAt).toLocaleDateString()}
+                  Joined: {formatDate(selectedUser.createdAt)}
                 </Text>
                 {selectedUser.banReason && (
                   <Text style={[styles.infoText, { color: C.red }]}>
@@ -932,7 +965,7 @@ export default function AdminModerationScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Admin Moderation</Text>
@@ -1037,10 +1070,24 @@ export default function AdminModerationScreen({ navigation }) {
       {/* Content */}
       <FlatList
         data={
-          activeTab === 'verification' 
-            ? pendingVerifications 
-            : activeTab === 'users' 
-              ? users 
+          activeTab === 'verification'
+            ? pendingVerifications.filter(u => {
+                if (!searchQuery) return true;
+                const q = searchQuery.toLowerCase();
+                return (
+                  `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q) ||
+                  (u.username || '').toLowerCase().includes(q)
+                );
+              })
+            : activeTab === 'users'
+              ? users.filter(u => {
+                  if (!searchQuery) return true;
+                  const q = searchQuery.toLowerCase();
+                  return (
+                    `${u.firstName || ''} ${u.lastName || ''} ${u.displayName || ''}`.toLowerCase().includes(q) ||
+                    (u.username || '').toLowerCase().includes(q)
+                  );
+                })
               : reports
         }
         renderItem={
@@ -1089,7 +1136,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingTop: 56,
+    paddingBottom: 16,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
   },

@@ -188,6 +188,7 @@ export async function rejectFriendRequest(requestId) {
  */
 export async function cancelFriendRequest(requestId) {
   try {
+    if (!requestId) throw new Error('Invalid request ID');
     const requestRef = doc(db, 'friend_requests', requestId);
     await deleteDoc(requestRef);
     return { success: true, message: 'Friend request cancelled' };
@@ -330,7 +331,10 @@ export async function getFriendshipStatus(userId) {
       where('status', '==', 'pending')
     );
     const sentSnap = await getDocs(sentQuery);
-    if (!sentSnap.empty) return 'pending_sent';
+    if (!sentSnap.empty) return {
+      status: 'pending_sent',
+      requestId: sentSnap.docs[0].id,
+    };
 
     // Check received requests
     const receivedQuery = query(

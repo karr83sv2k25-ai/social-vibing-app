@@ -464,7 +464,7 @@ export default function HeaderWithSearch({ navigation }) {
       <ScrollView contentContainerStyle={{ paddingBottom: 50 }}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.searchWrapper}>

@@ -27,20 +27,20 @@ export const DAILY_TASKS = {
   CHECK_IN: {
     id: 'daily_check_in',
     title: 'Daily Check-in',
-    subtitle: 'Earn 10 Coins',
-    type: 'coin',
-    reward: 10,
-    rewardType: 'coins',
+    subtitle: 'Keep your streak going!',
+    type: 'streak',
+    reward: 0,
+    rewardType: 'streak',
     icon: 'calendar-check',
     autoComplete: false, // User must manually claim
   },
   TIME_SPENT: {
     id: 'time_spent',
     title: 'Spend 30 mins in the app',
-    subtitle: 'Earn 20 Coins',
-    type: 'coin',
-    reward: 20,
-    rewardType: 'coins',
+    subtitle: 'Stay active!',
+    type: 'activity',
+    reward: 0,
+    rewardType: 'none',
     requiredMinutes: 30,
     icon: 'timer',
     autoComplete: true, // Auto-unlocks when time is reached
@@ -48,10 +48,10 @@ export const DAILY_TASKS = {
   INVITE_FRIEND: {
     id: 'invite_friend',
     title: 'Invite Friends',
-    subtitle: 'Earn 50 Coins',
-    type: 'coin',
-    reward: 50,
-    rewardType: 'coins',
+    subtitle: 'Grow the community!',
+    type: 'social',
+    reward: 0,
+    rewardType: 'none',
     icon: 'account-plus',
     autoComplete: false,
   },
@@ -68,31 +68,31 @@ export const DAILY_TASKS = {
   FIRST_POST: {
     id: 'first_post',
     title: 'Create a Post Today',
-    subtitle: 'Earn 15 Coins',
-    type: 'coin',
-    reward: 15,
-    rewardType: 'coins',
+    subtitle: 'Share something!',
+    type: 'activity',
+    reward: 0,
+    rewardType: 'none',
     icon: 'pencil',
     autoComplete: true,
   },
   FIRST_COMMENT: {
     id: 'first_comment',
     title: 'Comment on a Post',
-    subtitle: 'Earn 5 Coins',
-    type: 'coin',
-    reward: 5,
-    rewardType: 'coins',
+    subtitle: 'Engage with others!',
+    type: 'activity',
+    reward: 0,
+    rewardType: 'none',
     icon: 'comment',
     autoComplete: true,
   },
 };
 
 export const STREAK_BONUSES = [
-  { days: 7, bonus: 50, label: 'Week Warrior' },
-  { days: 14, bonus: 100, label: 'Fortnight Fighter' },
-  { days: 30, bonus: 200, label: 'Monthly Master' },
-  { days: 60, bonus: 400, label: 'Two-Month Titan' },
-  { days: 100, bonus: 1000, label: 'Century Champion' },
+  { days: 7, bonus: 0, label: 'Week Warrior' },
+  { days: 14, bonus: 0, label: 'Fortnight Fighter' },
+  { days: 30, bonus: 0, label: 'Monthly Master' },
+  { days: 60, bonus: 0, label: 'Two-Month Titan' },
+  { days: 100, bonus: 0, label: 'Century Champion' },
 ];
 
 // ============================================
@@ -404,40 +404,43 @@ export const claimTaskReward = async (db, userId, taskId, walletContext = null) 
         lastUpdatedAt: serverTimestamp(),
       });
 
-      // Check if wallet exists (already read above)
-      if (walletSnap.exists()) {
-        // Update existing wallet
-        transaction.update(walletRef, {
-          coins: increment(taskConfig.reward),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        // Create wallet if it doesn't exist
-        transaction.set(walletRef, {
+      // Only update wallet if there is a coin reward (only WATCH_AD gives coins now)
+      if (taskConfig.reward > 0) {
+        // Check if wallet exists (already read above)
+        if (walletSnap.exists()) {
+          // Update existing wallet
+          transaction.update(walletRef, {
+            coins: increment(taskConfig.reward),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // Create wallet if it doesn't exist
+          transaction.set(walletRef, {
+            userId,
+            coins: taskConfig.reward,
+            diamonds: 0,
+            earningsBalance: 0,
+            withdrawableBalance: 0,
+            pendingEarnings: 0,
+            lifetimeEarnings: 0,
+            minimumWithdrawal: 50,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
+
+        // Record transaction
+        const transactionRef = doc(collection(db, 'transactions'));
+        transaction.set(transactionRef, {
           userId,
-          coins: taskConfig.reward,
-          diamonds: 0,
-          earningsBalance: 0,
-          withdrawableBalance: 0,
-          pendingEarnings: 0,
-          lifetimeEarnings: 0,
-          minimumWithdrawal: 50,
+          type: 'daily_reward',
+          amount: taskConfig.reward,
+          currency: 'coins',
+          description: `Daily task: ${taskConfig.title}`,
+          taskId,
           createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp(),
         });
       }
-
-      // Record transaction
-      const transactionRef = doc(collection(db, 'transactions'));
-      transaction.set(transactionRef, {
-        userId,
-        type: 'daily_reward',
-        amount: taskConfig.reward,
-        currency: 'coins',
-        description: `Daily task: ${taskConfig.title}`,
-        taskId,
-        createdAt: serverTimestamp(),
-      });
 
       return {
         success: true,

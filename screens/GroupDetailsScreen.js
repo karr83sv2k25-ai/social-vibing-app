@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { collection, query, onSnapshot, doc, getDoc, deleteDoc, updateDoc, increment } from 'firebase/firestore';
 import { db, auth } from '../firebaseConfig';
+import useUserNames from '../hooks/useUserNames';
 
 const ACCENT = '#8B2EF0';
 const BG = '#0B0B0E';
@@ -29,6 +30,14 @@ export default function GroupDetailsScreen({ navigation, route }) {
 
   const isMember = members.some(m => m.userId === currentUser?.uid);
   const isCreator = groupData?.createdBy === currentUser?.uid;
+
+  // RC-fix: resolve live community nicknames for all group members so the list
+  // always shows the current nickname, not the name denormalized at join-time.
+  const memberUserIds = useMemo(
+    () => members.map((m) => m.userId).filter(Boolean),
+    [members]
+  );
+  const liveNames = useUserNames(memberUserIds, communityId);
 
   const handleLeaveGroup = () => {
     if (isCreator) {
@@ -137,7 +146,7 @@ export default function GroupDetailsScreen({ navigation, route }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Group Details</Text>
@@ -222,7 +231,9 @@ export default function GroupDetailsScreen({ navigation, route }) {
                     style={styles.memberAvatar}
                   />
                   <View style={styles.memberInfo}>
-                    <Text style={styles.memberName}>{member.userName || 'User'}</Text>
+                    <Text style={styles.memberName}>
+                      {liveNames[member.userId] || member.userName || 'User'}
+                    </Text>
                     <Text style={styles.memberJoinDate}>
                       Joined {formatDate(member.joinedAt)}
                     </Text>

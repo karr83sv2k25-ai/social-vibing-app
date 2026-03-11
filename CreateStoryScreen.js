@@ -35,7 +35,7 @@ export default function CreateStoryScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ['images', 'videos'],
       allowsEditing: true,
       quality: 1,
       aspect: [9, 16],
@@ -141,7 +141,7 @@ export default function CreateStoryScreen({ navigation }) {
       await addDoc(collection(db, 'stories'), storyData);
       
       Alert.alert('Success', 'Story posted successfully!');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error posting story:', error);
       Alert.alert('Error', 'Failed to post story. Please try again.');
@@ -154,7 +154,7 @@ export default function CreateStoryScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Story</Text>

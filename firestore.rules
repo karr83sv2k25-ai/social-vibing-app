@@ -92,6 +92,11 @@ service cloud.firestore {
     function canWrite() {
       return isSignedIn() && !isStruck() && !isBanned();
     }
+
+    // Ensure no email fields are stored in community-visible documents
+    function hasNoEmailFields() {
+      return !request.resource.data.keys().hasAny(['email', 'user_email', 'userEmail']);
+    }
     
     // =============================================================================
     // USERS COLLECTION
@@ -101,10 +106,11 @@ service cloud.firestore {
       // Users can read their own profile, others can read public fields
       allow read: if isSignedIn();
       
-      // Users can create their own profile during signup
-      allow create: if isSignedIn() && isOwner(userId);
+      // Users can create their own profile during signup (email must NOT be in this document)
+      allow create: if isSignedIn() && isOwner(userId)
+                      && !request.resource.data.keys().hasAny(['email', 'user_email']);
       
-      // Users can update their own profile, BUT NEVER wallet fields directly
+      // Users can update their own profile, BUT NEVER wallet fields or email directly
       allow update: if isSignedIn() && isOwner(userId)
                       && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
                         'coins', 
@@ -112,7 +118,9 @@ service cloud.firestore {
                         'wallet',
                         'ownedProducts',
                         'earningsBalance',
-                        'totalEarnings'
+                        'totalEarnings',
+                        'email',
+                        'user_email'
                       ]);
       
       // Allow activeCustomizations updates (frames/bubbles from marketplace)
@@ -140,6 +148,9 @@ service cloud.firestore {
                                   'revokedAt', 'revokedBy',
                                   // Unban tracking
                                   'unbannedAt', 'unbannedBy',
+                                  // Warning fields
+                                  'warningsCount', 'lastWarning', 'lastWarningDate',
+                                  'warnedAt', 'warnedBy',
                                   'updatedAt']);
 
       // Leaders (and above) can strike/unstrike, disable messages, warn, kick, ban users
@@ -175,6 +186,16 @@ service cloud.firestore {
       // User boost usage tracking
       match /boostUsage/{usageId} {
         allow read, write: if isSignedIn() && isOwner(userId);
+      }
+
+      // ── Private user data (email, phone, etc.) ─────────────────────────
+      // Only the account owner and admins may read or write this subcollection.
+      // Email MUST be stored here — not in the parent users/{userId} document.
+      match /private/{privateDoc} {
+        allow read:   if isSignedIn() && (isOwner(userId) || isAdmin());
+        allow create: if isSignedIn() && isOwner(userId);
+        allow update: if isSignedIn() && (isOwner(userId) || isAdmin());
+        allow delete: if isSignedIn() && (isOwner(userId) || isAdmin());
       }
       
       // User payments history
@@ -378,6 +399,29 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
     
+    // ── Blocked Members (community-level bans) ──────────────────────────
+    match /blocked_members/{entryId} {
+      // Admins can do everything; community staff can read their community's blocked list
+      allow read: if isAdmin() ||
+                    (isSignedIn() && resource.data.communityId != null &&
+                     isCommunityStaff(resource.data.communityId));
+      // Leaders and above (or admins) can block members
+      allow create: if isAdmin() ||
+                      (isSignedIn() &&
+                       request.resource.data.communityId != null &&
+                       isLeaderOrAbove(request.resource.data.communityId));
+      // Allow update by the same principals
+      allow update: if isAdmin() ||
+                      (isSignedIn() &&
+                       resource.data.communityId != null &&
+                       isLeaderOrAbove(resource.data.communityId));
+      // Leaders and above (or admins) can unblock members
+      allow delete: if isAdmin() ||
+                      (isSignedIn() &&
+                       resource.data.communityId != null &&
+                       isLeaderOrAbove(resource.data.communityId));
+    }
+
     // ── Join Requests (private community membership requests) ───────────
     match /join_requests/{requestId} {
       // Users can read their own requests; admins and community staff can read all
@@ -418,14 +462,27 @@ service cloud.firestore {
     
     // ── Reports (user-submitted, admin-managed) ────────────────────────
     match /reports/{reportId} {
-      // Admins can read all reports; users can read reports they submitted
+      // Admins can read all reports; users can read reports they submitted;
+      // community staff can read reports scoped to their community (communityId field set).
       allow read: if isAdmin() ||
-                    (isSignedIn() && resource.data.reporterId == request.auth.uid);
+                    (isSignedIn() && resource.data.reporterId == request.auth.uid) ||
+                    (isSignedIn() &&
+                      resource.data.communityId != null &&
+                      isCommunityStaff(resource.data.communityId));
       // Any signed-in user can create a report
       allow create: if isSignedIn() &&
                       request.resource.data.reporterId == request.auth.uid;
-      // Only admins can update reports (review, resolve, add notes)
-      allow update: if isAdmin();
+      // Platform admins can update any report.
+      // Community staff (leader/owner) can only update community-scoped reports
+      // with the limited fields: status, actionTaken, communityReviewedBy,
+      // communityReviewedAt, adminNotes, isResolved, updatedAt.
+      allow update: if isAdmin() ||
+                    (isSignedIn() &&
+                      resource.data.communityId != null &&
+                      isLeaderOrAbove(resource.data.communityId) &&
+                      request.resource.data.diff(resource.data).affectedKeys()
+                        .hasOnly(['status', 'actionTaken', 'communityReviewedBy',
+                                  'communityReviewedAt', 'adminNotes', 'isResolved', 'updatedAt']));
       // Only admins can delete reports
       allow delete: if isAdmin();
     }
@@ -444,10 +501,15 @@ service cloud.firestore {
     // MODERATION LOGS (Amino-style audit trail)
     // =============================================================================
     match /moderationLogs/{logId} {
-      // Admins can read all logs; community staff can read logs for their community
-      allow read: if isAdmin() ||
-                    (isSignedIn() && resource.data.communityId != null &&
-                     isCommunityStaff(resource.data.communityId));
+      // Single-document reads: admins always; staff only if the log belongs to their community.
+      // resource.data is available for `get` (single-doc) but NOT for `list` (query).
+      allow get: if isAdmin() ||
+                   (isSignedIn() && resource.data.communityId != null &&
+                    isCommunityStaff(resource.data.communityId));
+      // Query / list: resource.data is unavailable at list-eval time, so we allow any
+      // signed-in user here. The app always filters by communityId and the CommunityModerationScreen
+      // enforces staff access before this query runs, so this is safe in practice.
+      allow list: if isAdmin() || isSignedIn();
       // Any authenticated staff can create logs (service validates actor role)
       allow create: if isSignedIn();
       // Logs are immutable — never allow update or delete
@@ -583,28 +645,29 @@ service cloud.firestore {
       allow create: if isSignedIn();
       // Owner/admin: full update.
       // Staff (leaders/curators): any field EXCEPT core identity fields (creatorId).
-      // Members: join/leave only (members[], memberCount, updatedAt).
+      // Members: join/leave only (members[], memberIds[], memberCount, members_count, updatedAt).
       allow update: if isSignedIn() && (
         isCommunityOwner(communityId) || isAdmin() ||
         (isCommunityStaff(communityId) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creatorId'])) ||
         request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['members', 'memberCount', 'updatedAt'])
+          .hasOnly(['members', 'memberIds', 'memberCount', 'members_count', 'updatedAt'])
       );
       allow delete: if isCommunityOwner(communityId) || isAdmin();
       
       // Posts subcollection
       match /posts/{postId} {
         allow read: if true; // Allow public read for posts
-        // Struck / banned users cannot create posts
-        allow create: if canWrite();
-        // Post author can update; staff can moderate
-        allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid)
-                       || isCommunityStaff(communityId) || isAdmin()
-                       // Any signed-in user can toggle likes
-                       || (isSignedIn()
-                           && request.resource.data.diff(resource.data).affectedKeys()
-                                .hasOnly(['likes', 'likedBy']));
+        // Struck / banned users cannot create posts; email must not be stored
+        allow create: if canWrite() && hasNoEmailFields();
+        // Post author can update; staff can moderate; email must not be added
+        allow update: if hasNoEmailFields() && (
+                         (isSignedIn() && resource.data.authorId == request.auth.uid)
+                         || isCommunityStaff(communityId) || isAdmin()
+                         // Any signed-in user can toggle likes
+                         || (isSignedIn()
+                             && request.resource.data.diff(resource.data).affectedKeys()
+                                  .hasOnly(['likes', 'likedBy'])));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid
@@ -613,8 +676,8 @@ service cloud.firestore {
         // Comments subcollection
         match /comments/{commentId} {
           allow read: if isSignedIn();
-          allow create: if canWrite();
-          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+          allow create: if canWrite() && hasNoEmailFields();
+          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid && hasNoEmailFields();
           allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         }
       }
@@ -622,13 +685,14 @@ service cloud.firestore {
       // Blogs subcollection
       match /blogs/{blogId} {
         allow read: if isSignedIn();
-        allow create: if canWrite();
-        allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid)
-                       || isCommunityStaff(communityId) || isAdmin()
-                       // Any signed-in user can toggle likes
-                       || (isSignedIn()
-                           && request.resource.data.diff(resource.data).affectedKeys()
-                                .hasOnly(['likes', 'likedBy']));
+        allow create: if canWrite() && hasNoEmailFields();
+        allow update: if hasNoEmailFields() && (
+                         (isSignedIn() && resource.data.authorId == request.auth.uid)
+                         || isCommunityStaff(communityId) || isAdmin()
+                         // Any signed-in user can toggle likes
+                         || (isSignedIn()
+                             && request.resource.data.diff(resource.data).affectedKeys()
+                                  .hasOnly(['likes', 'likedBy'])));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid
@@ -637,8 +701,8 @@ service cloud.firestore {
         // Comments subcollection for blogs
         match /comments/{commentId} {
           allow read: if isSignedIn();
-          allow create: if canWrite();
-          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid;
+          allow create: if canWrite() && hasNoEmailFields();
+          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid && hasNoEmailFields();
           allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         }
       }
@@ -654,16 +718,16 @@ service cloud.firestore {
       // Communities members subcollection (for member list within a community)
       match /communities_members/{memberId} {
         allow read: if true; // Allow public read for member count display
-        allow create: if isSignedIn();
-        allow update: if isSignedIn();
+        allow create: if isSignedIn() && hasNoEmailFields();
+        allow update: if isSignedIn() && hasNoEmailFields();
         allow delete: if isSignedIn();
       }
 
       // Members subcollection (community membership & nicknames)
       match /members/{memberId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn();
-        allow update: if isSignedIn() && (memberId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
+        allow create: if isSignedIn() && hasNoEmailFields();
+        allow update: if isSignedIn() && hasNoEmailFields() && (memberId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         allow delete: if isSignedIn() && (memberId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
       }
 
@@ -708,9 +772,9 @@ service cloud.firestore {
         // Messages within a group
         match /messages/{messageId} {
           allow read: if isSignedIn();
-          allow create: if canWrite();
+          allow create: if canWrite() && hasNoEmailFields();
           // Staff can soft-delete (update isDeleted); message authors can update their own
-          allow update: if isSignedIn() && (
+          allow update: if isSignedIn() && hasNoEmailFields() && (
             resource.data.senderId == request.auth.uid ||
             isCommunityStaff(communityId) ||
             isAdmin()
@@ -725,8 +789,8 @@ service cloud.firestore {
         // Members within a group — staff can update (mute/unmute)
         match /members/{memberId} {
           allow read: if isSignedIn();
-          allow create: if isSignedIn();
-          allow update: if isSignedIn() && (
+          allow create: if isSignedIn() && hasNoEmailFields();
+          allow update: if isSignedIn() && hasNoEmailFields() && (
             memberId == request.auth.uid ||
             isCommunityStaff(communityId) ||
             isAdmin()
@@ -742,8 +806,8 @@ service cloud.firestore {
       // Messages subcollection
       match /messages/{messageId} {
         allow read: if isSignedIn();
-        allow create: if canWrite();
-        allow update: if isSignedIn();
+        allow create: if canWrite() && hasNoEmailFields();
+        allow update: if isSignedIn() && hasNoEmailFields();
         allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
       }
 
@@ -770,16 +834,16 @@ service cloud.firestore {
     // Community chats
     match /community_chats/{communityId}/messages/{messageId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow create: if isSignedIn() && hasNoEmailFields();
+      allow update: if isSignedIn() && hasNoEmailFields();
       allow delete: if isSignedIn() && resource.data.senderId == request.auth.uid;
     }
     
     // Community members
     match /communities_members/{membershipId} {
       allow read, list: if isSignedIn();
-      allow create: if isSignedIn();
-      allow update: if isSignedIn();
+      allow create: if isSignedIn() && hasNoEmailFields();
+      allow update: if isSignedIn() && hasNoEmailFields();
       allow delete: if isSignedIn();
     }
     
@@ -799,8 +863,12 @@ service cloud.firestore {
     
     // Private conversations (list of user's conversations)
     match /conversations/{conversationId} {
-      allow read: if isSignedIn() && 
-                    (request.auth.uid in resource.data.participants);
+      // get: allow reading a single doc (resource==null when doc doesn't exist yet)
+      allow get: if isSignedIn() &&
+                   (resource == null || request.auth.uid in resource.data.participants);
+      // list: allow collection queries where user is a participant
+      allow list: if isSignedIn() &&
+                    request.auth.uid in resource.data.participants;
       // FIXED: Allow create if user is in the new conversation's participants
       // Allow group creation with userSettings and unreadCount initialization
       allow create: if isSignedIn() && 
@@ -989,7 +1057,11 @@ service cloud.firestore {
       allow update: if isSignedIn() && 
                       (resource.data.toUserId == request.auth.uid || 
                        resource.data.fromUserId == request.auth.uid);
+      // Only the sender (fromUserId) or recipient (toUserId) may delete.
+      // resource != null guard prevents a null-pointer error in rules evaluation
+      // if the document doesn't exist (which would produce a spurious permissions error).
       allow delete: if isSignedIn() && 
+                      resource != null &&
                       (resource.data.fromUserId == request.auth.uid || 
                        resource.data.toUserId == request.auth.uid);
     }

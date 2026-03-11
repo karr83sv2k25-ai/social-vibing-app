@@ -97,7 +97,7 @@ export default function EditProfileScreen({ navigation, route }) {
           console.error('❌ Edit Profile: No authenticated user found!');
           Alert.alert('Error', 'You must be logged in to edit your profile');
           setLoading(false);
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
           return;
         }
 
@@ -276,7 +276,7 @@ export default function EditProfileScreen({ navigation, route }) {
   const handleImagePick = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [1, 1],
         quality: 1.0,
@@ -317,7 +317,7 @@ export default function EditProfileScreen({ navigation, route }) {
   const handleCoverImagePick = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         aspect: [16, 9],
         quality: 0.8,
@@ -512,7 +512,7 @@ export default function EditProfileScreen({ navigation, route }) {
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
         <Text style={{ color: C.text, fontSize: 16 }}>No Profile Data</Text>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={{ marginTop: 20, padding: 12, backgroundColor: C.brand, borderRadius: 8 }}
         >
           <Text style={{ color: C.text }}>Go Back</Text>

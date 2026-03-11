@@ -37,7 +37,7 @@ export default function ModeratorsManagementScreen({ route, navigation }) {
 
       if (!currentUserId) {
         Alert.alert('Error', 'Please login to continue');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
@@ -45,20 +45,36 @@ export default function ModeratorsManagementScreen({ route, navigation }) {
       const communityDoc = await getDoc(doc(db, 'communities', communityId));
       if (!communityDoc.exists()) {
         Alert.alert('Error', 'Community not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
       const communityData = communityDoc.data();
       setCommunity(communityData);
 
-      // Check if current user is creator
-      const creator = communityData.creatorId === currentUserId;
+      // Allow: creator, platform admin, or community leader
+      const userDocRef = doc(db, 'users', currentUserId);
+      const userSnap = await getDoc(userDocRef);
+      const userData = userSnap.exists() ? userSnap.data() : {};
+      const isPlatformAdmin = userData.role === 'admin' || userData.isAdmin === true;
+
+      const isOwner =
+        communityData.creatorId === currentUserId ||
+        communityData.createdBy === currentUserId;
+
+      const isLeader =
+        Array.isArray(communityData.leaders) &&
+        communityData.leaders.includes(currentUserId);
+
+      const hasAccess = isOwner || isLeader || isPlatformAdmin;
+
+      // isCreator state = anyone who can manage (for UI purposes)
+      const creator = isOwner || isLeader || isPlatformAdmin;
       setIsCreator(creator);
 
-      if (!creator) {
-        Alert.alert('Error', 'Only community creator can manage moderators');
-        navigation.goBack();
+      if (!hasAccess) {
+        Alert.alert('Access Denied', 'Only community owners, leaders, or admins can manage moderators.');
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
@@ -234,7 +250,7 @@ export default function ModeratorsManagementScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Manage Moderators</Text>

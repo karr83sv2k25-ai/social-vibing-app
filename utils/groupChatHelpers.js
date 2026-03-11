@@ -4,6 +4,9 @@ import {
   doc, 
   setDoc, 
   updateDoc, 
+  deleteDoc,
+  getDocs,
+  writeBatch,
   deleteField,
   arrayUnion, 
   arrayRemove,
@@ -214,6 +217,23 @@ export async function updateGroupInfo(conversationId, updates) {
   });
   
   await updateDoc(doc(db, 'conversations', conversationId), filteredUpdates);
+}
+
+/**
+ * Delete group (admin only) — removes the conversation doc and all messages
+ */
+export async function deleteGroup(conversationId, adminId) {
+  const batch = writeBatch(db);
+
+  // Delete all messages in the group
+  const messagesRef = collection(db, 'conversations', conversationId, 'messages');
+  const messagesSnap = await getDocs(messagesRef);
+  messagesSnap.forEach((msgDoc) => batch.delete(msgDoc.ref));
+
+  // Delete the conversation document itself
+  batch.delete(doc(db, 'conversations', conversationId));
+
+  await batch.commit();
 }
 
 /**

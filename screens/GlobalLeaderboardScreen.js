@@ -253,12 +253,18 @@ export default function GlobalLeaderboardScreen() {
             break;
         }
         
-        // Build user display name - check all possible field names
-        const displayName = userData.displayName
-          || `${userData.firstName || ''} ${userData.lastName || ''}`.trim() 
-          || userData.username 
-          || userData.handle 
-          || userData.name 
+        // Build user display name - prefer nickname over email-derived names
+        const fullName = `${userData.firstName || ''} ${userData.lastName || ''}`.trim();
+        
+        // Helper: skip email-like strings as display names
+        const isEmail = (str) => str && typeof str === 'string' && str.includes('@');
+        
+        const displayName = userData.nickname
+          || (fullName && !isEmail(fullName) ? fullName : '')
+          || (userData.displayName && !isEmail(userData.displayName) ? userData.displayName : '')
+          || (userData.username && !isEmail(userData.username) ? userData.username : '')
+          || (userData.handle && !isEmail(userData.handle) ? userData.handle : '')
+          || (userData.name && !isEmail(userData.name) ? userData.name : '')
           || 'User';
         
         return {
@@ -833,7 +839,7 @@ export default function GlobalLeaderboardScreen() {
           style={[styles.headerGradient, { paddingTop: insets.top + 6 }]}
         >
           <View style={styles.header}>
-            <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+            <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
               <Ionicons name="chevron-back" size={28} color="#fff" />
             </TouchableOpacity>
             <View style={styles.headerCenter}>
@@ -858,7 +864,7 @@ export default function GlobalLeaderboardScreen() {
         style={[styles.headerGradient, { paddingTop: insets.top + 6 }]}
       >
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+          <TouchableOpacity style={styles.backButton} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
             <Ionicons name="chevron-back" size={28} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerCenter}>

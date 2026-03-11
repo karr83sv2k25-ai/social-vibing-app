@@ -136,7 +136,7 @@ export default function ChatSettingsScreen({ route, navigation }) {
     try {
       await archiveConversation(conversationId, currentUserId);
       Alert.alert('Archived', 'Conversation has been archived');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error archiving:', error);
       Alert.alert('Error', 'Failed to archive conversation');
@@ -267,7 +267,7 @@ export default function ChatSettingsScreen({ route, navigation }) {
     <ScrollView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>

@@ -1,9 +1,9 @@
 # Hostinger Upload Directory Configuration
 # Increase PHP limits for file uploads
 
-# Enable PHP error logging (disable in production)
-# php_flag display_errors off
-# php_flag log_errors on
+# Production: hide errors from response (prevents JSON corruption)
+php_flag display_errors off
+php_flag log_errors on
 
 # Increase upload limits
 php_value upload_max_filesize 50M

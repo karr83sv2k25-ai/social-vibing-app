@@ -317,8 +317,11 @@ export const purchaseWithDiamonds = async (db, userId, amount, itemName, itemId)
 // ==================== REWARD DAILY LOGIN ====================
 export const rewardDailyLogin = async (db, userId) => {
   try {
-    const coinsReward = 10;
-    await updateCoins(db, userId, coinsReward, 'daily_login');
+    // Coins removed from daily login - earn via watching ads only
+    const coinsReward = 0;
+    if (coinsReward > 0) {
+      await updateCoins(db, userId, coinsReward, 'daily_login');
+    }
     
     console.log('✅ Daily login reward claimed');
     return { success: true, reward: coinsReward };

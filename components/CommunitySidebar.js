@@ -20,7 +20,9 @@ import {
 import { Ionicons, MaterialCommunityIcons, FontAwesome5, Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { getUserBadge } from '../shared/services/communityCheckInService';
+import { getUserLevel, LEVEL_IMAGES } from '../shared/services/communityCheckInService';
+import { doc, getDoc } from 'firebase/firestore';
+import { db } from '../firebaseConfig';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const SIDEBAR_WIDTH = SCREEN_WIDTH * 0.8;
@@ -70,6 +72,7 @@ const SIDEBAR_SECTIONS = [
   {
     title: 'Settings',
     items: [
+      { id: 'adminPortal', icon: 'shield-checkmark', label: 'Admin Portal', screen: 'AdminPortal', color: '#D946EF', adminOnly: true },
       { id: 'settings', icon: 'settings', label: 'Community Settings', screen: 'Settings', color: '#6B7280', adminOnly: true },
       { id: 'moderation', icon: 'shield', label: 'Moderation', screen: 'Moderation', color: '#EF4444', modOnly: true },
       { id: 'invite', icon: 'share-social', label: 'Invite Friends', screen: 'Invite', color: '#3B82F6' },
@@ -92,6 +95,27 @@ const CommunitySidebar = ({
 }) => {
   const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const [communityNickname, setCommunityNickname] = useState(null);
+
+  // Fetch the current user's community nickname when the sidebar becomes visible.
+  // Nicknames are stored in communities_members/{uid}_{communityId}.
+  useEffect(() => {
+    if (!visible || !currentUser?.uid || !communityId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const membershipId = `${currentUser.uid}_${communityId}`;
+        const memberSnap = await getDoc(doc(db, 'communities_members', membershipId));
+        if (!cancelled) {
+          const nickname = memberSnap.exists() ? memberSnap.data()?.communityNickname : null;
+          setCommunityNickname((nickname && nickname.trim()) ? nickname.trim() : null);
+        }
+      } catch (_) {
+        // silently ignore
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [visible, currentUser?.uid, communityId]);
   
   useEffect(() => {
     if (visible) {
@@ -162,13 +186,20 @@ const CommunitySidebar = ({
           navigation.navigate('GroupAudioCall', { communityId, community: communityData });
           break;
         case 'Screening':
-          navigation.navigate('ScreenSharingRoom', { communityId, community: communityData });
+          navigation.navigate('ScreenSharingRoom', {
+            communityId,
+            groupTitle: communityData?.name || communityData?.title || 'Screening Room',
+            community: communityData,
+          });
           break;
         case 'Roleplay':
           navigation.navigate('RoleplayScreen', { communityId, community: communityData });
           break;
         case 'AILab':
           navigation.navigate('KingMediaHome', { communityId });
+          break;
+        case 'AdminPortal':
+          navigation.navigate('CommunityAdminPortal', { communityId, communityData });
           break;
         case 'Settings':
           navigation.navigate('EditCommunity', { communityId });
@@ -195,7 +226,7 @@ const CommunitySidebar = ({
     }
   };
 
-  const userBadge = getUserBadge(userPoints);
+  const userBadge = getUserLevel(userPoints);
 
   const renderMenuItem = (item, index) => {
     // Hide admin/mod only items if user doesn't have permission
@@ -271,10 +302,10 @@ const CommunitySidebar = ({
                   style={styles.userAvatar}
                 />
                 <View style={styles.userTextContainer}>
-                  <Text style={styles.userName}>{currentUser?.displayName || 'User'}</Text>
+                  <Text style={styles.userName}>{communityNickname || currentUser?.displayName || 'User'}</Text>
                   <View style={styles.badgeRow}>
-                    <Text style={styles.badgeIcon}>{userBadge.icon}</Text>
-                    <Text style={[styles.badgeName, { color: userBadge.color }]}>{userBadge.name}</Text>
+                    <Image source={userBadge.image || LEVEL_IMAGES[1]} style={styles.badgeLevelImage} />
+                    <Text style={[styles.badgeName, { color: userBadge.color }]}>Lvl {userBadge.level} - {userBadge.name}</Text>
                   </View>
                 </View>
               </View>
@@ -410,6 +441,12 @@ const styles = StyleSheet.create({
   badgeIcon: {
     fontSize: 14,
     marginRight: 4,
+  },
+  badgeLevelImage: {
+    width: 20,
+    height: 20,
+    marginRight: 4,
+    resizeMode: 'contain',
   },
   badgeName: {
     fontSize: 12,

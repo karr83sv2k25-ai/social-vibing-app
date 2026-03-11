@@ -48,14 +48,17 @@ import StatusSelector from './components/StatusSelector';
 import VerifiedBadge from './components/VerifiedBadge';
 import { getDailyRewardsData, claimTaskReward, DAILY_TASKS, getTimeUntilMidnight, formatTimeRemaining } from './shared/services/dailyRewardsService';
 import { useWallet } from './context/WalletContext';
+import ReportUserModal from './components/ReportUserModal';
 
 // Memoized community card component for better rendering performance
-const CommunityCard = React.memo(({ item, idx, onPress, showFollowedBadge, isJoined }) => (
+const CommunityCard = React.memo(({ item, idx, onPress, onLongPress, showFollowedBadge, isJoined }) => (
   <TouchableOpacity
     key={item.community_id || item.id || idx.toString()}
     style={styles.eventCardGrid}
     onPress={() => onPress(item)}
+    onLongPress={() => onLongPress && onLongPress(item)}
     activeOpacity={0.8}
+    delayLongPress={500}
   >
     <View style={{ position: 'relative' }}>
       <Image
@@ -78,7 +81,7 @@ const CommunityCard = React.memo(({ item, idx, onPress, showFollowedBadge, isJoi
       </Text>
     )}
     <View style={{ marginTop: 6 }}>
-      <Text style={styles.joinButtonText}>{item.community_members ? (Array.isArray(item.community_members) ? item.community_members.length : item.community_members) : '—'} members</Text>
+      <Text style={styles.joinButtonText}>{typeof item.community_members === 'number' ? item.community_members : (item.community_members || 0)} members</Text>
     </View>
   </TouchableOpacity>
 ));
@@ -211,10 +214,12 @@ export default function TopBar({ navigation, route }) {
               const communityId = comm.community_id || comm.id;
               const communityRef = doc(db, 'communities', communityId);
 
-              // Build update payload. Always maintain a `members` array (new field) and a numeric `members_count`.
+              // Build update payload. Always maintain a `members` array and consistent numeric counters.
               const updates = {
                 members: arrayUnion(auth.currentUser.uid),
+                memberIds: arrayUnion(auth.currentUser.uid),
                 members_count: increment(1),
+                memberCount: increment(1),
               };
 
               // Keep compatibility with older `community_members` field which may be a number or array.
@@ -268,6 +273,10 @@ export default function TopBar({ navigation, route }) {
 
   const [refreshing, setRefreshing] = useState(false);
 
+  // Community report/flag state
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportTargetCommunity, setReportTargetCommunity] = useState(null);
+
   const buttons = ['Explored', 'Joined', 'Managed by you'];
 
   // db is now imported globally
@@ -304,6 +313,30 @@ export default function TopBar({ navigation, route }) {
   const getUserName = useCallback((u) => {
     return getDisplayName(u, 'Guest User');
   }, []);
+
+  // Long-press handler for flagging/reporting a community
+  const handleCommunityLongPress = useCallback((community) => {
+    const communityName = community.name || community.community_title || community.title || 'Community';
+    Alert.alert(
+      communityName,
+      'What would you like to do?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Report Community',
+          style: 'destructive',
+          onPress: () => {
+            if (!auth.currentUser) {
+              Alert.alert('Sign In Required', 'Please sign in to report a community.');
+              return;
+            }
+            setReportTargetCommunity(community);
+            setShowReportModal(true);
+          },
+        },
+      ]
+    );
+  }, [auth.currentUser]);
 
   // Helper function to filter communities by category
   const filterByCategory = useCallback((communities, category) => {
@@ -505,14 +538,19 @@ export default function TopBar({ navigation, route }) {
               }
             }
 
-            // Calculate member count: prefer actual arrays (most accurate), then fallback to numeric counters
-            const memberCount = Array.isArray(data.members)
-              ? data.members.length
-              : Array.isArray(data.community_members)
-                ? data.community_members.length
-                : Array.isArray(data.memberIds)
-                  ? data.memberIds.length
-                  : (typeof data.members_count === 'number' ? data.members_count : (typeof data.community_members === 'number' ? data.community_members : 0));
+            // Combine members + memberIds arrays (deduped) for the true count across all creation/join paths
+            const membersArr = Array.isArray(data.members) ? data.members : [];
+            const memberIdsArr = Array.isArray(data.memberIds) ? data.memberIds : [];
+            const combinedIds = [...new Set([...membersArr, ...memberIdsArr])];
+            const memberCount = combinedIds.length > 0
+              ? combinedIds.length
+              : typeof data.memberCount === 'number' && data.memberCount > 0
+                ? data.memberCount
+                : typeof data.members_count === 'number' && data.members_count > 0
+                  ? data.members_count + (memberIdsArr.length > 0 ? 1 : 0) // add creator not counted in members_count
+                  : Array.isArray(data.community_members)
+                    ? data.community_members.length
+                    : (typeof data.community_members === 'number' ? data.community_members : 0);
 
             return {
               id: d.id,
@@ -694,7 +732,7 @@ export default function TopBar({ navigation, route }) {
         setGlobalCoinsToday(prev => prev + (result.reward || 0));
         Alert.alert(
           '🎉 Daily Check-in Complete!',
-          `+${result.reward} Coins earned!\n🔥 Streak: ${globalStreak} days`,
+          `🔥 Streak: ${globalStreak} days\nWatch ads to earn coins!`,
           [{ text: 'Awesome!' }]
         );
       } else if (result.alreadyClaimed) {
@@ -900,7 +938,12 @@ export default function TopBar({ navigation, route }) {
           {/* === EXPLORED TAB === */}
           {activeButton === 'Explored' && (
             <View style={styles.sectionWrap}>
-              <Text style={styles.sectionTitle}>Communities</Text>
+              <View style={styles.cardHeader}>
+                <Text style={styles.cardTitle}>Communities</Text>
+                <TouchableOpacity onPress={() => navigation.navigate('Explore')}>
+                  <Text style={styles.viewAllText}>View All</Text>
+                </TouchableOpacity>
+              </View>
               {allCommunities && allCommunities.length > 0 ? (
                 <View style={styles.gridContainer}>
                   {allCommunities.map((item, idx) => (
@@ -909,6 +952,7 @@ export default function TopBar({ navigation, route }) {
                       item={item}
                       idx={idx}
                       onPress={openValidationFor}
+                      onLongPress={handleCommunityLongPress}
                       showFollowedBadge={true}
                       isJoined={joinedCommunityIds.has(item.community_id || item.id)}
                     />
@@ -964,6 +1008,7 @@ export default function TopBar({ navigation, route }) {
                       item={item}
                       idx={idx}
                       onPress={() => navigation.navigate('GroupInfo', { communityId: item.community_id || item.id })}
+                      onLongPress={handleCommunityLongPress}
                       showFollowedBadge={false}
                       isJoined={false}
                     />
@@ -991,6 +1036,7 @@ export default function TopBar({ navigation, route }) {
                       item={item}
                       idx={idx}
                       onPress={() => navigation.navigate('GroupInfo', { communityId: item.community_id || item.id })}
+                      onLongPress={handleCommunityLongPress}
                       showFollowedBadge={false}
                       isJoined={false}
                     />
@@ -1031,6 +1077,27 @@ export default function TopBar({ navigation, route }) {
         onClose={() => setStatusSelectorVisible(false)}
         title="Update Your Status"
       />
+
+      {/* Report Community Modal */}
+      {reportTargetCommunity && (
+        <ReportUserModal
+          visible={showReportModal}
+          onClose={() => {
+            setShowReportModal(false);
+            setReportTargetCommunity(null);
+          }}
+          reportedUser={{
+            id: reportTargetCommunity?.community_id || reportTargetCommunity?.id,
+            username: reportTargetCommunity?.name || reportTargetCommunity?.community_title || reportTargetCommunity?.title || 'Community',
+            name: reportTargetCommunity?.name || reportTargetCommunity?.community_title || reportTargetCommunity?.title || 'Community',
+          }}
+          reportType="community"
+          contentId={reportTargetCommunity?.community_id || reportTargetCommunity?.id}
+          contentType="community"
+          contentPreview={reportTargetCommunity?.description || reportTargetCommunity?.name || 'Community content'}
+          communityId={reportTargetCommunity?.community_id || reportTargetCommunity?.id}
+        />
+      )}
     </View>
   );
 }

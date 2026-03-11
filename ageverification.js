@@ -34,7 +34,7 @@ export default function AgeVerificationScreen({ navigation, route }) {
   const handlePickDocument = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.8,
       });
@@ -127,7 +127,7 @@ export default function AgeVerificationScreen({ navigation, route }) {
       Alert.alert(
         'Verification Submitted',
         'Your verification request has been submitted. An admin will review it within 24-48 hours.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login') }]
       );
     } catch (error) {
       console.error('Verification error:', error);
@@ -145,7 +145,7 @@ export default function AgeVerificationScreen({ navigation, route }) {
         { text: 'Verify Now', style: 'cancel' },
         { 
           text: 'Continue Without Verification',
-          onPress: () => navigation.goBack()
+          onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login')
         }
       ]
     );

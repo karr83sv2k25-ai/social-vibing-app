@@ -211,7 +211,7 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.8,
       });
@@ -340,6 +340,29 @@ export default function ChatScreen({ route, navigation }) {
 
     return () => unsubscribe();
   }, [conversationId, currentUser]);
+
+  // Mark messages as read — reset unreadCount for current user when screen is open
+  useEffect(() => {
+    if (!conversationId || !currentUser) return;
+
+    const markAsRead = async () => {
+      try {
+        const conversationRef = doc(db, 'conversations', conversationId);
+        await updateDoc(conversationRef, {
+          [`unreadCount.${currentUser.uid}`]: 0,
+        });
+      } catch (error) {
+        console.log('Error marking messages as read:', error);
+      }
+    };
+
+    // Mark as read immediately when screen mounts / conversationId becomes available
+    markAsRead();
+
+    // Also mark as read every time the screen regains focus (e.g., coming back from another screen)
+    const unsubscribeFocus = navigation.addListener('focus', markAsRead);
+    return () => unsubscribeFocus();
+  }, [conversationId, currentUser, navigation]);
 
   // Listen for room/session status changes and update messages accordingly
   // Use a ref to track active message IDs to avoid re-subscribing on every msgs change
@@ -703,6 +726,8 @@ export default function ChatScreen({ route, navigation }) {
 
         await setDoc(conversationRef, {
           participants: [currentUser.uid, otherUserId],
+          type: 'private',
+          createdBy: currentUser.uid,
           lastMessage: message,
           lastMessageTime: serverTimestamp(),
           createdAt: serverTimestamp(),
@@ -781,6 +806,8 @@ export default function ChatScreen({ route, navigation }) {
 
         await setDoc(conversationRef, {
           participants: [currentUser.uid, otherUserId],
+          type: 'private',
+          createdBy: currentUser.uid,
           lastMessage: '🎨 Sticker',
           lastMessageTime: serverTimestamp(),
           createdAt: serverTimestamp(),
@@ -842,6 +869,8 @@ export default function ChatScreen({ route, navigation }) {
 
         await setDoc(conversationRef, {
           participants: [currentUser.uid, otherUserId],
+          type: 'private',
+          createdBy: currentUser.uid,
           lastMessage: '📷 Photo',
           lastMessageTime: serverTimestamp(),
           createdAt: serverTimestamp(),
@@ -1125,7 +1154,7 @@ export default function ChatScreen({ route, navigation }) {
       {/* 🔹 Custom Header */}
       <View style={styles.customHeader}>
         <View style={styles.headerLeft}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backBtn}>
             <Ionicons name="chevron-back" size={28} color="#fff" />
           </TouchableOpacity>
           <Avatar name={user.name} size={40} source={user.avatar} />

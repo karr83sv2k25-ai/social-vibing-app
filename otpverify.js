@@ -50,7 +50,7 @@ export default function OtpVerificationScreen({ navigation }) {
   };
 
   const handleBack = () => {
-    navigation.goBack();
+    navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
   };
 
   const handleResend = () => {

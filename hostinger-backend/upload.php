@@ -9,9 +9,11 @@
  * Required fields: file, type (image/video/audio), folder (optional)
  */
 
-// Enable error reporting for debugging
+// IMPORTANT: display_errors MUST be off in production.
+// If it's on, PHP warnings are prepended to the response body BEFORE the JSON
+// output, which corrupts it and causes JSON parse failures on the client.
 error_reporting(E_ALL);
-ini_set('display_errors', 1);
+ini_set('display_errors', 0);  // ← NEVER turn on in production
 ini_set('log_errors', 1);
 ini_set('error_log', __DIR__ . '/upload_errors.log');
 
@@ -56,8 +58,9 @@ function verifyApiKey() {
         return true; // Skip verification if not configured
     }
     
-    $headers = getallheaders();
-    $providedKey = $headers['X-API-Key'] ?? $_POST['api_key'] ?? null;
+    // getallheaders() is unavailable in some CGI/FastCGI setups; fall back to apache_request_headers
+    $headers = function_exists('getallheaders') ? getallheaders() : (function_exists('apache_request_headers') ? apache_request_headers() : []);
+    $providedKey = $headers['X-API-Key'] ?? $headers['x-api-key'] ?? $_POST['api_key'] ?? null;
     
     if ($providedKey !== API_KEY) {
         sendResponse(false, null, 'Invalid API key', 401);
@@ -159,10 +162,48 @@ function handleUpload() {
             sendResponse(false, null, $msg, 400);
         }
         
-        // Get actual mime type
-        $finfo = finfo_open(FILEINFO_MIME_TYPE);
-        $mimeType = finfo_file($finfo, $file['tmp_name']);
-        finfo_close($finfo);
+        // Get actual mime type using finfo (preferred) with fallback to file magic bytes
+        $mimeType = null;
+        
+        if (function_exists('finfo_open')) {
+            $finfo = finfo_open(FILEINFO_MIME_TYPE);
+            if ($finfo !== false) {
+                $detectedMime = finfo_file($finfo, $file['tmp_name']);
+                finfo_close($finfo);
+                if ($detectedMime !== false) {
+                    $mimeType = $detectedMime;
+                }
+            }
+        }
+        
+        // Fallback 1: read file magic bytes manually
+        if ($mimeType === null) {
+            $fp = fopen($file['tmp_name'], 'rb');
+            if ($fp !== false) {
+                $header = fread($fp, 12);
+                fclose($fp);
+                // Check common image/video magic bytes
+                if (substr($header, 0, 2) === "\xFF\xD8") {
+                    $mimeType = 'image/jpeg';
+                } elseif (substr($header, 0, 8) === "\x89PNG\r\n\x1a\n") {
+                    $mimeType = 'image/png';
+                } elseif (substr($header, 0, 6) === 'GIF87a' || substr($header, 0, 6) === 'GIF89a') {
+                    $mimeType = 'image/gif';
+                } elseif (strlen($header) >= 12 && substr($header, 0, 4) === 'RIFF' && substr($header, 8, 4) === 'WEBP') {
+                    $mimeType = 'image/webp';
+                } elseif (strlen($header) >= 12 && substr($header, 0, 4) === 'RIFF' && substr($header, 8, 4) === 'WAVE') {
+                    $mimeType = 'audio/wav';
+                } else {
+                    // Last resort: trust the client-provided type (filtered below)
+                    $mimeType = $file['type'];
+                }
+            }
+        }
+        
+        // Final fallback: trust client-provided MIME type
+        if ($mimeType === null || $mimeType === false || $mimeType === '') {
+            $mimeType = $file['type'];
+        }
         
         error_log("Detected MIME type: $mimeType");
         
@@ -209,6 +250,13 @@ function handleUpload() {
         if (!move_uploaded_file($file['tmp_name'], $filePath)) {
             error_log("ERROR: Failed to save file");
             sendResponse(false, null, 'Failed to save file', 500);
+        }
+        
+        // Verify the file was saved and is non-empty
+        if (!file_exists($filePath) || filesize($filePath) === 0) {
+            error_log("ERROR: File saved but is empty or missing: $filePath");
+            @unlink($filePath);
+            sendResponse(false, null, 'File save verification failed', 500);
         }
         
         // Generate URL

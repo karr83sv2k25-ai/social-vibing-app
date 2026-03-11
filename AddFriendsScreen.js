@@ -1,20 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View,
   Text,
   TextInput,
   TouchableOpacity,
   FlatList,
-  Image,
   StyleSheet,
   Alert,
   ActivityIndicator,
   StatusBar,
+  RefreshControl,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { db, auth } from './firebaseConfig';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { collection, query, where, getDocs, limit } from 'firebase/firestore';
 import { getDisplayName, getUserAvatar } from './utils/userNameHelpers';
+import CachedImage from './components/CachedImage';
+import { ConversationSkeleton } from './components/SkeletonLoaders';
 import {
   sendFriendRequest,
   getFriendRequests,
@@ -25,6 +28,143 @@ import {
   getFriends,
 } from './utils/friendHelpers';
 
+// ─── Memoised tab config ──────────────────────────────────────
+const TABS = [
+  { key: 'search',      label: 'Search',      icon: 'search',       iconLib: 'Ionicons' },
+  { key: 'suggestions', label: 'Suggestions', icon: 'account-group', iconLib: 'MaterialCommunityIcons' },
+  { key: 'received',    label: 'Requests',    icon: 'person-add',   iconLib: 'Ionicons' },
+  { key: 'sent',        label: 'Sent',        icon: 'paper-plane',  iconLib: 'Ionicons' },
+];
+
+// ─── User Row (memoised) ──────────────────────────────────────
+const UserRow = React.memo(({ item, onAction, loadingId, type = 'search' }) => {
+  const isLoading = loadingId === item.id;
+
+  const ActionBtn = useCallback(() => {
+    if (isLoading) {
+      return (
+        <View style={styles.actionButton}>
+          <ActivityIndicator size="small" color="#fff" />
+        </View>
+      );
+    }
+    switch (item.status) {
+      case 'friends':
+        return (
+          <View style={styles.friendsBadge}>
+            <Ionicons name="checkmark-circle" size={16} color="#10b981" />
+            <Text style={styles.friendsBadgeText}>Friends</Text>
+          </View>
+        );
+      case 'pending_sent':
+        return (
+          <TouchableOpacity
+            style={styles.pendingButton}
+            onPress={() => onAction('cancel', item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="time-outline" size={14} color="#f59e0b" />
+            <Text style={styles.pendingButtonText}>Pending</Text>
+          </TouchableOpacity>
+        );
+      case 'pending_received':
+        return (
+          <TouchableOpacity
+            style={styles.acceptButton}
+            onPress={() => onAction('accept', item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="checkmark" size={14} color="#fff" />
+            <Text style={styles.acceptButtonText}>Accept</Text>
+          </TouchableOpacity>
+        );
+      default:
+        return (
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => onAction('add', item)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-add-outline" size={14} color="#fff" />
+            <Text style={styles.addButtonText}>Add</Text>
+          </TouchableOpacity>
+        );
+    }
+  }, [item.status, isLoading]);
+
+  return (
+    <View style={styles.userRow}>
+      <View style={styles.avatarWrapper}>
+        <CachedImage
+          source={item.avatar ? { uri: item.avatar } : require('./assets/profile.png')}
+          style={styles.avatar}
+          contentFit="cover"
+        />
+      </View>
+      <View style={styles.userInfo}>
+        <Text style={styles.userName} numberOfLines={1}>{item.name}</Text>
+        {item.email ? (
+          <Text style={styles.userEmail} numberOfLines={1}>{item.email}</Text>
+        ) : null}
+        {type === 'suggestions' && (
+          <View style={styles.tagRow}>
+            {item.isFollower && <View style={styles.tag}><Text style={styles.tagText}>Follows You</Text></View>}
+            {item.isFollowing && <View style={[styles.tag, styles.tagBlue]}><Text style={styles.tagText}>Following</Text></View>}
+          </View>
+        )}
+      </View>
+      <ActionBtn />
+    </View>
+  );
+});
+
+// ─── Request Row (memoised) ───────────────────────────────────
+const RequestRow = React.memo(({ item, direction, onAccept, onReject, onCancel, loadingId }) => {
+  const isLoading = loadingId === item.id;
+  const user = item.userData || {};
+
+  return (
+    <View style={styles.requestRow}>
+      <View style={styles.avatarWrapper}>
+        <CachedImage
+          source={user.avatar ? { uri: user.avatar } : require('./assets/profile.png')}
+          style={styles.avatar}
+          contentFit="cover"
+        />
+      </View>
+      <View style={styles.userInfo}>
+        <Text style={styles.userName} numberOfLines={1}>{user.name || 'User'}</Text>
+        {user.email ? <Text style={styles.userEmail} numberOfLines={1}>{user.email}</Text> : null}
+        {direction === 'received' && (
+          <Text style={styles.requestMeta}>Wants to be your friend</Text>
+        )}
+        {direction === 'sent' && (
+          <Text style={styles.requestMeta}>Request pending…</Text>
+        )}
+      </View>
+      {isLoading ? (
+        <View style={styles.requestLoadingContainer}>
+          <ActivityIndicator size="small" color="#7C3AED" />
+        </View>
+      ) : direction === 'received' ? (
+        <View style={styles.requestBtns}>
+          <TouchableOpacity style={styles.reqAcceptBtn} onPress={() => onAccept(item)} activeOpacity={0.7}>
+            <Ionicons name="checkmark" size={16} color="#fff" />
+            <Text style={styles.reqBtnText}>Accept</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.reqDeclineBtn} onPress={() => onReject(item)} activeOpacity={0.7}>
+            <Ionicons name="close" size={16} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity style={styles.cancelBtn} onPress={() => onCancel(item)} activeOpacity={0.7}>
+          <Text style={styles.cancelBtnText}>Cancel</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+});
+
 export default function AddFriendsScreen({ navigation }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -32,8 +172,10 @@ export default function AddFriendsScreen({ navigation }) {
   const [sentRequests, setSentRequests] = useState([]);
   const [suggestions, setSuggestions] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('search'); // 'search', 'received', 'sent', 'suggestions'
-  const [friendStatuses, setFriendStatuses] = useState({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('search');
+  const [loadingId, setLoadingId] = useState(null); // per-item action loading
+  const debounceTimer = useRef(null);
   const currentUser = auth.currentUser;
 
   // Load friend requests, suggestions and all users on mount
@@ -229,10 +371,11 @@ export default function AddFriendsScreen({ navigation }) {
     }
   };
 
-  const searchUsers = async () => {
-    if (!searchQuery.trim()) {
+  const searchUsers = async (queryParam) => {
+    const activeQuery = queryParam !== undefined ? queryParam : searchQuery;
+    if (!activeQuery.trim()) {
       // If search is empty, reload all users
-      setSearchResults([]); // Clear results first
+      setSearchResults([]);
       loadAllUsers();
       return;
     }
@@ -242,11 +385,11 @@ export default function AddFriendsScreen({ navigation }) {
       const usersRef = collection(db, 'users');
       
       // OPTIMIZATION: Search by username or email with limit
-      const searchLower = searchQuery.toLowerCase();
+      const searchLower = activeQuery.toLowerCase();
       
       // Use indexed queries when possible for better performance
       let snapshot;
-      if (searchQuery.includes('@')) {
+      if (activeQuery.includes('@')) {
         // Email search - use where clause for better performance
         const q = query(usersRef, where('email', '>=', searchLower), where('email', '<=', searchLower + '\uf8ff'), limit(50));
         snapshot = await getDocs(q);
@@ -325,306 +468,262 @@ export default function AddFriendsScreen({ navigation }) {
   };
 
   const handleSendRequest = async (userId) => {
+    setLoadingId(userId);
     const result = await sendFriendRequest(userId);
+    setLoadingId(null);
     if (result.success) {
-      Alert.alert('Success', result.message);
-      searchUsers(); // Refresh to update status
+      // Optimistically update UI
+      setSearchResults(prev => prev.map(u => u.id === userId ? { ...u, status: 'pending_sent' } : u));
+      setSuggestions(prev => prev.map(u => u.id === userId ? { ...u, status: 'pending_sent' } : u));
       loadFriendRequests();
-      loadSuggestions(); // Refresh suggestions
     } else {
       Alert.alert('Error', result.message);
     }
   };
 
-  const handleAcceptRequest = async (requestId, fromUserId) => {
-    const result = await acceptFriendRequest(requestId, fromUserId);
+  const handleAcceptRequest = async (item) => {
+    setLoadingId(item.id);
+    const result = await acceptFriendRequest(item.id, item.fromUserId);
+    setLoadingId(null);
     if (result.success) {
-      Alert.alert('Success', result.message);
-      loadFriendRequests();
-      loadSuggestions(); // Refresh suggestions
+      setFriendRequests(prev => prev.filter(r => r.id !== item.id));
       if (activeTab === 'search') searchUsers();
+      loadSuggestions();
     } else {
       Alert.alert('Error', result.message);
     }
   };
 
-  const handleRejectRequest = async (requestId) => {
-    const result = await rejectFriendRequest(requestId);
+  const handleRejectRequest = async (item) => {
+    setLoadingId(item.id);
+    const result = await rejectFriendRequest(item.id);
+    setLoadingId(null);
     if (result.success) {
-      loadFriendRequests();
+      setFriendRequests(prev => prev.filter(r => r.id !== item.id));
     } else {
       Alert.alert('Error', result.message);
     }
   };
 
-  const handleCancelRequest = async (requestId) => {
+  const handleCancelRequest = async (item) => {
+    setLoadingId(item.id);
+    // item.requestId  — set for search/suggestion rows via getFriendshipStatus
+    // sentRequests lookup — fallback if requestId wasn't cached yet
+    // item.fromUserId check — only treat item.id as a request doc ID when the
+    //   item IS a friend_request document (has fromUserId), NOT a user doc (item.id = userId)
+    const requestId =
+      item.requestId ||
+      sentRequests.find(r => r.toUserId === item.id)?.id ||
+      (item.fromUserId ? item.id : null);
+
+    if (!requestId) {
+      setLoadingId(null);
+      Alert.alert('Error', 'Friend request not found. Please refresh and try again.');
+      return;
+    }
+
     const result = await cancelFriendRequest(requestId);
+    setLoadingId(null);
     if (result.success) {
-      loadFriendRequests();
-      if (activeTab === 'search') searchUsers();
+      setSentRequests(prev => prev.filter(r => r.id !== requestId));
+      setSearchResults(prev => prev.map(u => u.id === item.id ? { ...u, status: 'none', requestId: null } : u));
+      setSuggestions(prev => prev.map(u => u.id === item.id ? { ...u, status: 'none', requestId: null } : u));
     } else {
       Alert.alert('Error', result.message);
     }
   };
 
-  const renderActionButton = (user) => {
-    switch (user.status) {
-      case 'friends':
-        return (
-          <View style={styles.statusBadge}>
-            <Ionicons name="checkmark-circle" size={20} color="#10b981" />
-            <Text style={styles.statusText}>Friends</Text>
-          </View>
-        );
-      case 'pending_sent':
-        return (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.pendingButton]}
-            onPress={() => {
-              // Find the request ID
-              const request = sentRequests.find(r => r.toUserId === user.id);
-              if (request) handleCancelRequest(request.id);
-            }}
-          >
-            <Text style={styles.actionButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        );
-      case 'pending_received':
-        return (
-          <TouchableOpacity
-            style={[styles.actionButton, styles.acceptButton]}
-            onPress={() => handleAcceptRequest(user.requestId, user.id)}
-          >
-            <Text style={styles.actionButtonText}>Accept</Text>
-          </TouchableOpacity>
-        );
-      default:
-        return (
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => handleSendRequest(user.id)}
-          >
-            <Ionicons name="person-add" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Add</Text>
-          </TouchableOpacity>
-        );
-    }
-  };
+  // Unified action handler for UserRow items
+  const handleUserAction = useCallback((action, item) => {
+    if (action === 'add') handleSendRequest(item.id);
+    else if (action === 'accept') handleAcceptRequest({ id: item.requestId, fromUserId: item.id });
+    else if (action === 'cancel') handleCancelRequest(item);
+  }, [sentRequests]);
 
-  const renderSearchItem = ({ item }) => (
-    <View style={styles.userItem}>
-      <Image
-        source={item.avatar ? { uri: item.avatar } : require('./assets/profile.png')}
-        style={styles.avatar}
-      />
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <Text style={styles.userEmail}>{item.email}</Text>
-      </View>
-      {renderActionButton(item)}
-    </View>
-  );
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([loadFriendRequests(), loadSuggestions(), loadAllUsers()]);
+    setRefreshing(false);
+  }, []);
 
-  const renderSuggestionItem = ({ item }) => (
-    <View style={styles.userItem}>
-      <Image
-        source={item.avatar ? { uri: item.avatar } : require('./assets/profile.png')}
-        style={styles.avatar}
-      />
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.name}</Text>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-          <Text style={styles.userEmail}>{item.email}</Text>
-          {item.isFollower && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Follower</Text>
-            </View>
-          )}
-          {item.isFollowing && (
-            <View style={[styles.badge, { backgroundColor: '#3b82f6' }]}>
-              <Text style={styles.badgeText}>Following</Text>
-            </View>
-          )}
+  const renderSearchItem = useCallback(({ item }) => (
+    <UserRow item={item} onAction={handleUserAction} loadingId={loadingId} type="search" />
+  ), [handleUserAction, loadingId]);
+
+  const renderSuggestionItem = useCallback(({ item }) => (
+    <UserRow item={item} onAction={handleUserAction} loadingId={loadingId} type="suggestions" />
+  ), [handleUserAction, loadingId]);
+
+  const renderRequestItem = useCallback(({ item }) => (
+    <RequestRow
+      item={item}
+      direction={activeTab}
+      onAccept={handleAcceptRequest}
+      onReject={handleRejectRequest}
+      onCancel={handleCancelRequest}
+      loadingId={loadingId}
+    />
+  ), [activeTab, loadingId]);
+
+  const listData = useMemo(() => {
+    if (activeTab === 'search') return searchResults;
+    if (activeTab === 'suggestions') return suggestions;
+    if (activeTab === 'received') return friendRequests;
+    return sentRequests;
+  }, [activeTab, searchResults, suggestions, friendRequests, sentRequests]);
+
+  const renderItem = useMemo(() => {
+    if (activeTab === 'search') return renderSearchItem;
+    if (activeTab === 'suggestions') return renderSuggestionItem;
+    return renderRequestItem;
+  }, [activeTab, renderSearchItem, renderSuggestionItem, renderRequestItem]);
+
+  const EmptyState = useCallback(() => {
+    const configs = {
+      search:      { icon: 'account-search-outline', lib: 'MCI', title: 'Find friends',        sub: 'Search by username or email to connect with people.' },
+      suggestions: { icon: 'account-multiple-plus-outline', lib: 'MCI', title: 'No suggestions yet', sub: 'Follow people to get friend suggestions here.' },
+      received:    { icon: 'account-arrow-left-outline',    lib: 'MCI', title: 'No requests',   sub: "You don't have any pending friend requests." },
+      sent:        { icon: 'account-arrow-right-outline',   lib: 'MCI', title: 'No sent requests', sub: 'Friend requests you send will appear here.' },
+    };
+    const cfg = configs[activeTab] || configs.search;
+    return (
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconCircle}>
+          <MaterialCommunityIcons name={cfg.icon} size={36} color="#7C3AED" />
         </View>
+        <Text style={styles.emptyTitle}>{cfg.title}</Text>
+        <Text style={styles.emptySubtitle}>{cfg.sub}</Text>
       </View>
-      {renderActionButton(item)}
-    </View>
-  );
+    );
+  }, [activeTab]);
 
-  const renderRequestItem = ({ item }) => (
-    <View style={styles.userItem}>
-      <Image
-        source={item.userData.avatar ? { uri: item.userData.avatar } : require('./assets/profile.png')}
-        style={styles.avatar}
-      />
-      <View style={styles.userInfo}>
-        <Text style={styles.userName}>{item.userData.name}</Text>
-        <Text style={styles.userEmail}>{item.userData.email}</Text>
-      </View>
-      <View style={styles.requestActions}>
-        {activeTab === 'received' ? (
-          <>
-            <TouchableOpacity
-              style={[styles.requestButton, styles.acceptButton]}
-              onPress={() => handleAcceptRequest(item.id, item.fromUserId)}
-            >
-              <Ionicons name="checkmark" size={20} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.requestButton, styles.rejectButton]}
-              onPress={() => handleRejectRequest(item.id)}
-            >
-              <Ionicons name="close" size={20} color="#fff" />
-            </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity
-            style={[styles.requestButton, styles.cancelButton]}
-            onPress={() => handleCancelRequest(item.id)}
-          >
-            <Text style={styles.requestButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+  // ── Search input change with debounce (passes text directly to avoid stale closure) ──
+  const onSearchChange = (text) => {
+    setSearchQuery(text);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => {
+      if (!text.trim()) {
+        loadAllUsers();
+      } else {
+        searchUsers(text);
+      }
+    }, 350);
+  };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      
+      <StatusBar barStyle="light-content" backgroundColor="#0d0d0d" />
+
       {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+      <LinearGradient colors={['#1a1a2e', '#12122a']} style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={styles.backButton} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Friends</Text>
+        <View style={styles.headerCenter}>
+          <Text style={styles.headerTitle}>Add Friends</Text>
+          {friendRequests.length > 0 && (
+            <View style={styles.headerBadge}>
+              <Text style={styles.headerBadgeText}>{friendRequests.length}</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.placeholder} />
+      </LinearGradient>
+
+      {/* Tab Bar */}
+      <View style={styles.tabBar}>
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.key;
+          const badgeCount =
+            tab.key === 'received' ? friendRequests.length :
+            tab.key === 'sent'     ? sentRequests.length   :
+            tab.key === 'suggestions' ? suggestions.length : 0;
+
+          return (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, isActive && styles.activeTab]}
+              onPress={() => setActiveTab(tab.key)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.tabIconWrap}>
+                {tab.iconLib === 'MaterialCommunityIcons'
+                  ? <MaterialCommunityIcons name={tab.icon} size={18} color={isActive ? '#7C3AED' : '#555'} />
+                  : <Ionicons name={tab.icon} size={18} color={isActive ? '#7C3AED' : '#555'} />
+                }
+                {badgeCount > 0 && (
+                  <View style={styles.tabBadge}>
+                    <Text style={styles.tabBadgeText}>{badgeCount > 9 ? '9+' : badgeCount}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.tabLabel, isActive && styles.activeTabLabel]} numberOfLines={1}>
+                {tab.label}
+              </Text>
+              {isActive && <View style={styles.tabIndicator} />}
+            </TouchableOpacity>
+          );
+        })}
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabs}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'search' && styles.activeTab]}
-          onPress={() => setActiveTab('search')}
-        >
-          <Ionicons name="search" size={18} color={activeTab === 'search' ? '#7C3AED' : '#666'} />
-          <Text style={[styles.tabText, activeTab === 'search' && styles.activeTabText]}>
-            Search
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'suggestions' && styles.activeTab]}
-          onPress={() => setActiveTab('suggestions')}
-        >
-          <Ionicons name="people" size={18} color={activeTab === 'suggestions' ? '#7C3AED' : '#666'} />
-          <Text style={[styles.tabText, activeTab === 'suggestions' && styles.activeTabText]}>
-            Suggestions {suggestions.length > 0 && `(${suggestions.length})`}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'received' && styles.activeTab]}
-          onPress={() => setActiveTab('received')}
-        >
-          <Ionicons name="person-add" size={18} color={activeTab === 'received' ? '#7C3AED' : '#666'} />
-          <Text style={[styles.tabText, activeTab === 'received' && styles.activeTabText]}>
-            Requests {friendRequests.length > 0 && `(${friendRequests.length})`}
-          </Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'sent' && styles.activeTab]}
-          onPress={() => setActiveTab('sent')}
-        >
-          <Ionicons name="paper-plane" size={18} color={activeTab === 'sent' ? '#7C3AED' : '#666'} />
-          <Text style={[styles.tabText, activeTab === 'sent' && styles.activeTabText]}>
-            Sent {sentRequests.length > 0 && `(${sentRequests.length})`}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Search Bar (only show in search tab) */}
+      {/* Search Bar (search tab only) */}
       {activeTab === 'search' && (
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
-            <Ionicons name="search" size={20} color="#666" />
+            <Ionicons name="search-outline" size={18} color="#555" style={{ marginLeft: 4 }} />
             <TextInput
               style={styles.searchInput}
-              placeholder="Search by username or email..."
-              placeholderTextColor="#666"
+              placeholder="Search username, name or email…"
+              placeholderTextColor="#555"
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={onSearchChange}
               onSubmitEditing={searchUsers}
               returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => {
-                setSearchQuery('');
-                loadAllUsers(); // Reload all users when clearing search
-              }}>
-                <Ionicons name="close-circle" size={20} color="#666" />
+              <TouchableOpacity
+                onPress={() => { setSearchQuery(''); loadAllUsers(); }}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Ionicons name="close-circle" size={18} color="#555" style={{ marginRight: 4 }} />
               </TouchableOpacity>
             )}
           </View>
-          <TouchableOpacity style={styles.searchButton} onPress={searchUsers}>
-            <Text style={styles.searchButtonText}>Search</Text>
-          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Section count label */}
+      {!loading && listData.length > 0 && (
+        <View style={styles.countRow}>
+          <Text style={styles.countText}>{listData.length} {listData.length === 1 ? 'person' : 'people'}</Text>
         </View>
       )}
 
       {/* Content */}
       {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#7C3AED" />
-        </View>
+        <ConversationSkeleton count={7} />
       ) : (
         <FlatList
-          data={
-            activeTab === 'search'
-              ? searchResults
-              : activeTab === 'suggestions'
-              ? suggestions
-              : activeTab === 'received'
-              ? friendRequests
-              : sentRequests
-          }
-          renderItem={
-            activeTab === 'search' 
-              ? renderSearchItem 
-              : activeTab === 'suggestions'
-              ? renderSuggestionItem
-              : renderRequestItem
-          }
+          data={listData}
+          renderItem={renderItem}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Ionicons
-                name={
-                  activeTab === 'search'
-                    ? 'search'
-                    : activeTab === 'suggestions'
-                    ? 'people'
-                    : activeTab === 'received'
-                    ? 'person-add'
-                    : 'paper-plane'
-                }
-                size={64}
-                color="#333"
-              />
-              <Text style={styles.emptyText}>
-                {activeTab === 'search'
-                  ? 'Search for users to add as friends'
-                  : activeTab === 'suggestions'
-                  ? 'No suggestions - follow people to see them here!'
-                  : activeTab === 'received'
-                  ? 'No friend requests'
-                  : 'No pending requests'}
-              </Text>
-            </View>
+          contentContainerStyle={[styles.listContainer, listData.length === 0 && { flex: 1 }]}
+          ListEmptyComponent={<EmptyState />}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#7C3AED"
+              colors={['#7C3AED']}
+            />
           }
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={12}
+          maxToRenderPerBatch={12}
+          windowSize={5}
+          removeClippedSubviews
         />
       )}
     </View>
@@ -632,199 +731,377 @@ export default function AddFriendsScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
+  // ── Layout ──────────────────────────────────────────────────
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0d0d0d',
   },
+
+  // ── Header ──────────────────────────────────────────────────
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 50,
-    paddingBottom: 16,
-    backgroundColor: '#1a1a1a',
+    paddingTop: 52,
+    paddingBottom: 14,
   },
   backButton: {
-    padding: 8,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerCenter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: 19,
     fontWeight: '700',
     color: '#fff',
+    letterSpacing: 0.3,
+  },
+  headerBadge: {
+    backgroundColor: '#ef4444',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 5,
+  },
+  headerBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   placeholder: {
-    width: 40,
+    width: 38,
   },
-  tabs: {
+
+  // ── Tab Bar ──────────────────────────────────────────────────
+  tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#1a1a1a',
-    paddingHorizontal: 16,
+    backgroundColor: '#111',
     borderBottomWidth: 1,
-    borderBottomColor: '#333',
+    borderBottomColor: '#222',
   },
   tab: {
     flex: 1,
-    flexDirection: 'row',
     alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 8,
+    position: 'relative',
+  },
+  activeTab: {},
+  tabIconWrap: {
+    position: 'relative',
+    marginBottom: 3,
+  },
+  tabBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -8,
+    backgroundColor: '#7C3AED',
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
     justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 6,
+    alignItems: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: '#111',
   },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#7C3AED',
+  tabBadgeText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
   },
-  tabText: {
-    fontSize: 14,
-    color: '#666',
+  tabLabel: {
+    fontSize: 10,
+    color: '#555',
+    fontWeight: '500',
   },
-  activeTabText: {
+  activeTabLabel: {
     color: '#7C3AED',
-    fontWeight: '600',
+    fontWeight: '700',
   },
+  tabIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 6,
+    right: 6,
+    height: 2.5,
+    backgroundColor: '#7C3AED',
+    borderRadius: 2,
+  },
+
+  // ── Search ───────────────────────────────────────────────────
   searchContainer: {
-    flexDirection: 'row',
-    padding: 16,
-    gap: 12,
-    backgroundColor: '#1a1a1a',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    backgroundColor: '#111',
   },
   searchBar: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#1e1e1e',
     borderRadius: 12,
-    paddingHorizontal: 12,
-    gap: 8,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: '#2a2a2a',
+    height: 44,
+    gap: 6,
   },
   searchInput: {
     flex: 1,
-    paddingVertical: 12,
     color: '#fff',
-    fontSize: 16,
+    fontSize: 15,
+    paddingVertical: 0,
   },
-  searchButton: {
-    backgroundColor: '#7C3AED',
-    borderRadius: 12,
-    paddingHorizontal: 20,
-    justifyContent: 'center',
+
+  // ── Count Row ─────────────────────────────────────────────────
+  countRow: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  searchButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 16,
+  countText: {
+    fontSize: 12,
+    color: '#444',
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+
+  // ── List ─────────────────────────────────────────────────────
   listContainer: {
-    padding: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 24,
+    paddingTop: 4,
   },
-  userItem: {
+
+  // ── User Row ─────────────────────────────────────────────────
+  userRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: '#161616',
+    borderRadius: 14,
     padding: 12,
-    borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#242424',
+  },
+  avatarWrapper: {
+    marginRight: 12,
   },
   avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    marginRight: 12,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#2a2a2a',
   },
   userInfo: {
     flex: 1,
+    minWidth: 0,
   },
   userName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
-    color: '#fff',
+    color: '#f0f0f0',
     marginBottom: 2,
   },
   userEmail: {
-    fontSize: 14,
-    color: '#666',
+    fontSize: 12,
+    color: '#555',
   },
-  actionButton: {
+  tagRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#7C3AED',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
+    flexWrap: 'wrap',
+    gap: 5,
+    marginTop: 4,
   },
-  acceptButton: {
-    backgroundColor: '#10b981',
-  },
-  pendingButton: {
-    backgroundColor: '#f59e0b',
-  },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  statusText: {
-    color: '#10b981',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  badge: {
-    backgroundColor: '#10b981',
-    paddingHorizontal: 8,
+  tag: {
+    backgroundColor: 'rgba(16,185,129,0.15)',
+    paddingHorizontal: 7,
     paddingVertical: 2,
-    borderRadius: 10,
+    borderRadius: 6,
   },
-  badgeText: {
-    color: '#fff',
+  tagBlue: {
+    backgroundColor: 'rgba(59,130,246,0.15)',
+  },
+  tagText: {
+    color: '#10b981',
     fontSize: 10,
     fontWeight: '600',
   },
-  requestActions: {
+
+  // ── Action Buttons ───────────────────────────────────────────
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#7C3AED',
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 5,
+    minWidth: 72,
+    justifyContent: 'center',
+  },
+  addButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  acceptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 5,
+    minWidth: 72,
+    justifyContent: 'center',
+  },
+  acceptButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  pendingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(245,158,11,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245,158,11,0.35)',
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    borderRadius: 10,
+    gap: 5,
+    minWidth: 80,
+    justifyContent: 'center',
+  },
+  pendingButtonText: {
+    color: '#f59e0b',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  friendsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(16,185,129,0.2)',
+  },
+  friendsBadgeText: {
+    color: '#10b981',
+    fontWeight: '600',
+    fontSize: 12,
+  },
+
+  // ── Request Row ──────────────────────────────────────────────
+  requestRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161616',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#242424',
+  },
+  requestMeta: {
+    fontSize: 11,
+    color: '#7C3AED',
+    marginTop: 3,
+    fontWeight: '500',
+  },
+  requestBtns: {
     flexDirection: 'row',
     gap: 8,
+    alignItems: 'center',
   },
-  requestButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  reqAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#059669',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 4,
+  },
+  reqDeclineBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: 'rgba(239,68,68,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239,68,68,0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  rejectButton: {
-    backgroundColor: '#ef4444',
-  },
-  cancelButton: {
-    backgroundColor: '#6b7280',
-    paddingHorizontal: 16,
-    width: 'auto',
-  },
-  requestButtonText: {
+  reqBtnText: {
     color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
+    fontWeight: '700',
+    fontSize: 13,
   },
+  cancelBtn: {
+    paddingHorizontal: 13,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(107,114,128,0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(107,114,128,0.25)',
+  },
+  cancelBtnText: {
+    color: '#6b7280',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  requestLoadingContainer: {
+    width: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // ── Empty State ───────────────────────────────────────────────
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 100,
+    paddingTop: 60,
+    paddingHorizontal: 40,
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#666',
-    marginTop: 16,
+  emptyIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(124,58,237,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#d1d1d1',
+    marginBottom: 8,
+  },
+  emptySubtitle: {
+    fontSize: 14,
+    color: '#555',
     textAlign: 'center',
+    lineHeight: 20,
   },
 });
+

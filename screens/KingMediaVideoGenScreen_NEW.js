@@ -29,12 +29,12 @@ const VideoGenerationScreen = ({ navigation }) => {
                 'Login Required',
                 'Please login to use AI Video Generator',
                 [
-                    { text: 'Cancel', onPress: () => navigation.goBack() },
+                    { text: 'Cancel', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') },
                     {
                         text: 'Login', onPress: () => {
                             // Navigate to login screen if you have one
                             Alert.alert('Info', 'Please login first at the marketplace');
-                            navigation.goBack();
+                            navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
                         }
                     }
                 ]

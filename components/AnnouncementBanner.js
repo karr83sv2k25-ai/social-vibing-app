@@ -12,6 +12,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const ACCENT = '#8B2EF0';
+const TICKER_INTERVAL = 4000;
 
 /**
  * AnnouncementBanner — displays pinned community announcements.
@@ -35,10 +36,11 @@ const AnnouncementBanner = React.memo(({
   const [collapsed, setCollapsed] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const heightAnim = useRef(new Animated.Value(1)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
   const scrollRef = useRef(null);
   const autoScrollTimer = useRef(null);
 
-  // Auto-rotate announcements every 5 seconds when there are multiple
+  // Auto-rotate announcements
   useEffect(() => {
     if (announcements.length <= 1 || collapsed) {
       if (autoScrollTimer.current) clearInterval(autoScrollTimer.current);
@@ -46,17 +48,21 @@ const AnnouncementBanner = React.memo(({
     }
 
     autoScrollTimer.current = setInterval(() => {
-      setActiveIndex((prev) => {
-        const next = (prev + 1) % announcements.length;
-        scrollRef.current?.scrollTo({ x: next * (SCREEN_WIDTH - 32), animated: true });
-        return next;
+      // Fade out → advance index → fade in
+      Animated.timing(fadeAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+        setActiveIndex((prev) => {
+          const next = (prev + 1) % announcements.length;
+          scrollRef.current?.scrollTo({ x: next * (SCREEN_WIDTH - 32), animated: true });
+          return next;
+        });
+        Animated.timing(fadeAnim, { toValue: 1, duration: 280, useNativeDriver: true }).start();
       });
-    }, 5000);
+    }, TICKER_INTERVAL);
 
     return () => {
       if (autoScrollTimer.current) clearInterval(autoScrollTimer.current);
     };
-  }, [announcements.length, collapsed]);
+  }, [announcements.length, collapsed, fadeAnim]);
 
   const toggleCollapse = useCallback(() => {
     const toValue = collapsed ? 1 : 0;
@@ -76,7 +82,7 @@ const AnnouncementBanner = React.memo(({
   if (!announcements || announcements.length === 0) return null;
 
   const getAnnouncementText = (a) =>
-    a.title || a.caption || a.text || 'Announcement';
+    a.text || a.caption || a.title || 'Announcement';
 
   const formatDate = (ts) => {
     if (!ts) return '';
@@ -89,21 +95,39 @@ const AnnouncementBanner = React.memo(({
     return date.toLocaleDateString();
   };
 
-  // ─── Compact variant (single-line bar) ───
+  // ─── Compact ticker variant (full-width strip, cross-fade rotation) ───
   if (variant === 'compact') {
+    const current = announcements[activeIndex];
     return (
       <TouchableOpacity
-        style={[styles.compactContainer, style]}
-        onPress={() => onPress?.(announcements[activeIndex])}
-        activeOpacity={0.8}
+        style={[styles.tickerBar, style]}
+        onPress={() => onPress?.(current)}
+        activeOpacity={0.85}
       >
-        <MaterialCommunityIcons name="bullhorn" size={14} color="#fff" />
-        <Text style={styles.compactText} numberOfLines={1}>
-          {getAnnouncementText(announcements[activeIndex])}
-        </Text>
-        {announcements.length > 1 && (
-          <Text style={styles.compactCount}>{activeIndex + 1}/{announcements.length}</Text>
-        )}
+        {/* Left: label pill */}
+        <View style={styles.tickerLabel}>
+          <MaterialCommunityIcons name="bullhorn" size={11} color="#fff" />
+          <Text style={styles.tickerLabelText}>ANNOUNCEMENT</Text>
+        </View>
+
+        {/* Divider */}
+        <View style={styles.tickerDivider} />
+
+        {/* Middle: fading text */}
+        <Animated.Text
+          style={[styles.tickerText, { opacity: fadeAnim }]}
+          numberOfLines={1}
+        >
+          {getAnnouncementText(current)}
+        </Animated.Text>
+
+        {/* Right: counter + chevron */}
+        <View style={styles.tickerRight}>
+          {announcements.length > 1 && (
+            <Text style={styles.tickerCounter}>{activeIndex + 1}/{announcements.length}</Text>
+          )}
+          <Ionicons name="chevron-forward" size={13} color="rgba(255,255,255,0.5)" />
+        </View>
       </TouchableOpacity>
     );
   }
@@ -298,24 +322,51 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
 
-  // ─── Compact variant ───
-  compactContainer: {
+  // ─── Compact ticker ───
+  tickerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#12071F',
+    borderBottomWidth: 1,
+    borderBottomColor: ACCENT + '55',
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  tickerLabel: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: ACCENT,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 8,
+    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    gap: 4,
   },
-  compactText: {
+  tickerLabelText: {
     color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-    flex: 1,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
   },
-  compactCount: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
+  tickerDivider: {
+    width: 1,
+    height: 14,
+    backgroundColor: '#333',
+  },
+  tickerText: {
+    flex: 1,
+    color: '#e0e0e0',
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  tickerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  tickerCounter: {
+    color: 'rgba(255,255,255,0.45)',
+    fontSize: 10,
     fontWeight: '600',
   },
 });

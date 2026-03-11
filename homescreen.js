@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  Image,
   FlatList,
   TouchableOpacity,
   ScrollView,
@@ -21,11 +20,12 @@ import {
   Pressable,
 } from 'react-native';
 import { Ionicons, Entypo } from '@expo/vector-icons';
+import CachedImage from './components/CachedImage';
 import ReportUserModal from './components/ReportUserModal';
 import PostOptionsModal from './components/PostOptionsModal';
 import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
-import { getAuth } from 'firebase/auth';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore,
   doc,
@@ -304,7 +304,7 @@ const Post = React.memo(({
           activeOpacity={0.7}
         >
           {post.authorImage ? (
-            <Image
+            <CachedImage
               source={{ uri: post.authorImage }}
               style={styles.postProfileImage}
             />
@@ -408,12 +408,12 @@ const Post = React.memo(({
               activeOpacity={0.9}
               onPress={() => onImagePress && onImagePress(post.imageUri, [post.imageUri], 0)}
             >
-              <Image
+              <CachedImage
                 source={{ uri: post.imageUri }}
                 style={styles.postImageFull}
-                resizeMode="cover"
+                contentFit="cover"
                 onError={(error) => {
-                  console.log('Image load error for post:', post.id, error.nativeEvent?.error);
+                  console.log('Image load error for post:', post.id, error?.error);
                   setImageLoadErrors(prev => ({ ...prev, [`${post.id}-main`]: true }));
                 }}
               />
@@ -446,12 +446,12 @@ const Post = React.memo(({
                   <Text style={styles.imageFallbackText}>Image not available</Text>
                 </View>
               ) : (
-                <Image
+                <CachedImage
                   source={{ uri: post.images[0] }}
                   style={styles.postImageFull}
-                  resizeMode="cover"
+                  contentFit="cover"
                   onError={(error) => {
-                    console.log('Image load error:', post.images[0], error.nativeEvent?.error);
+                    console.log('Image load error:', post.images[0], error?.error);
                     setImageLoadErrors(prev => ({ ...prev, [`${post.id}-0`]: true }));
                   }}
                 />
@@ -589,12 +589,12 @@ const Post = React.memo(({
                 <Ionicons name="image-outline" size={40} color="#666" />
               </View>
             ) : (
-              <Image
+              <CachedImage
                 source={{ uri: post.image }}
                 style={styles.questionImage}
-                resizeMode="cover"
+                contentFit="cover"
                 onError={(error) => {
-                  console.log('Question image load error:', post.image, error.nativeEvent?.error);
+                  console.log('Question image load error:', post.image, error?.error);
                   setImageLoadErrors(prev => ({ ...prev, [`${post.id}-question`]: true }));
                 }}
               />
@@ -668,10 +668,10 @@ const Post = React.memo(({
             }}
           >
             {post.communityImage ? (
-              <Image
+              <CachedImage
                 source={{ uri: post.communityImage }}
                 style={styles.communityCardImage}
-                resizeMode="cover"
+                contentFit="cover"
               />
             ) : (
               <View style={[styles.communityCardImage, styles.imageFallback]}>
@@ -923,49 +923,53 @@ const HomeScreen = React.memo(({ navigation }) => {
     fetchTopCommunities();
   }, []);
 
-  // Separate useEffect for joined communities listener - depends on user authentication
+  // Joined communities listener — uses onAuthStateChanged so the snapshot is only
+  // created after Firebase has fully validated the auth token, preventing the
+  // "Missing or insufficient permissions" error on cold start.
   useEffect(() => {
     const auth = getAuth(app);
-    let unsubscribe = null;
+    let snapshotUnsubscribe = null;
 
-    // Only set up listener if user is authenticated
-    if (auth.currentUser) {
-      const userId = auth.currentUser.uid;
+    const authUnsubscribe = onAuthStateChanged(auth, (user) => {
+      // Tear down any existing snapshot when auth state changes
+      if (snapshotUnsubscribe) {
+        snapshotUnsubscribe();
+        snapshotUnsubscribe = null;
+      }
 
-      try {
-        const membershipsQuery = query(
-          collection(db, 'communities_members'),
-          where('user_id', '==', userId)
-        );
+      if (user) {
+        try {
+          const membershipsQuery = query(
+            collection(db, 'communities_members'),
+            where('user_id', '==', user.uid)
+          );
 
-        // Real-time listener for joined communities
-        unsubscribe = onSnapshot(membershipsQuery, (snapshot) => {
-          const joinedIds = snapshot.docs.map(doc => doc.data().community_id).filter(Boolean);
-          setJoinedCommunities(joinedIds);
-          console.log('✅ Updated joined communities:', joinedIds.length);
-        }, (error) => {
-          // Only log error if user is still authenticated
-          if (auth.currentUser) {
-            console.error('Error listening to joined communities:', error);
-          }
+          snapshotUnsubscribe = onSnapshot(membershipsQuery, (snapshot) => {
+            const joinedIds = snapshot.docs.map(doc => doc.data().community_id).filter(Boolean);
+            setJoinedCommunities(joinedIds);
+            console.log('✅ Updated joined communities:', joinedIds.length);
+          }, (error) => {
+            if (auth.currentUser) {
+              console.error('Error listening to joined communities:', error);
+            }
+            setJoinedCommunities([]);
+          });
+        } catch (error) {
+          console.error('Error setting up communities listener:', error);
           setJoinedCommunities([]);
-        });
-      } catch (error) {
-        console.error('Error setting up communities listener:', error);
+        }
+      } else {
         setJoinedCommunities([]);
       }
-    } else {
-      // Clear joined communities when user is not authenticated
-      setJoinedCommunities([]);
-    }
+    });
 
-    // Cleanup listener on unmount or when auth state changes
     return () => {
-      if (unsubscribe && typeof unsubscribe === 'function') {
-        unsubscribe();
+      authUnsubscribe();
+      if (snapshotUnsubscribe) {
+        snapshotUnsubscribe();
       }
     };
-  }, [currentUser]); // Re-run when currentUser changes (login/logout)
+  }, []); // Run once on mount — onAuthStateChanged handles all auth transitions
 
   // Fetch all posts (global + community)
   const fetchAllPosts = useCallback(async (user, isRefreshing = false) => {
@@ -1016,8 +1020,10 @@ const HomeScreen = React.memo(({ navigation }) => {
 
     // Helper function to get author data with caching
     const getAuthorData = async (authorId, existingName, existingImage, existingUsername) => {
-      if (!authorId || (existingName && existingImage)) {
-        return { authorName: existingName || 'User', authorImage: existingImage || null, username: existingUsername || '' };
+      // Normalize any image URL early — this filters out extension-less/broken Hostinger URLs
+      const safeExistingImage = normalizeImageUri(existingImage);
+      if (!authorId || (existingName && safeExistingImage)) {
+        return { authorName: existingName || 'User', authorImage: safeExistingImage || null, username: existingUsername || '' };
       }
 
       if (authorCache[authorId]) {
@@ -1030,9 +1036,10 @@ const HomeScreen = React.memo(({ navigation }) => {
         if (userSnap.exists()) {
           const userData = userSnap.data();
           const fullName = [userData.firstName || userData.user_firstname, userData.lastName || userData.user_lastname].filter(Boolean).join(' ').trim();
+          const rawImage = userData.profileImage || userData.user_picture || userData.avatar || userData.profile_image || userData.photoURL || null;
           const result = {
             authorName: fullName || userData.displayName || userData.name || userData.username || userData.user_name || 'User',
-            authorImage: userData.profileImage || userData.user_picture || userData.avatar || userData.profile_image || userData.photoURL || null,
+            authorImage: normalizeImageUri(rawImage), // filter broken/extension-less URLs
             username: userData.username || userData.user_name || '',
           };
           authorCache[authorId] = result;
@@ -1042,7 +1049,7 @@ const HomeScreen = React.memo(({ navigation }) => {
         console.log('Error fetching author:', error);
       }
 
-      return { authorName: existingName || 'User', authorImage: existingImage || null, username: existingUsername || '' };
+      return { authorName: existingName || 'User', authorImage: safeExistingImage || null, username: existingUsername || '' };
     };
 
     // Initialize snapshots with empty docs array as default
@@ -1051,6 +1058,10 @@ const HomeScreen = React.memo(({ navigation }) => {
     let quizzesSnapshot = { docs: [] };
     let questionsSnapshot = { docs: [] };
     let communitiesSnapshot = { docs: [] };
+    // phase2FetchPromise starts background fetch for questions+communities
+    // initialized to a resolved fallback so the awaits below are safe even if the try block exits early
+    let phase2FetchPromise = Promise.resolve([{ docs: [] }, { docs: [] }]);
+    let phase1Shown = false; // tracks whether we've already set posts visible
     let sortByCreatedAt = (a, b) => {
       const aTime = a.data()?.createdAt?.toDate?.() || new Date(0);
       const bTime = b.data()?.createdAt?.toDate?.() || new Date(0);
@@ -1103,51 +1114,13 @@ const HomeScreen = React.memo(({ navigation }) => {
         ]);
       };
 
-      // Fetch all collections in parallel to avoid sequential timeout stacking
-      console.log('📥 Fetching posts, polls, quizzes, questions, communities in parallel...');
-      [
-        globalPostsSnapshot,
-        pollsSnapshot,
-        quizzesSnapshot,
-        questionsSnapshot,
-        communitiesSnapshot,
-      ] = await Promise.all([
-        fetchWithTimeout(
-          getDocs(query(collection(db, 'posts'), limit(10))),
-          15000,
-          'Posts'
-        ).then(snapshot => {
-          console.log('✅ Posts fetched:', snapshot.docs.length, 'documents');
-          return snapshot;
-        }).catch(err => {
-          console.log('❌ Posts fetch error:', err.message, err.code || '');
-          return { docs: [] };
-        }),
-        fetchWithTimeout(
-          getDocs(query(collection(db, 'polls'), limit(5))),
-          15000,
-          'Polls'
-        ).then(snapshot => {
-          console.log('✅ Polls fetched:', snapshot.docs.length, 'documents');
-          return snapshot;
-        }).catch(err => {
-          console.log('❌ Polls fetch error:', err.message, err.code || '');
-          return { docs: [] };
-        }),
-        fetchWithTimeout(
-          getDocs(query(collection(db, 'quizzes'), limit(5))),
-          15000,
-          'Quizzes'
-        ).then(snapshot => {
-          console.log('✅ Quizzes fetched:', snapshot.docs.length, 'documents');
-          return snapshot;
-        }).catch(err => {
-          console.log('❌ Quizzes fetch error:', err.message, err.code || '');
-          return { docs: [] };
-        }),
+      // Phase 2: Start questions & communities fetch IMMEDIATELY (runs in parallel with phase 1)
+      // These sometimes timeout; starting them first means they're already in-flight while posts load
+      console.log('📥 Phase 2 (background): Questions & communities fetch started...');
+      phase2FetchPromise = Promise.all([
         fetchWithTimeout(
           getDocs(query(collection(db, 'questions'), limit(5))),
-          15000,
+          8000,
           'Questions'
         ).then(snapshot => {
           console.log('✅ Questions fetched:', snapshot.docs.length, 'documents');
@@ -1158,7 +1131,7 @@ const HomeScreen = React.memo(({ navigation }) => {
         }),
         fetchWithTimeout(
           getDocs(query(collection(db, 'communities'), limit(3))),
-          15000,
+          8000,
           'Communities'
         ).then(snapshot => {
           console.log('✅ Communities fetched:', snapshot.docs.length, 'documents');
@@ -1169,12 +1142,53 @@ const HomeScreen = React.memo(({ navigation }) => {
         }),
       ]);
 
-      console.log('✅ All collections fetched', {
+      // Phase 1: Fetch critical content (posts, polls, quizzes) with 8s timeout
+      // This resolves independently - posts will be shown before phase 2 completes
+      console.log('📥 Phase 1: Fetching posts, polls, quizzes...');
+      [
+        globalPostsSnapshot,
+        pollsSnapshot,
+        quizzesSnapshot,
+      ] = await Promise.all([
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'posts'), limit(10))),
+          8000,
+          'Posts'
+        ).then(snapshot => {
+          console.log('✅ Posts fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Posts fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'polls'), limit(5))),
+          8000,
+          'Polls'
+        ).then(snapshot => {
+          console.log('✅ Polls fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Polls fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+        fetchWithTimeout(
+          getDocs(query(collection(db, 'quizzes'), limit(5))),
+          8000,
+          'Quizzes'
+        ).then(snapshot => {
+          console.log('✅ Quizzes fetched:', snapshot.docs.length, 'documents');
+          return snapshot;
+        }).catch(err => {
+          console.log('❌ Quizzes fetch error:', err.message, err.code || '');
+          return { docs: [] };
+        }),
+      ]);
+
+      console.log('✅ Phase 1 complete', {
         posts: globalPostsSnapshot.docs?.length || 0,
         polls: pollsSnapshot.docs?.length || 0,
         quizzes: quizzesSnapshot.docs?.length || 0,
-        questions: questionsSnapshot.docs?.length || 0,
-        communities: communitiesSnapshot.docs?.length || 0
       });
     } catch (fetchError) {
       console.log('❌ Error during data fetching:', fetchError);
@@ -1296,6 +1310,29 @@ const HomeScreen = React.memo(({ navigation }) => {
           attempts: typeof quizData.attempts === 'number' ? quizData.attempts : 0,
         });
       }
+
+      // --- Phase 1 complete: show posts/polls/quizzes immediately so the feed is visible ---
+      combinedPosts.sort((a, b) => {
+        const aTime = a.createdAt?.toDate?.() || a.createdAt || new Date(0);
+        const bTime = b.createdAt?.toDate?.() || b.createdAt || new Date(0);
+        return bTime - aTime;
+      });
+      setAllPosts([...combinedPosts].slice(0, 30));
+      phase1Shown = true;
+      // Dismiss loading/refreshing so the user sees the feed right now
+      if (isRefreshing) {
+        setRefreshing(false);
+      } else {
+        setLoading(false);
+      }
+
+      // Await phase 2 (questions + communities) — already running in parallel, often near-complete
+      console.log('⏳ Awaiting phase 2 results (questions & communities)...');
+      [questionsSnapshot, communitiesSnapshot] = await phase2FetchPromise;
+      console.log('✅ Phase 2 complete', {
+        questions: questionsSnapshot.docs?.length || 0,
+        communities: communitiesSnapshot.docs?.length || 0,
+      });
 
       // Global questions
       const sortedQuestions = [...questionsSnapshot.docs].sort(sortByCreatedAt).slice(0, 5);
@@ -1439,14 +1476,19 @@ const HomeScreen = React.memo(({ navigation }) => {
     } catch (e) {
       console.log('❌ ERROR fetching all posts:', e);
       console.error('Full error details:', e);
-      // Still set empty posts so UI doesn't stay in loading state
-      setAllPosts([]);
+      // Only clear posts if phase 1 hasn't already shown content
+      if (!phase1Shown) {
+        setAllPosts([]);
+      }
     } finally {
       isFetchingPosts.current = false;
-      if (isRefreshing) {
-        setRefreshing(false);
-      } else {
-        setLoading(false);
+      // Only dismiss loading/refreshing here if phase 1 didn't already do it
+      if (!phase1Shown) {
+        if (isRefreshing) {
+          setRefreshing(false);
+        } else {
+          setLoading(false);
+        }
       }
     }
   }, []); // 🛑 REMOVED `currentUser` from dependency array to prevent re-creating the function unnecessarily.
@@ -1491,6 +1533,7 @@ const HomeScreen = React.memo(({ navigation }) => {
           const auth = getAuth(app);
           if (auth.currentUser) {
             const userId = auth.currentUser.uid;
+            let refreshedUser = null; // tracks the user profile available after fetch
 
             // Fetch fresh data from Firestore
             try {
@@ -1512,6 +1555,7 @@ const HomeScreen = React.memo(({ navigation }) => {
                   ...userData
                 };
 
+                refreshedUser = userProfile;
                 setUserName(userName);
                 setProfileImage(img);
                 setCurrentUser(userProfile);
@@ -1529,6 +1573,7 @@ const HomeScreen = React.memo(({ navigation }) => {
                 const userName = fullName || cachedUser.username || cachedUser.user_name || cachedUser.displayName || cachedUser.name || auth.currentUser.displayName || 'User';
                 const img = cachedUser.profileImage || cachedUser.user_picture || cachedUser.profile_image || cachedUser.profile_picture || cachedUser.photoURL || null;
 
+                refreshedUser = cachedUser;
                 setUserName(userName);
                 setProfileImage(img);
                 setCurrentUser(cachedUser);
@@ -1537,9 +1582,9 @@ const HomeScreen = React.memo(({ navigation }) => {
           }
 
           // Always reload posts if they've been fetched before (skip only on initial mount)
-          if (hasFetchedPosts.current && auth.currentUser) {
+          if (hasFetchedPosts.current && auth.currentUser && refreshedUser) {
             console.log('🔄 Reloading posts with real-time data');
-            await fetchAllPosts(userProfile, false); // ✅ PASS `userProfile` directly
+            await fetchAllPosts(refreshedUser, false);
           }
         } catch (err) {
           console.log('⚠️ Data refresh error:', err);
@@ -2328,7 +2373,9 @@ const HomeScreen = React.memo(({ navigation }) => {
       const communityRef = doc(db, 'communities', communityId);
       await updateDoc(communityRef, {
         members: arrayUnion(userId),
-        members_count: increment(1)
+        memberIds: arrayUnion(userId),
+        members_count: increment(1),
+        memberCount: increment(1),
       });
 
       // Update local state
@@ -2393,7 +2440,7 @@ const HomeScreen = React.memo(({ navigation }) => {
             >
 
               {profileImage ? (
-                <Image
+                <CachedImage
                   source={{ uri: profileImage }}
                   style={[styles.profileImage, { borderColor: isConnected ? '#08FFE2' : '#666' }]}
                 />
@@ -2487,7 +2534,7 @@ const HomeScreen = React.memo(({ navigation }) => {
                 disabled={isJoining}
               >
                 <View style={styles.communityCard}>
-                  <Image
+                  <CachedImage
                     source={item.img ? { uri: item.img } : require('./assets/homebackground.jpg')}
                     style={styles.image}
                   />
@@ -2875,7 +2922,7 @@ const HomeScreen = React.memo(({ navigation }) => {
                 ) : (
                   postComments.map((comment) => (
                     <View key={comment.id} style={styles.commentItem}>
-                      <Image
+                      <CachedImage
                         source={
                           comment.userImage
                             ? { uri: comment.userImage }
@@ -2975,10 +3022,10 @@ const HomeScreen = React.memo(({ navigation }) => {
           {/* Main Image */}
           <View style={styles.imageViewerContent}>
             {selectedImage && (
-              <Image
+              <CachedImage
                 source={{ uri: selectedImage }}
                 style={styles.fullScreenImage}
-                resizeMode="contain"
+                contentFit="contain"
               />
             )}
           </View>
@@ -3026,10 +3073,10 @@ const HomeScreen = React.memo(({ navigation }) => {
                     selectedImageIndex === index && styles.thumbnailWrapperActive
                   ]}
                 >
-                  <Image
+                  <CachedImage
                     source={{ uri: img }}
                     style={styles.thumbnailImage}
-                    resizeMode="cover"
+                    contentFit="cover"
                   />
                 </TouchableOpacity>
               ))}

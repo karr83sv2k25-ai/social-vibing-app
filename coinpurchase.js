@@ -93,7 +93,7 @@ export default function CoinPurchaseScreen({navigation}) {
     <SafeAreaView style={styles.container}>
       {/* 🔹 Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={styles.iconBtn} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Top Up Coins</Text>

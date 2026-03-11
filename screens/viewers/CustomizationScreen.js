@@ -44,12 +44,12 @@ export default function CustomizationScreen({route, navigation}) {
         setProduct(productDoc.data());
       } else {
         Alert.alert('Error', 'Customization not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
       }
     } catch (error) {
       console.error('Error loading product:', error);
       Alert.alert('Error', 'Failed to load customization');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } finally {
       setLoading(false);
     }
@@ -90,7 +90,7 @@ export default function CustomizationScreen({route, navigation}) {
           [
             {
               text: 'OK',
-              onPress: () => navigation.goBack(),
+              onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar'),
             },
           ],
         );
@@ -131,7 +131,7 @@ export default function CustomizationScreen({route, navigation}) {
               Alert.alert('Removed', 'Customization removed', [
                 {
                   text: 'OK',
-                  onPress: () => navigation.goBack(),
+                  onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar'),
                 },
               ]);
             } catch (error) {
@@ -162,7 +162,7 @@ export default function CustomizationScreen({route, navigation}) {
         <Text style={styles.errorText}>Customization not available</Text>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
         >
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
@@ -186,7 +186,7 @@ export default function CustomizationScreen({route, navigation}) {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => navigation.goBack()}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
           style={styles.headerButton}
         >
           <Ionicons name="arrow-back" size={24} color={TEXT} />

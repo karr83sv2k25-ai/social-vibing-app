@@ -50,7 +50,7 @@ export default function CreateQuestionScreen({ navigation }) {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       allowsEditing: true,
       quality: 1.0,
       aspect: [4, 3],
@@ -92,7 +92,7 @@ export default function CreateQuestionScreen({ navigation }) {
       await addDoc(collection(db, 'questions'), questionData);
       
       Alert.alert('Success', 'Question posted successfully!');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error posting question:', error);
       Alert.alert('Error', 'Failed to post question. Please try again.');
@@ -105,7 +105,7 @@ export default function CreateQuestionScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Ask Question</Text>

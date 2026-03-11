@@ -81,7 +81,7 @@ export default function CreatePollScreen({ navigation }) {
       await addDoc(collection(db, 'polls'), pollData);
       
       Alert.alert('Success', 'Poll created successfully!');
-      navigation.goBack();
+      navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
     } catch (error) {
       console.error('Error creating poll:', error);
       Alert.alert('Error', 'Failed to create poll. Please try again.');
@@ -94,7 +94,7 @@ export default function CreatePollScreen({ navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Create Poll</Text>

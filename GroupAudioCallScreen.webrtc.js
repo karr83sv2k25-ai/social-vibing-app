@@ -240,7 +240,7 @@ export default function GroupAudioCallScreen() {
           // Room deleted, end call
           setIsCallActive(false);
           Alert.alert('Call Ended', 'The audio call has ended');
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         }
       },
       (error) => {
@@ -248,7 +248,7 @@ export default function GroupAudioCallScreen() {
         Alert.alert(
           'Firebase Permission Error',
           'Please update Firebase Firestore security rules.\n\nCheck FIREBASE_SETUP_REQUIRED.md file in your project.',
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
+          [{ text: 'OK', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
         );
       }
     );
@@ -857,7 +857,7 @@ export default function GroupAudioCallScreen() {
             console.log('Error leaving call:', e);
           }
 
-          navigation.goBack();
+          navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         },
       },
     ]);
@@ -985,7 +985,7 @@ export default function GroupAudioCallScreen() {
         {/* Close Button */}
         <View style={styles.topBar}>
           <TouchableOpacity 
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
             style={styles.closeButton}
           >
             <Ionicons name="close" size={28} color="#fff" />

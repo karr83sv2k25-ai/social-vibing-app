@@ -38,7 +38,7 @@ export default function StarredMessagesScreen({ route, navigation }) {
 
       if (!conversationSnap.exists()) {
         Alert.alert('Error', 'Conversation not found');
-        navigation.goBack();
+        navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
 
@@ -132,7 +132,7 @@ export default function StarredMessagesScreen({ route, navigation }) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+        <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Starred Messages</Text>
