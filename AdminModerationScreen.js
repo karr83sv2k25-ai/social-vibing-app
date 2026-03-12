@@ -858,7 +858,7 @@ export default function AdminModerationScreen({ navigation }) {
               {/* User Info */}
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Account Information</Text>
-                <Text style={styles.infoText}>Email: {selectedUser.email || 'N/A'}</Text>
+                <Text style={styles.infoText}>Username: {selectedUser.username || 'N/A'}</Text>
                 <Text style={styles.infoText}>
                   Joined: {formatDate(selectedUser.createdAt)}
                 </Text>
