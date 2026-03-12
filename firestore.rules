@@ -45,13 +45,15 @@ service cloud.firestore {
         getCommunityDoc(communityId).creatorId == request.auth.uid;
     }
 
-    // Any community staff (owner / leader / curator) — single cached doc read
+    // Any community staff (owner / leader / curator / adminIds member).
+    // Guards against missing array fields — old communities may not have leaders/curators.
     function isCommunityStaff(communityId) {
       let comm = getCommunityDoc(communityId);
       return isSignedIn() && (
         comm.creatorId == request.auth.uid ||
-        comm.leaders.hasAny([request.auth.uid]) ||
-        comm.curators.hasAny([request.auth.uid])
+        ('leaders'  in comm && comm.leaders.hasAny([request.auth.uid]))  ||
+        ('curators' in comm && comm.curators.hasAny([request.auth.uid])) ||
+        ('adminIds' in comm && comm.adminIds.hasAny([request.auth.uid]))
       );
     }
 
@@ -60,7 +62,8 @@ service cloud.firestore {
       let comm = getCommunityDoc(communityId);
       return isAdmin() || (isSignedIn() && (
         comm.creatorId == request.auth.uid ||
-        comm.leaders.hasAny([request.auth.uid])
+        ('leaders' in comm && comm.leaders.hasAny([request.auth.uid])) ||
+        ('adminIds' in comm && comm.adminIds.hasAny([request.auth.uid]))
       ));
     }
 
@@ -643,11 +646,14 @@ service cloud.firestore {
       allow read: if true; // Allow public read for communities
       // Only staff or owner can update main community doc; creation by anyone signed in
       allow create: if isSignedIn();
-      // Owner/admin: full update.
+      // Owner/admin: full update (including ownership transfer fields).
       // Staff (leaders/curators): any field EXCEPT core identity fields (creatorId).
       // Members: join/leave only (members[], memberIds[], memberCount, members_count, updatedAt).
       allow update: if isSignedIn() && (
         isCommunityOwner(communityId) || isAdmin() ||
+        // adminIds members can do full updates (needed for transfer-admin flow)
+        (isCommunityStaff(communityId) &&
+          resource.data.get('adminIds', []).hasAny([request.auth.uid])) ||
         (isCommunityStaff(communityId) &&
           !request.resource.data.diff(resource.data).affectedKeys().hasAny(['creatorId'])) ||
         request.resource.data.diff(resource.data).affectedKeys()
