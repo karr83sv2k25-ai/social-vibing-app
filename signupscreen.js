@@ -392,11 +392,11 @@ export default function WithEmailScreen({ navigation }) {
           createdAt: new Date().toISOString(),
         });
 
-        // Create user document
+        // Create user document — email MUST NOT be stored here (Firestore rules block it).
+        // Email is stored in users/{uid}/private/contact subcollection below.
         const userData = {
           firstName: sanitizedFirstName,
           lastName: sanitizedLastName,
-          email: sanitizedEmail,
           phoneNumber: phoneInput.current?.getCallingCode() + phoneNumber,
           createdAt: new Date().toISOString(),
           // initialize social stats
@@ -428,6 +428,13 @@ export default function WithEmailScreen({ navigation }) {
           reportsReceived: 0,
         };
         transaction.set(userRef, userData);
+
+        // Store email privately — only owner and admins can read this subcollection
+        const privateRef = doc(db, 'users', userId, 'private', 'contact');
+        transaction.set(privateRef, {
+          email: sanitizedEmail,
+          createdAt: new Date().toISOString(),
+        });
 
         userDocCreated = true;
       });

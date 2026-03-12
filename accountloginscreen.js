@@ -110,8 +110,8 @@ export default function LoginScreen({ navigation }) {
           // Generate a unique username for migrated users
           const uniqueUsername = await generateUniqueUsername(user.email, user.uid);
           // Create complete user document with all required fields for old/migrated users
+          // email MUST NOT be stored in the public users doc (Firestore rules block it)
           await setDoc(userRef, {
-            email: user.email,
             displayName: user.displayName || email.split('@')[0],
             firstName: user.displayName?.split(' ')[0] || email.split('@')[0],
             lastName: user.displayName?.split(' ')[1] || '',
@@ -133,6 +133,15 @@ export default function LoginScreen({ navigation }) {
             migratedFromWeb: true,
             migrationDate: new Date().toISOString(),
           });
+          // Store email privately — only owner and admins can read this
+          try {
+            await setDoc(doc(db, 'users', user.uid, 'private', 'contact'), {
+              email: user.email,
+              createdAt: new Date().toISOString(),
+            });
+          } catch (privateErr) {
+            console.warn('⚠️  Could not store private email:', privateErr);
+          }
           // Reserve the username in the usernames collection
           try {
             await setDoc(doc(db, 'usernames', uniqueUsername), {
@@ -196,8 +205,17 @@ export default function LoginScreen({ navigation }) {
           if (userData.displayName === undefined || userData.displayName === null) {
             updates.displayName = user.displayName || email.split('@')[0];
           }
+          // email is in users/{uid}/private/contact — never in the public doc
           if (userData.email === undefined || userData.email === null) {
-            updates.email = user.email;
+            // Migrate email to private subcollection if it somehow ended up here
+            try {
+              await setDoc(doc(db, 'users', user.uid, 'private', 'contact'), {
+                email: user.email,
+                createdAt: new Date().toISOString(),
+              }, { merge: true });
+            } catch (privateErr) {
+              console.warn('⚠️  Could not migrate email to private:', privateErr);
+            }
           }
 
           // Always update last login to track mobile app usage
