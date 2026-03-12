@@ -1105,11 +1105,11 @@ export default function GroupInfoScreen() {
             // Check if current user is admin - ONLY based on adminIds array
             // This allows super admin to fully revoke admin privileges from anyone, including the creator
             const isCurrentAdmin = auth.currentUser && _adminIds.includes(auth.currentUser.uid);
-            const _moderatorIds = Array.isArray(data.moderatorIds)
-              ? data.moderatorIds
-              : Array.isArray(data.moderators)
-                ? data.moderators
-                : [];
+            const _moderatorIds = [
+              ...(Array.isArray(data.moderatorIds) ? data.moderatorIds : Array.isArray(data.moderators) ? data.moderators : []),
+              ...(Array.isArray(data.curators) ? data.curators : []),
+              ...(Array.isArray(data.leaders) ? data.leaders : []),
+            ];
             const isCurrentModerator = auth.currentUser && _moderatorIds.includes(auth.currentUser.uid);
 
             setIsAdmin(Boolean(isCurrentAdmin));
@@ -1183,13 +1183,13 @@ export default function GroupInfoScreen() {
                 : data.uid && typeof data.uid === 'string'
                   ? [data.uid]
                   : [];
-            const moderatorIds = Array.isArray(data.moderatorIds)
-              ? data.moderatorIds
-              : Array.isArray(data.moderators)
-                ? data.moderators
-                : [];
+            const moderatorIds = [
+              ...(Array.isArray(data.moderatorIds) ? data.moderatorIds : Array.isArray(data.moderators) ? data.moderators : []),
+              ...(Array.isArray(data.curators) ? data.curators : []),
+              ...(Array.isArray(data.leaders) ? data.leaders : []),
+            ];
             const safeAdminIds = Array.isArray(adminIds) ? adminIds : [];
-            const safeModeratorIds = Array.isArray(moderatorIds) ? moderatorIds : [];
+            const safeModeratorIds = [...new Set(moderatorIds)];
             setCurrentAdminIds(safeAdminIds);
             setCurrentModeratorIds(safeModeratorIds);
 

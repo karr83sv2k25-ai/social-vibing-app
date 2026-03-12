@@ -473,13 +473,13 @@ service cloud.firestore {
       allow create: if isSignedIn() &&
                       request.resource.data.reporterId == request.auth.uid;
       // Platform admins can update any report.
-      // Community staff (leader/owner) can only update community-scoped reports
+      // Community staff (owner / leader / curator) can update community-scoped reports
       // with the limited fields: status, actionTaken, communityReviewedBy,
       // communityReviewedAt, adminNotes, isResolved, updatedAt.
       allow update: if isAdmin() ||
                     (isSignedIn() &&
                       resource.data.communityId != null &&
-                      isLeaderOrAbove(resource.data.communityId) &&
+                      isCommunityStaff(resource.data.communityId) &&
                       request.resource.data.diff(resource.data).affectedKeys()
                         .hasOnly(['status', 'actionTaken', 'communityReviewedBy',
                                   'communityReviewedAt', 'adminNotes', 'isResolved', 'updatedAt']));
@@ -664,10 +664,10 @@ service cloud.firestore {
         allow update: if hasNoEmailFields() && (
                          (isSignedIn() && resource.data.authorId == request.auth.uid)
                          || isCommunityStaff(communityId) || isAdmin()
-                         // Any signed-in user can toggle likes
+                         // Any signed-in user can toggle likes or increment comment count
                          || (isSignedIn()
                              && request.resource.data.diff(resource.data).affectedKeys()
-                                  .hasOnly(['likes', 'likedBy'])));
+                                  .hasOnly(['likes', 'likedBy', 'comments', 'commentsCount'])));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid
@@ -689,10 +689,10 @@ service cloud.firestore {
         allow update: if hasNoEmailFields() && (
                          (isSignedIn() && resource.data.authorId == request.auth.uid)
                          || isCommunityStaff(communityId) || isAdmin()
-                         // Any signed-in user can toggle likes
+                         // Any signed-in user can toggle likes or increment comment count
                          || (isSignedIn()
                              && request.resource.data.diff(resource.data).affectedKeys()
-                                  .hasOnly(['likes', 'likedBy'])));
+                                  .hasOnly(['likes', 'likedBy', 'comments', 'commentsCount'])));
         allow delete: if isSignedIn() && 
                         (resource.data.authorId == request.auth.uid || 
                          get(/databases/$(database)/documents/communities/$(communityId)).data.uid == request.auth.uid

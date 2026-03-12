@@ -202,10 +202,50 @@ export default function NotificationScreen({ navigation }) {
           return item.message || 'Your account has been suspended';
         case 'unban':
           return item.message || 'Your account restriction has been lifted';
+        case 'curator_promotion':
+          return item.message || `promoted you to Curator in ${item.communityName || 'a community'}`;
+        case 'leader_promotion':
+          return item.message || `promoted you to Leader in ${item.communityName || 'a community'}`;
         default:
           return item.message || item.action || 'interacted with your content';
       }
     };
+
+    if (item.type === 'curator_promotion' || item.type === 'leader_promotion') {
+      const isCurator = item.type === 'curator_promotion';
+      const roleColor = isCurator ? '#08FFE2' : '#FFB800';
+      const roleLabel = isCurator ? 'Curator' : 'Leader';
+      const roleIcon = isCurator ? '🎨' : '🛡️';
+      return (
+        <TouchableOpacity
+          style={[styles.notificationItem, styles.promotionItem]}
+          onPress={() =>
+            item.communityId
+              ? navigation.navigate('CommunityDetail', { communityId: item.communityId })
+              : null
+          }
+          activeOpacity={0.8}
+        >
+          <View style={[styles.promotionIconWrap, { borderColor: roleColor }]}>
+            <Text style={styles.promotionEmoji}>{roleIcon}</Text>
+          </View>
+          <View style={styles.textContainer}>
+            <Text style={styles.notificationText}>
+              <Text style={[styles.userName, { color: roleColor }]}>{roleLabel} Promotion </Text>
+              {getActionText()}
+            </Text>
+            {!!item.communityName && (
+              <Text style={[styles.communityTag, { color: roleColor }]}>
+                {item.communityName}
+              </Text>
+            )}
+          </View>
+          <View style={[styles.promotionBadge, { backgroundColor: roleColor }]}>
+            <Text style={styles.promotionBadgeText}>New</Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
 
     if (item.type === 'follow' || item.type === 'unfollow') {
       return (
@@ -424,6 +464,40 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 12,
     fontWeight: 'bold',
+  },
+  promotionItem: {
+    borderWidth: 1,
+    borderColor: '#242A33',
+    borderRadius: 12,
+    backgroundColor: '#14171C',
+  },
+  promotionIconWrap: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0B0B10',
+  },
+  promotionEmoji: {
+    fontSize: 22,
+  },
+  communityTag: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 3,
+  },
+  promotionBadge: {
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'center',
+  },
+  promotionBadgeText: {
+    color: '#000',
+    fontSize: 11,
+    fontWeight: '700',
   },
   centered: {
     justifyContent: 'center',

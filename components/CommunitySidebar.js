@@ -60,15 +60,7 @@ const SIDEBAR_SECTIONS = [
       { id: 'events', icon: 'calendar-outline', label: 'Events', screen: 'Events', color: '#F59E0B' },
     ],
   },
-  {
-    title: 'Features',
-    items: [
-      { id: 'voice', icon: 'mic', label: 'Voice Rooms', screen: 'VoiceRooms', color: '#10B981', iconPack: 'Ionicons' },
-      { id: 'screening', icon: 'play-circle', label: 'Screening Room', screen: 'Screening', color: '#EF4444' },
-      { id: 'roleplay', icon: 'game-controller', label: 'Roleplay', screen: 'Roleplay', color: '#8B5CF6' },
-      { id: 'ailab', icon: 'flask', label: 'AI Lab', screen: 'AILab', color: '#06B6D4' },
-    ],
-  },
+
   {
     title: 'Settings',
     items: [
@@ -205,7 +197,7 @@ const CommunitySidebar = ({
           navigation.navigate('EditCommunity', { communityId });
           break;
         case 'Moderation':
-          navigation.navigate('ModeratorsManagement', { communityId });
+          navigation.navigate('CommunityModeration', { communityId });
           break;
         case 'Invite':
           // Share needs a small delay after modal closes to work reliably

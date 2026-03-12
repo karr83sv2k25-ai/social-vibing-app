@@ -183,13 +183,27 @@ export default function CommunityModerationScreen({ route, navigation }) {
     if (result.success) setModLogs(result.data);
   };
 
-  const loadCommunityReports = async (statusFilter = 'all') => {
-    const status = statusFilter === 'all' ? null
-      : statusFilter === 'pending' ? REPORT_STATUS.PENDING
-      : REPORT_STATUS.RESOLVED;
-    const result = await getReportsForCommunity(communityId, { status, limitCount: 60 });
+  // Always fetch ALL reports for this community (no status filter in Firestore).
+  // Client-side filtering avoids missing composite indexes and supports
+  // multi-status groups (e.g. pending = pending + under_review).
+  const loadCommunityReports = async () => {
+    const result = await getReportsForCommunity(communityId, { status: null, limitCount: 100 });
     if (result.success) setCommunityReports(result.reports);
   };
+
+  // Derive the visible list from the cached full list + active filter.
+  const PENDING_STATUSES  = new Set([REPORT_STATUS.PENDING, REPORT_STATUS.UNDER_REVIEW]);
+  const RESOLVED_STATUSES = new Set([
+    REPORT_STATUS.RESOLVED,
+    REPORT_STATUS.ACTION_TAKEN,
+    REPORT_STATUS.DISMISSED,
+  ]);
+  const filteredCommunityReports = communityReports.filter(r => {
+    if (reportFilter === 'all')      return true;
+    if (reportFilter === 'pending')  return PENDING_STATUSES.has(r.status);
+    if (reportFilter === 'resolved') return RESOLVED_STATUSES.has(r.status);
+    return true;
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,7 +215,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar');
         return;
       }
-      await Promise.all([loadMembers(), loadPosts(), loadRooms(), loadModLogs(), loadCommunityReports('all')]);
+      await Promise.all([loadMembers(), loadPosts(), loadRooms(), loadModLogs(), loadCommunityReports()]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -479,7 +493,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   const handleReportAction = async (reportId, action) => {
     await doAction(() => takeCommunityStaffAction(reportId, currentUserId, action, ''));
-    loadCommunityReports(reportFilter);
+    loadCommunityReports();
   };
 
   const renderReport = ({ item }) => {
@@ -526,7 +540,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         </View>
 
         {/* Action buttons — only for unresolved reports */}
-        {isPending && can(MOD_ACTIONS.BAN_USER) && (
+        {isPending && can(MOD_ACTIONS.RESOLVE_FLAG) && (
           <View style={[styles.actionGroup, { marginTop: 10, maxWidth: '100%', width: '100%' }]}>
             <TouchableOpacity
               style={[styles.reportActionBtn, { borderColor: C.dim }]}
@@ -567,7 +581,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
     );
   }
 
-  const tabData = [members, posts, rooms, modLogs, communityReports];
+  const tabData = [members, posts, rooms, modLogs, filteredCommunityReports];
   const tabRenderers = [renderMember, renderPost, renderRoom, renderLogEntry, renderReport];
 
   return (
@@ -602,7 +616,6 @@ export default function CommunityModerationScreen({ route, navigation }) {
               key={f}
               onPress={() => {
                 setReportFilter(f);
-                loadCommunityReports(f);
               }}
               style={[
                 styles.durationChip,

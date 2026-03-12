@@ -25,9 +25,9 @@
  *
  * CURATOR PERMISSIONS
  * ───────────────────
- *   disable_post, enable_post, hide_post, unhide_post, feature_post
- *   feature_room, disable_room
- *   get_promoted, accept_promotion, get_demoted
+ *   disable_post, enable_post, hide_post, unhide_post, feature_post, unfeature_post
+ *   feature_room, unfeature_room, disable_room, enable_room
+ *   accept_promotion (get_promoted, get_demoted are passive)
  *
  * STRIKE SYSTEM (= Discord Timeout)
  * ───────────────────────────────────
@@ -182,19 +182,22 @@ const LEADER_PERMISSIONS = new Set([
 ]);
 
 const CURATOR_PERMISSIONS = new Set([
+  // Post moderation
   MOD_ACTIONS.DISABLE_POST,
   MOD_ACTIONS.ENABLE_POST,
   MOD_ACTIONS.HIDE_POST,
   MOD_ACTIONS.UNHIDE_POST,
   MOD_ACTIONS.FEATURE_POST,
+  MOD_ACTIONS.UNFEATURE_POST,
+  // Chat room moderation
   MOD_ACTIONS.FEATURE_ROOM,
+  MOD_ACTIONS.UNFEATURE_ROOM,
   MOD_ACTIONS.DISABLE_ROOM,
-  MOD_ACTIONS.KICK_USER,
-  MOD_ACTIONS.WARN_USER,
-  MOD_ACTIONS.DELETE_MESSAGE,
-  MOD_ACTIONS.MUTE_USER_IN_CHAT,
-  MOD_ACTIONS.UNMUTE_USER_IN_CHAT,
-  MOD_ACTIONS.PIN_MESSAGE,
+  MOD_ACTIONS.ENABLE_ROOM,
+  // Reports & flags
+  MOD_ACTIONS.RESOLVE_FLAG,
+  // Staff lifecycle
+  MOD_ACTIONS.ACCEPT_PROMOTION,
 ]);
 
 export const hasPermission = (role, action) => {
@@ -1178,6 +1181,48 @@ export const promoteToCurator = async (db, actorId, communityId, targetUserId) =
     performedBy: actorId,
     performedByRole: role,
   });
+
+  // Send in-app notification to the promoted user
+  try {
+    const [actorSnap, communitySnap] = await Promise.all([
+      getDoc(doc(db, 'users', actorId)),
+      getDoc(doc(db, 'communities', communityId)),
+    ]);
+    const actorData = actorSnap.exists() ? actorSnap.data() : {};
+    const communityData = communitySnap.exists() ? communitySnap.data() : {};
+    const actorName =
+      actorData.displayName ||
+      (actorData.firstName || actorData.lastName
+        ? `${actorData.firstName || ''} ${actorData.lastName || ''}`.trim()
+        : null) ||
+      actorData.username ||
+      'An admin';
+    const communityName =
+      communityData.name ||
+      communityData.community_title ||
+      communityData.title ||
+      'a community';
+    const notifRef = doc(
+      collection(db, 'users', targetUserId, 'notifications'),
+      `${actorId}_curator_promotion_${communityId}`
+    );
+    await setDoc(notifRef, {
+      type: 'curator_promotion',
+      fromUserId: actorId,
+      fromUserName: actorName,
+      fromUserImage: actorData.profileImage || actorData.avatar || null,
+      communityId,
+      communityName,
+      communityImage: communityData.profileImage || communityData.img || communityData.image || null,
+      message: `${actorName} has promoted you to Curator in ${communityName}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+    });
+  } catch (notifErr) {
+    // Non-critical — don't block the promotion if notification fails
+    console.warn('curator_promotion notification failed:', notifErr);
+  }
+
   return { success: true };
 };
 
@@ -1218,6 +1263,48 @@ export const promoteToLeader = async (db, actorId, communityId, targetUserId) =>
     performedBy: actorId,
     performedByRole: actorRole || ROLES.OWNER,
   });
+
+  // Send in-app notification to the promoted user
+  try {
+    const [actorSnap, communitySnap] = await Promise.all([
+      getDoc(doc(db, 'users', actorId)),
+      getDoc(doc(db, 'communities', communityId)),
+    ]);
+    const actorData = actorSnap.exists() ? actorSnap.data() : {};
+    const communityData = communitySnap.exists() ? communitySnap.data() : {};
+    const actorName =
+      actorData.displayName ||
+      (actorData.firstName || actorData.lastName
+        ? `${actorData.firstName || ''} ${actorData.lastName || ''}`.trim()
+        : null) ||
+      actorData.username ||
+      'An admin';
+    const communityName =
+      communityData.name ||
+      communityData.community_title ||
+      communityData.title ||
+      'a community';
+    const notifRef = doc(
+      collection(db, 'users', targetUserId, 'notifications'),
+      `${actorId}_leader_promotion_${communityId}`
+    );
+    await setDoc(notifRef, {
+      type: 'leader_promotion',
+      fromUserId: actorId,
+      fromUserName: actorName,
+      fromUserImage: actorData.profileImage || actorData.avatar || null,
+      communityId,
+      communityName,
+      communityImage: communityData.profileImage || communityData.img || communityData.image || null,
+      message: `${actorName} has promoted you to Leader in ${communityName}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+    });
+  } catch (notifErr) {
+    // Non-critical — don't block the promotion if notification fails
+    console.warn('leader_promotion notification failed:', notifErr);
+  }
+
   return { success: true };
 };
 

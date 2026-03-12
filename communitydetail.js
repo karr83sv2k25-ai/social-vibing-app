@@ -459,11 +459,11 @@ export default function CommunityDetail({ route, navigation }) {
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
             <View style={styles.infoIcon}>
-              <Ionicons name={discover === 'public' ? 'eye-outline' : 'eye-off-outline'} size={16} color="#aaa" />
+              <Ionicons name={(discover === 'public' || discover === true) ? 'eye-outline' : 'eye-off-outline'} size={16} color="#aaa" />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.infoLabel}>Discoverability</Text>
-              <Text style={styles.infoValue}>{discover ? discover.charAt(0).toUpperCase() + discover.slice(1) : '—'}</Text>
+              <Text style={styles.infoValue}>{typeof discover === 'string' ? discover.charAt(0).toUpperCase() + discover.slice(1) : (discover === true ? 'Public' : discover === false ? 'Private' : '—')}</Text>
             </View>
           </View>
 
