@@ -128,7 +128,7 @@ const PostOptionsModal = ({
       iconLib: 'ionicons',
       label: 'Hide Post',
       onPress: onHide,
-      show: !isOwner && !!onHide,
+      show: isStaff && !!onHide && !post?.isHidden,
     },
     // --- Danger zone ---
     {

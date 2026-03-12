@@ -940,6 +940,8 @@ export const takeCommunityStaffAction = async (reportId, staffId, action, notes 
       return { success: false, error: 'Report not found' };
     }
 
+    const report = reportSnap.data();
+
     const newStatus = action === 'dismissed'
       ? REPORT_STATUS.DISMISSED
       : action === 'content_removed'
@@ -956,10 +958,110 @@ export const takeCommunityStaffAction = async (reportId, staffId, action, notes 
       updatedAt: serverTimestamp(),
     });
 
+    // Soft-delete the actual content when the curator chose "Remove Content"
+    if (action === 'content_removed' && report.contentId) {
+      await removeCommunityContent({
+        contentId: report.contentId,
+        contentType: report.contentType,   // post format or 'blog'/'post'/'comment'
+        reportType: report.reportType,     // authoritative: 'post' | 'comment' | 'user' etc.
+        communityId: report.communityId,
+        parentId: report.parentId,         // postId when reportType is 'comment'
+        removedBy: staffId,
+      });
+    }
+
     return { success: true };
   } catch (error) {
     console.error('❌ Error taking community staff action:', error);
     return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Soft-delete a community post or comment that was reported.
+ *
+ * Content storage paths:
+ *   Regular post  → communities/{communityId}/posts/{contentId}
+ *   Blog post     → communities/{communityId}/blogs/{contentId}
+ *   Post comment  → communities/{communityId}/posts/{parentId}/comments/{contentId}
+ *   Blog comment  → communities/{communityId}/blogs/{parentId}/comments/{contentId}
+ *
+ * @param {string} contentId   - The reported document ID
+ * @param {string} contentType - Stored post format: 'blog', 'post', 'text', 'image', 'video', …
+ * @param {string} reportType  - The REPORT_TYPES value: 'post' | 'comment' | …  (authoritative)
+ * @param {string} communityId - Community context (null for global content)
+ * @param {string} parentId    - For comments: the parent post/blog ID
+ * @param {string} removedBy   - Staff userId performing the removal
+ */
+const removeCommunityContent = async ({ contentId, contentType, reportType, communityId, parentId, removedBy }) => {
+  try {
+    const softDelete = {
+      isDeleted: true,
+      deletedAt: serverTimestamp(),
+      deletedBy: removedBy,
+      deletionReason: 'Violated community guidelines',
+    };
+
+    // Use reportType as the authoritative discriminator — it's always correctly set
+    // to REPORT_TYPES.POST ('post') or REPORT_TYPES.COMMENT ('comment').
+    // contentType may be a post format ('text', 'image', 'video', 'blog') or legacy
+    // values from before the fix — we only use it to detect the 'blog' sub-collection.
+    const isComment = reportType === 'comment' || contentType === 'comment';
+    const isBlog    = contentType === 'blog';
+
+    if (isComment) {
+      if (communityId && parentId) {
+        // Try the posts sub-collection first; fall back to blogs if the post id is a blog.
+        // We can't know for sure without an extra read, so we attempt the update and
+        // fall back to the other sub-collection on failure.
+        try {
+          await updateDoc(
+            doc(db, 'communities', communityId, 'posts', parentId, 'comments', contentId),
+            softDelete
+          );
+        } catch (postErr) {
+          // Parent may be a blog — retry under the blogs sub-collection
+          await updateDoc(
+            doc(db, 'communities', communityId, 'blogs', parentId, 'comments', contentId),
+            softDelete
+          );
+        }
+      } else if (communityId && !parentId) {
+        console.warn('removeCommunityContent: comment removal skipped — parentId missing for community', communityId);
+      } else {
+        // Global / home-feed comment
+        await updateDoc(doc(db, 'comments', contentId), softDelete);
+      }
+    } else {
+      // Post or blog
+      if (communityId) {
+        // Prefer the sub-collection derived from contentType, but do an existence
+        // check first so we can fall back to the other sub-collection.
+        // This handles legacy reports where contentType stored a media format
+        // ('text', 'image', 'video') rather than 'blog', causing the wrong path.
+        const preferredSub = isBlog ? 'blogs' : 'posts';
+        const fallbackSub  = isBlog ? 'posts'  : 'blogs';
+        const preferredRef = doc(db, 'communities', communityId, preferredSub, contentId);
+        const preferredSnap = await getDoc(preferredRef);
+        if (preferredSnap.exists()) {
+          await updateDoc(preferredRef, softDelete);
+        } else {
+          const fallbackRef = doc(db, 'communities', communityId, fallbackSub, contentId);
+          const fallbackSnap = await getDoc(fallbackRef);
+          if (fallbackSnap.exists()) {
+            await updateDoc(fallbackRef, softDelete);
+          } else {
+            console.warn('removeCommunityContent: document not found in posts or blogs sub-collection', { communityId, contentId });
+          }
+        }
+      } else {
+        // Global / home-feed post
+        await updateDoc(doc(db, 'posts', contentId), softDelete);
+      }
+    }
+  } catch (error) {
+    // Log but don't throw — report status was already successfully updated
+    console.error('❌ Error soft-deleting community content:', error);
   }
 };
 

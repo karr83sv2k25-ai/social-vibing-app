@@ -41,7 +41,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import { Ionicons, Entypo, AntDesign, MaterialIcons, FontAwesome5, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRoute, useNavigation } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect } from '@react-navigation/native';
 import {
   doc,
   getDoc,
@@ -1018,25 +1018,28 @@ export default function GroupInfoScreen() {
     loadCharacterCollection();
   }, [currentUser]);
 
-  // Load check-in status for this community
-  useEffect(() => {
-    const loadCheckInStatus = async () => {
-      const userId = auth.currentUser?.uid;
-      if (!communityId || !userId) return;
-      try {
-        const [checkStatus, data] = await Promise.all([
-          canCheckInToday(db, communityId, userId),
-          getUserCheckInData(db, communityId, userId),
-        ]);
-        setHasCheckedIn(!checkStatus?.canCheckIn);
-        setCheckInStreak(data?.currentStreak ?? 0);
-        setCheckInPoints(data?.totalPoints ?? 0);
-      } catch (e) {
-        // non-fatal
-      }
-    };
-    loadCheckInStatus();
-  }, [communityId, auth.currentUser]);
+  // Load check-in status for this community (re-runs on focus so it stays
+  // fresh after the user checks in via the full CommunityCheckInScreen)
+  useFocusEffect(
+    useCallback(() => {
+      const loadCheckInStatus = async () => {
+        const userId = auth.currentUser?.uid;
+        if (!communityId || !userId) return;
+        try {
+          const [checkStatus, data] = await Promise.all([
+            canCheckInToday(db, communityId, userId),
+            getUserCheckInData(db, communityId, userId),
+          ]);
+          setHasCheckedIn(!checkStatus?.canCheckIn);
+          setCheckInStreak(data?.currentStreak ?? 0);
+          setCheckInPoints(data?.totalPoints ?? 0);
+        } catch (e) {
+          // non-fatal
+        }
+      };
+      loadCheckInStatus();
+    }, [communityId, auth.currentUser?.uid])
+  );
 
   // Handle opening character selector when navigating from RoleplayScreen
   useEffect(() => {
@@ -2826,11 +2829,12 @@ export default function GroupInfoScreen() {
       (community.leaders || []).includes(uid) ||
       (community.curators || []).includes(uid)
     ));
-    // Non-staff cannot see disabled or hidden posts in the feed.
-    // Staff still see them so they can re-enable from the moderation panel.
+    // Non-staff cannot see disabled, hidden, or soft-deleted posts in the feed.
+    // Staff still see disabled/hidden posts so they can re-enable from the moderation panel,
+    // but hard-deleted posts (isDeleted) are hidden for everyone.
     const combined = isCommunityStaff
-      ? [...blogs, ...posts]
-      : [...blogs, ...posts].filter(p => !p.isDisabled && !p.isHidden);
+      ? [...blogs, ...posts].filter(p => !p.isDeleted)
+      : [...blogs, ...posts].filter(p => !p.isDisabled && !p.isHidden && !p.isDeleted);
     const announcementIds = community?.announcements || [];
     const featuredIds = community?.featuredPosts || [];
     
@@ -5779,6 +5783,37 @@ export default function GroupInfoScreen() {
         }
       ]
     );
+  };
+
+  // Handle Hide Post — staff-only moderation action
+  const handleHidePost = async (postId, postType) => {
+    if (!isAdmin && !isModerator) {
+      Alert.alert('Permission Denied', 'Only community staff can hide posts');
+      return;
+    }
+    try {
+      const firestore = await import('firebase/firestore');
+      const hiddenFields = {
+        isHidden: true,
+        hiddenAt: firestore.serverTimestamp(),
+        hiddenBy: currentUser?.id,
+      };
+      // Check preferred sub-collection first, fall back to the other
+      const preferredSub = postType === 'blog' ? 'blogs' : 'posts';
+      const fallbackSub  = postType === 'blog' ? 'posts'  : 'blogs';
+      const preferredRef = doc(db, 'communities', communityId, preferredSub, postId);
+      const preferredSnap = await getDoc(preferredRef);
+      if (preferredSnap.exists()) {
+        await updateDoc(preferredRef, hiddenFields);
+      } else {
+        const fallbackRef = doc(db, 'communities', communityId, fallbackSub, postId);
+        await updateDoc(fallbackRef, hiddenFields);
+      }
+      Alert.alert('Post Hidden', 'This post is now hidden from members.');
+    } catch (error) {
+      console.error('Error hiding post:', error);
+      Alert.alert('Error', 'Failed to hide post');
+    }
   };
 
   // Handle Start Audio Call
@@ -10657,6 +10692,7 @@ export default function GroupInfoScreen() {
           const title = p.title || p.caption || p.text || 'Post';
           Share.share({ message: `Check out "${title}" on Social Vibing!` });
         }}
+        onHide={(p) => handleHidePost(p.id, p.type)}
         onReport={(p) => {
           setReportTargetMember({ id: p.authorId, name: p.authorName });
           setReportTargetPost(p);
@@ -10678,7 +10714,7 @@ export default function GroupInfoScreen() {
         }}
         reportType={reportTargetPost ? 'post' : 'user'}
         contentId={reportTargetPost?.id || null}
-        contentType={reportTargetPost?.type || null}
+        contentType={reportTargetPost ? (reportTargetPost.type === 'blog' ? 'blog' : 'post') : null}
         contentPreview={reportTargetPost?.title || reportTargetPost?.caption || reportTargetPost?.text || reportTargetPost?.question || null}
         communityId={communityId || null}
       />

@@ -269,12 +269,14 @@ function CommunityCheckInScreen() {
 
   const userBadge = checkInData ? getUserLevel(checkInData.totalPoints || 0) : LEVELS[0];
   const nextBadgeInfo = checkInData ? getNextLevel(checkInData.totalPoints || 0) : { nextLevel: LEVELS[1], nextBadge: LEVELS[1], pointsNeeded: 50 };
-  const progressToNextBadge = nextBadgeInfo.nextLevel 
-    ? ((checkInData?.totalPoints || 0) - (LEVELS.find(b => b.name === userBadge.name)?.minPoints || 0)) / 
-      (nextBadgeInfo.nextLevel.minPoints - (LEVELS.find(b => b.name === userBadge.name)?.minPoints || 0)) * 100
-    : 100;
-
   const currentPoints = checkInData?.totalPoints || 0;
+  const currentLevelMin = userBadge.minPoints;
+  const nextLevelMin = nextBadgeInfo.nextLevel?.minPoints ?? currentLevelMin;
+  const levelRange = nextLevelMin - currentLevelMin;
+  const pointsAboveLevel = currentPoints - currentLevelMin;
+  const progressToNextBadge = nextBadgeInfo.nextLevel && levelRange > 0
+    ? Math.min(Math.max((pointsAboveLevel / levelRange) * 100, 0), 100)
+    : 100;
 
   // Render a single level item for the modal
   const renderLevelItem = useCallback(({ item: lvl }) => {
@@ -501,7 +503,7 @@ function CommunityCheckInScreen() {
               <View style={styles.nextBadgeContainer}>
                 <Text style={styles.nextBadgeLabel}>Next:</Text>
                 <Image source={nextBadgeInfo.nextLevel.image} style={styles.nextBadgeLevelImage} />
-                <Text style={styles.nextBadgePoints}>{nextBadgeInfo.pointsNeeded} pts</Text>
+                <Text style={styles.nextBadgePoints}>{nextBadgeInfo.pointsNeeded} pts to go</Text>
               </View>
             )}
           </View>
@@ -516,7 +518,7 @@ function CommunityCheckInScreen() {
                   style={[styles.progressFill, { width: `${Math.min(progressToNextBadge, 100)}%` }]}
                 />
               </View>
-              <Text style={styles.progressText}>{Math.round(progressToNextBadge)}%</Text>
+              <Text style={styles.progressText}>{pointsAboveLevel}/{levelRange} pts</Text>
             </View>
           )}
         </View>
@@ -965,7 +967,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.dim,
     marginLeft: 8,
-    width: 40,
+    minWidth: 60,
+    textAlign: 'right',
   },
   rewardsCard: {
     backgroundColor: COLORS.card,

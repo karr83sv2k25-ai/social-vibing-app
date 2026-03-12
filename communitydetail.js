@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 import { doc, getDoc, onSnapshot } from 'firebase/firestore';
@@ -56,6 +57,23 @@ export default function CommunityDetail({ route, navigation }) {
   const [userPoints, setUserPoints] = useState(0);
   const [userStreak, setUserStreak] = useState(0);
   const auth = getAuth(app);
+
+  // Re-fetch check-in data whenever this screen comes back into focus so the
+  // sidebar reflects points/streak earned in the full CommunityCheckInScreen.
+  useFocusEffect(
+    useCallback(() => {
+      const uid = auth.currentUser?.uid;
+      if (!uid || !communityId) return;
+      getUserCheckInData(db, communityId, uid)
+        .then((data) => {
+          if (data) {
+            setUserPoints(data.totalPoints || 0);
+            setUserStreak(getLiveStreak(data));
+          }
+        })
+        .catch(() => {});
+    }, [communityId])
+  );
 
   // Derived booleans for backward compat
   const isCreator = myRole === ROLES.OWNER;

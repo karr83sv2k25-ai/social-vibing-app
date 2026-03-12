@@ -1144,8 +1144,7 @@ export default function ProfileScreen() {
               <ListRow title="Daily Check-In" onPress={() => navigation.navigate('DailyReward')} />
               <View style={styles.divider} />
               <ListRow title="Membership" onPress={() => navigation.navigate('Membership')} />
-              <View style={styles.divider} />
-              <ListRow title="Help Center" onPress={() => navigation.navigate('HelpCenter')} />
+
               <View style={styles.divider} />
               <ListRow title="Account Settings" onPress={() => navigation.navigate('AccountSettings')} />
             </View>

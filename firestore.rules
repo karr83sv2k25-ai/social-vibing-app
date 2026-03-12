@@ -677,7 +677,11 @@ service cloud.firestore {
         match /comments/{commentId} {
           allow read: if isSignedIn();
           allow create: if canWrite() && hasNoEmailFields();
-          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid && hasNoEmailFields();
+          // Author can edit own comment; staff can soft-delete (isDeleted flag)
+          allow update: if isSignedIn() && hasNoEmailFields() && (
+                           resource.data.authorId == request.auth.uid ||
+                           isCommunityStaff(communityId) || isAdmin()
+                         );
           allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         }
       }
@@ -702,7 +706,11 @@ service cloud.firestore {
         match /comments/{commentId} {
           allow read: if isSignedIn();
           allow create: if canWrite() && hasNoEmailFields();
-          allow update: if isSignedIn() && resource.data.authorId == request.auth.uid && hasNoEmailFields();
+          // Author can edit own comment; staff can soft-delete (isDeleted flag)
+          allow update: if isSignedIn() && hasNoEmailFields() && (
+                           resource.data.authorId == request.auth.uid ||
+                           isCommunityStaff(communityId) || isAdmin()
+                         );
           allow delete: if isSignedIn() && (resource.data.authorId == request.auth.uid || isCommunityStaff(communityId) || isAdmin());
         }
       }

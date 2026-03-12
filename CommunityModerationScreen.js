@@ -26,7 +26,6 @@ import { getAuth } from 'firebase/auth';
 import {
   collection,
   query,
-  where,
   getDocs,
   getDoc,
   doc,
@@ -161,9 +160,9 @@ export default function CommunityModerationScreen({ route, navigation }) {
   };
 
   const loadPosts = async () => {
+    // Community posts are stored in the sub-collection, NOT a flat 'posts' collection
     const q = query(
-      collection(db, 'posts'),
-      where('communityId', '==', communityId),
+      collection(db, 'communities', communityId, 'posts'),
       orderBy('createdAt', 'desc'),
       limit(50)
     );
@@ -371,6 +370,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
       <View style={styles.cardInfo}>
         <Text style={styles.cardName} numberOfLines={2}>{item.content || item.text || '(no text)'}</Text>
         <View style={styles.statusRow}>
+          {item.isDeleted && <StatusTag label="Removed" color={C.red} />}
           {item.isDisabled && <StatusTag label="Disabled" color={C.red} />}
           {item.isHidden && <StatusTag label="Hidden" color={C.yellow} />}
           {item.isFeatured && <StatusTag label="Featured" color={C.cyan} />}
@@ -493,7 +493,8 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   const handleReportAction = async (reportId, action) => {
     await doAction(() => takeCommunityStaffAction(reportId, currentUserId, action, ''));
-    loadCommunityReports();
+    // Reload both reports and posts so the UI reflects the removal immediately
+    await Promise.all([loadCommunityReports(), loadPosts()]);
   };
 
   const renderReport = ({ item }) => {
