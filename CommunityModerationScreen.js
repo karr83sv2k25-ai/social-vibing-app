@@ -115,12 +115,14 @@ export default function CommunityModerationScreen({ route, navigation }) {
     const commData = commDoc.data();
     const memberIds = commData.members || [];
     const batch = memberIds.slice(0, 100);
-    const [userDocs, memberDocs, strikeDocs] = await Promise.all([
+    const [userDocs, memberDocs, strikeDocs, banDocs] = await Promise.all([
       Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
       // Nicknames live in communities_members/{uid}_{communityId}
       Promise.all(batch.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
       // Community-scoped strikes live in communities/{communityId}/strikes/{userId}
       Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'strikes', id)))),
+      // Community-scoped bans live in communities/{communityId}/bans/{userId}
+      Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'bans', id)))),
     ]);
     const now = Date.now();
     const result = userDocs
@@ -148,11 +150,25 @@ export default function CommunityModerationScreen({ route, navigation }) {
             communityIsStruck = expiresAt > now;
           }
         }
+        // Community-scoped ban (from sub-collection — NOT the global users/{uid}.isBanned)
+        const banData = banDocs[i]?.exists() ? banDocs[i].data() : null;
+        let communityIsBanned = false;
+        if (banData?.isActive) {
+          if (!banData.banExpiresAt) {
+            communityIsBanned = true; // permanent
+          } else {
+            const banExpiry = banData.banExpiresAt?.toDate
+              ? banData.banExpiresAt.toDate().getTime()
+              : new Date(banData.banExpiresAt).getTime();
+            communityIsBanned = banExpiry > now;
+          }
+        }
         return {
           id: d.id,
           ...userData,
           displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
           communityIsStruck,
+          communityIsBanned,
         };
       })
       .filter(Boolean);
@@ -249,9 +265,9 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   const renderMember = ({ item }) => {
     const isSelf = item.id === currentUserId;
-    // Use community-scoped strike status; fall back to global isStruck if present
+    // Use community-scoped statuses (from sub-collections), not global user doc flags
     const isStruck = item.communityIsStruck || false;
-    const isBanned = item.isBanned || false;
+    const isBanned = item.communityIsBanned || false;
 
     return (
       <View style={styles.card}>
@@ -303,7 +319,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
               />
             )}
             {/* Ban / Unban */}
-            {can(MOD_ACTIONS.BAN_USER) && !item.isBanned && (
+            {can(MOD_ACTIONS.BAN_USER) && !item.communityIsBanned && (
               <ActionBtn
                 icon="ban-outline"
                 color={C.red}
@@ -313,7 +329,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
                 tooltip="Ban"
               />
             )}
-            {can(MOD_ACTIONS.UNBAN_USER) && item.isBanned && (
+            {can(MOD_ACTIONS.UNBAN_USER) && item.communityIsBanned && (
               <ActionBtn
                 icon="checkmark-circle-outline"
                 color={C.green}

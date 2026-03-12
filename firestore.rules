@@ -747,6 +747,12 @@ service cloud.firestore {
         allow write: if isLeaderOrAbove(communityId) || isAdmin();
       }
 
+      // Bans: community-scoped bans (do NOT touch users/{uid}.isBanned — that is for platform-wide admin bans only)
+      match /bans/{userId} {
+        allow read: if (isSignedIn() && userId == request.auth.uid) || isCommunityStaff(communityId) || isAdmin();
+        allow write: if isLeaderOrAbove(communityId) || isAdmin();
+      }
+
       // Warnings: staff can read/write community-scoped warnings
       match /warnings/{warningId} {
         allow read: if isCommunityStaff(communityId) || isAdmin();

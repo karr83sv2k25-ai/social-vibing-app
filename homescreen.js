@@ -2361,6 +2361,25 @@ const HomeScreen = React.memo(({ navigation }) => {
 
     try {
       const userId = auth.currentUser.uid;
+
+      // Check if the user is banned from this community before allowing rejoin
+      const banRef = doc(db, 'communities', communityId, 'bans', userId);
+      const banSnap = await getDoc(banRef);
+      if (banSnap.exists()) {
+        const banData = banSnap.data();
+        const isActiveBan = banData.isActive && (
+          !banData.banExpiresAt ||
+          (banData.banExpiresAt?.toDate
+            ? banData.banExpiresAt.toDate().getTime()
+            : new Date(banData.banExpiresAt).getTime()) > Date.now()
+        );
+        if (isActiveBan) {
+          Alert.alert('Banned', 'You have been banned from this community and cannot rejoin.');
+          setJoiningCommunityId(null);
+          return;
+        }
+      }
+
       const membershipId = `${userId}_${communityId}`;
       const membershipRef = doc(db, 'communities_members', membershipId);
 

@@ -448,25 +448,42 @@ export const unstrikeUser = async (db, actorId, communityId, targetUserId, reaso
 export const banUser = async (db, actorId, communityId, targetUserId, reason = '', banExpiresAt = null) => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.BAN_USER);
 
-  const updates = {
-    isBanned: true,
-    banReason: reason,
-    bannedAt: serverTimestamp(),
-    bannedBy: actorId,
-    banExpiresAt: banExpiresAt ? Timestamp.fromDate(new Date(banExpiresAt)) : null,
-    updatedAt: serverTimestamp(),
-  };
-
-  await updateDoc(doc(db, 'users', targetUserId), updates);
-
-  // Remove from community members if community-scoped
   if (communityId) {
+    // Community-scoped ban — write ONLY to the community's bans sub-collection.
+    // Do NOT touch users/{uid}.isBanned; that is a platform-wide flag checked by
+    // App.js onAuthStateChanged and would sign the user out of the entire app.
+    const banExpiresTimestamp = banExpiresAt ? Timestamp.fromDate(new Date(banExpiresAt)) : null;
+    await setDoc(
+      doc(db, 'communities', communityId, 'bans', targetUserId),
+      {
+        userId: targetUserId,
+        isActive: true,
+        banExpiresAt: banExpiresTimestamp,
+        reason,
+        bannedBy: actorId,
+        createdAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    // Remove banned user from all community roles and member lists
     await updateDoc(doc(db, 'communities', communityId), {
       members: arrayRemove(targetUserId),
+      memberIds: arrayRemove(targetUserId),
       leaders: arrayRemove(targetUserId),
       curators: arrayRemove(targetUserId),
       bannedUsers: arrayUnion(targetUserId),
       memberCount: increment(-1),
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    // Platform-wide (admin-level) ban — write to global user doc.
+    await updateDoc(doc(db, 'users', targetUserId), {
+      isBanned: true,
+      banReason: reason,
+      bannedAt: serverTimestamp(),
+      bannedBy: actorId,
+      banExpiresAt: banExpiresAt ? Timestamp.fromDate(new Date(banExpiresAt)) : null,
       updatedAt: serverTimestamp(),
     });
   }
@@ -487,16 +504,22 @@ export const banUser = async (db, actorId, communityId, targetUserId, reason = '
 export const unbanUser = async (db, actorId, communityId, targetUserId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNBAN_USER);
 
-  await updateDoc(doc(db, 'users', targetUserId), {
-    isBanned: false,
-    banReason: null,
-    banExpiresAt: null,
-    updatedAt: serverTimestamp(),
-  });
-
   if (communityId) {
+    // Community-scoped unban — only update the sub-collection record.
+    // Do NOT touch users/{uid}.isBanned; it was never set for a community ban.
+    const banRef = doc(db, 'communities', communityId, 'bans', targetUserId);
+    await updateDoc(banRef, { isActive: false, liftedAt: serverTimestamp(), liftedBy: actorId });
+
     await updateDoc(doc(db, 'communities', communityId), {
       bannedUsers: arrayRemove(targetUserId),
+      updatedAt: serverTimestamp(),
+    });
+  } else {
+    // Platform-wide (admin-level) unban — clear global user doc flags.
+    await updateDoc(doc(db, 'users', targetUserId), {
+      isBanned: false,
+      banReason: null,
+      banExpiresAt: null,
       updatedAt: serverTimestamp(),
     });
   }
