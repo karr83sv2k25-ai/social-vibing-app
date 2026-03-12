@@ -1649,32 +1649,35 @@ const HomeScreen = React.memo(({ navigation }) => {
     };
   }, [allPosts.length]);
 
-  // Listen to current user's following list
+  // Listen to current user's following list — use onAuthStateChanged so the
+  // snapshot only starts after the Firestore auth token is confirmed server-side,
+  // preventing the transient permission-denied errors on cold start.
   useEffect(() => {
-    if (!currentUser?.id) {
-      setFollowingUserIds([]);
-      return;
-    }
+    const auth = getAuth(app);
+    let snapshotUnsub = null;
 
-    // db is now imported globally
-    const followCol = collection(db, 'users', currentUser.id, 'following');
-
-    const unsubscribe = onSnapshot(
-      followCol,
-      (snapshot) => {
-        const ids = snapshot.docs.map((docSnap) => docSnap.id);
-        setFollowingUserIds(ids);
-      },
-      (error) => {
-        console.log('[Firestore] Error in following snapshot listener:', error.code);
+    const authUnsub = onAuthStateChanged(auth, (user) => {
+      if (snapshotUnsub) { snapshotUnsub(); snapshotUnsub = null; }
+      if (user) {
+        const followCol = collection(db, 'users', user.uid, 'following');
+        snapshotUnsub = onSnapshot(
+          followCol,
+          (snapshot) => setFollowingUserIds(snapshot.docs.map((d) => d.id)),
+          (error) => {
+            console.log('[Firestore] Error in following snapshot listener:', error.code);
+            setFollowingUserIds([]);
+          }
+        );
+      } else {
         setFollowingUserIds([]);
       }
-    );
+    });
 
     return () => {
-      unsubscribe();
+      authUnsub();
+      if (snapshotUnsub) snapshotUnsub();
     };
-  }, [currentUser?.id]);
+  }, []); // runs once on mount
 
   // Filter posts based on active tab
   const filteredPosts = useMemo(() => {

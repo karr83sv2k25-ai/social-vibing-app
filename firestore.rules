@@ -381,8 +381,8 @@ service cloud.firestore {
     
     // ── Advertisements (managed by admin panel) ─────────────────────────
     match /advertisements/{adId} {
-      // Any signed-in user can read active ads for display
-      allow read: if isSignedIn();
+      // Anyone can read ads (no auth needed for display)
+      allow read: if true;
       // Only admins can create, update, or delete ads
       allow create: if isAdmin();
       allow update: if isAdmin();
@@ -1090,7 +1090,7 @@ service cloud.firestore {
     
     // Global Posts collection
     match /posts/{postId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public social content
       // Struck/banned users cannot post
       allow create: if canWrite() && request.resource.data.authorId == request.auth.uid;
       // Author can edit; staff can moderate (hide/disable/feature)
@@ -1116,7 +1116,7 @@ service cloud.firestore {
     
     // Stories collection
     match /stories/{storyId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public social content
       allow create: if canWrite() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
@@ -1124,7 +1124,7 @@ service cloud.firestore {
     
     // Polls collection
     match /polls/{pollId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public social content
       allow create: if canWrite() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if (isSignedIn() && resource.data.userId == request.auth.uid) || isAdmin();
@@ -1156,7 +1156,7 @@ service cloud.firestore {
     
     // Questions collection
     match /questions/{questionId} {
-      allow read: if isSignedIn();
+      allow read: if true; // Public social content
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isSignedIn();
       allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
