@@ -20,7 +20,8 @@ import {
   collection, 
   query, 
   where, 
-  getDocs, 
+  getDocs,
+  getDoc,
   doc, 
   updateDoc, 
   serverTimestamp,
@@ -37,6 +38,7 @@ import {
   REPORT_STATUS,
   ADMIN_ACTIONS,
   REPORT_REASONS,
+  REPORT_TYPES,
 } from './shared/services/reportService';
 
 const { width } = Dimensions.get('window');
@@ -128,10 +130,10 @@ export default function AdminModerationScreen({ navigation }) {
         return;
       }
 
-      // Check if user is admin via direct doc read (faster + no __name__ trick needed)
-      const userDocSnap = await getDocs(query(collection(db, 'users'), where('__name__', '==', user.uid)));
-      if (!userDocSnap.empty) {
-        const userData = userDocSnap.docs[0].data();
+      // Direct document read — fast, no query needed
+      const userDocSnap = await getDoc(doc(db, 'users', user.uid));
+      if (userDocSnap.exists()) {
+        const userData = userDocSnap.data();
         if (userData.role === 'admin' || userData.isAdmin) {
           setIsAdmin(true);
           setLoading(false);
@@ -586,9 +588,241 @@ export default function AdminModerationScreen({ navigation }) {
 
   // ==================== REPORT DETAIL MODAL ====================
   const ReportDetailModal = () => {
+    const [reportedContent, setReportedContent] = useState(null);
+    const [contentLoading, setContentLoading] = useState(false);
+    const [contentNotFound, setContentNotFound] = useState(false);
+
+    // Fetch actual reported content from Firestore whenever the selected report changes
+    useEffect(() => {
+      if (!selectedReport?.contentId || !showReportModal) {
+        setReportedContent(null);
+        setContentNotFound(false);
+        return;
+      }
+
+      const collectionMap = {
+        [REPORT_TYPES.POST]: 'posts',
+        [REPORT_TYPES.COMMENT]: 'comments',
+        [REPORT_TYPES.MESSAGE]: null, // stored in subcollections — use preview only
+        [REPORT_TYPES.PRODUCT]: 'marketplace',
+        [REPORT_TYPES.STORY]: 'stories',
+        [REPORT_TYPES.COMMUNITY]: 'communities',
+      };
+
+      const contentType = selectedReport.reportType || selectedReport.contentType;
+      const collName = collectionMap[contentType];
+
+      if (!collName) return; // e.g. messages — no simple global doc
+
+      let cancelled = false;
+      setContentLoading(true);
+      setContentNotFound(false);
+
+      const fetchContent = async () => {
+        try {
+          let snap = null;
+
+          // Try community-scoped subcollection first for posts/comments
+          if (selectedReport.communityId && (contentType === REPORT_TYPES.POST || contentType === REPORT_TYPES.COMMENT)) {
+            try {
+              snap = await getDoc(doc(db, 'communities', selectedReport.communityId, collName, selectedReport.contentId));
+            } catch (_) {}
+          }
+
+          // Fall back to global collection
+          if (!snap?.exists()) {
+            snap = await getDoc(doc(db, collName, selectedReport.contentId));
+          }
+
+          if (cancelled) return;
+
+          if (snap?.exists()) {
+            setReportedContent({ id: snap.id, ...snap.data() });
+          } else {
+            setContentNotFound(true);
+          }
+        } catch (e) {
+          console.error('Error fetching reported content:', e);
+          if (!cancelled) setContentNotFound(true);
+        } finally {
+          if (!cancelled) setContentLoading(false);
+        }
+      };
+
+      fetchContent();
+      return () => { cancelled = true; };
+    }, [selectedReport?.id, showReportModal]);
+
     if (!selectedReport) return null;
 
     const isPending = selectedReport.status === REPORT_STATUS.PENDING;
+    const contentType = selectedReport.reportType || selectedReport.contentType;
+
+    // ---- helper: render the fetched content card ----
+    const renderContentCard = () => {
+      if (!selectedReport.contentId) return null;
+
+      const typeLabel = {
+        [REPORT_TYPES.POST]: 'Post',
+        [REPORT_TYPES.COMMENT]: 'Comment',
+        [REPORT_TYPES.PRODUCT]: 'Product',
+        [REPORT_TYPES.STORY]: 'Story',
+        [REPORT_TYPES.COMMUNITY]: 'Community',
+        [REPORT_TYPES.MESSAGE]: 'Message',
+      }[contentType] || 'Content';
+
+      return (
+        <View style={styles.section}>
+          <View style={styles.contentHeaderRow}>
+            <Text style={styles.sectionTitle}>Reported {typeLabel}</Text>
+            <View style={styles.contentTypeBadge}>
+              <Ionicons
+                name={contentType === REPORT_TYPES.POST ? 'document-text-outline' :
+                      contentType === REPORT_TYPES.COMMENT ? 'chatbubble-outline' :
+                      contentType === REPORT_TYPES.PRODUCT ? 'pricetag-outline' :
+                      contentType === REPORT_TYPES.STORY ? 'play-circle-outline' :
+                      contentType === REPORT_TYPES.COMMUNITY ? 'people-outline' :
+                      'mail-outline'}
+                size={13}
+                color={C.brand}
+              />
+              <Text style={styles.contentTypeText}>{typeLabel}</Text>
+            </View>
+          </View>
+
+          {contentLoading ? (
+            <View style={styles.contentLoadingBox}>
+              <ActivityIndicator size="small" color={C.brand} />
+              <Text style={styles.contentLoadingText}>Loading {typeLabel.toLowerCase()}…</Text>
+            </View>
+          ) : contentNotFound ? (
+            <View style={styles.contentNotFoundBox}>
+              <Ionicons name="alert-circle-outline" size={28} color={C.dim} />
+              <Text style={styles.contentNotFoundText}>
+                This {typeLabel.toLowerCase()} no longer exists or was already removed.
+              </Text>
+            </View>
+          ) : reportedContent ? (
+            <View style={[styles.contentCard, reportedContent.isDeleted && styles.contentCardDeleted]}>
+              {/* Deleted banner */}
+              {reportedContent.isDeleted && (
+                <View style={styles.deletedBanner}>
+                  <Ionicons name="trash-outline" size={14} color={C.red} />
+                  <Text style={styles.deletedBannerText}>Already removed</Text>
+                </View>
+              )}
+
+              {/* Author row */}
+              <View style={styles.contentAuthorRow}>
+                <Image
+                  source={reportedContent.authorImage || reportedContent.userAvatar || reportedContent.coverImage
+                    ? { uri: reportedContent.authorImage || reportedContent.userAvatar || reportedContent.coverImage }
+                    : require('./assets/profile.png')}
+                  style={styles.contentAuthorAvatar}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.contentAuthorName}>
+                    {reportedContent.authorName ||
+                     reportedContent.username ||
+                     reportedContent.name ||
+                     `User ${(reportedContent.authorId || reportedContent.userId || '').slice(0, 6)}`}
+                  </Text>
+                  {reportedContent.createdAt && (
+                    <Text style={styles.contentDate}>
+                      {formatReportDate(
+                        reportedContent.createdAt?.toDate
+                          ? reportedContent.createdAt.toDate()
+                          : reportedContent.createdAt
+                      )}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              {/* Content body — post/comment/product/story/community */}
+              {(contentType === REPORT_TYPES.POST || contentType === REPORT_TYPES.COMMENT) && (
+                <>
+                  {(reportedContent.text || reportedContent.content) ? (
+                    <Text style={styles.contentBodyText}>
+                      {reportedContent.text || reportedContent.content}
+                    </Text>
+                  ) : null}
+
+                  {/* Images */}
+                  {((reportedContent.images && reportedContent.images.length > 0) ||
+                    (reportedContent.mediaUrls && reportedContent.mediaUrls.length > 0)) && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                      {(reportedContent.images || reportedContent.mediaUrls || []).map((uri, idx) => (
+                        <Image
+                          key={idx}
+                          source={{ uri }}
+                          style={styles.contentMediaThumb}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                  )}
+
+                  {contentType === REPORT_TYPES.COMMENT && reportedContent.postId && (
+                    <Text style={styles.contentMetaNote}>
+                      Comment on post: {reportedContent.postId}
+                    </Text>
+                  )}
+                </>
+              )}
+
+              {contentType === REPORT_TYPES.PRODUCT && (
+                <>
+                  <Text style={styles.productTitle}>{reportedContent.title || reportedContent.name || 'Untitled Product'}</Text>
+                  {reportedContent.price != null && (
+                    <Text style={styles.productPrice}>${Number(reportedContent.price).toFixed(2)}</Text>
+                  )}
+                  {reportedContent.description ? (
+                    <Text style={styles.contentBodyText} numberOfLines={4}>{reportedContent.description}</Text>
+                  ) : null}
+                  {((reportedContent.images && reportedContent.images.length > 0) ||
+                    (reportedContent.imageUrls && reportedContent.imageUrls.length > 0)) && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 10 }}>
+                      {(reportedContent.images || reportedContent.imageUrls || []).map((uri, idx) => (
+                        <Image key={idx} source={{ uri }} style={styles.contentMediaThumb} resizeMode="cover" />
+                      ))}
+                    </ScrollView>
+                  )}
+                </>
+              )}
+
+              {contentType === REPORT_TYPES.STORY && (
+                <>
+                  {reportedContent.mediaUrl ? (
+                    <Image
+                      source={{ uri: reportedContent.mediaUrl }}
+                      style={styles.storyPreviewImage}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <Text style={styles.contentBodyText}>Story (media not previewable)</Text>
+                  )}
+                </>
+              )}
+
+              {contentType === REPORT_TYPES.COMMUNITY && (
+                <>
+                  <Text style={styles.productTitle}>{reportedContent.name || 'Unnamed Community'}</Text>
+                  {reportedContent.description ? (
+                    <Text style={styles.contentBodyText} numberOfLines={3}>{reportedContent.description}</Text>
+                  ) : null}
+                </>
+              )}
+            </View>
+          ) : selectedReport.contentPreview ? (
+            // Fallback: show stored text preview if fetch returned nothing
+            <View style={styles.contentPreviewBox}>
+              <Text style={styles.contentPreviewText}>{selectedReport.contentPreview}</Text>
+            </View>
+          ) : null}
+        </View>
+      );
+    };
 
     return (
       <Modal
@@ -604,7 +838,7 @@ export default function AdminModerationScreen({ navigation }) {
                 <TouchableOpacity onPress={() => setShowReportModal(false)}>
                   <Ionicons name="close" size={24} color={C.text} />
                 </TouchableOpacity>
-                <Text style={styles.modalTitle}>Report Details</Text>
+                <Text style={styles.modalTitle}>Report Review</Text>
                 <View style={{ width: 24 }} />
               </View>
 
@@ -630,6 +864,13 @@ export default function AdminModerationScreen({ navigation }) {
                 </View>
 
                 <View style={styles.reportDetailRow}>
+                  <Text style={styles.reportDetailLabel}>Type</Text>
+                  <Text style={styles.reportDetailValue}>
+                    {(selectedReport.reportType || selectedReport.contentType || 'user').replace('_', ' ').toUpperCase()}
+                  </Text>
+                </View>
+
+                <View style={styles.reportDetailRow}>
                   <Text style={styles.reportDetailLabel}>Reason</Text>
                   <Text style={styles.reportDetailValue}>{selectedReport.reasonLabel || selectedReport.reason}</Text>
                 </View>
@@ -639,6 +880,19 @@ export default function AdminModerationScreen({ navigation }) {
                   <Text style={styles.reportDetailValue}>{formatReportDate(selectedReport.createdAt)}</Text>
                 </View>
               </View>
+
+              {/* ---- Reported Content Preview (live fetch) ---- */}
+              {renderContentCard()}
+
+              {/* Reporter's description */}
+              {selectedReport.description && (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>Reporter's Note</Text>
+                  <View style={styles.descriptionBox}>
+                    <Text style={styles.descriptionText}>"{selectedReport.description}"</Text>
+                  </View>
+                </View>
+              )}
 
               {/* Users Involved */}
               <View style={styles.section}>
@@ -663,26 +917,6 @@ export default function AdminModerationScreen({ navigation }) {
                 </View>
               </View>
 
-              {/* Description */}
-              {selectedReport.description && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Description</Text>
-                  <View style={styles.descriptionBox}>
-                    <Text style={styles.descriptionText}>"{selectedReport.description}"</Text>
-                  </View>
-                </View>
-              )}
-
-              {/* Content Preview if available */}
-              {selectedReport.contentPreview && (
-                <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Reported Content</Text>
-                  <View style={styles.contentPreviewBox}>
-                    <Text style={styles.contentPreviewText}>{selectedReport.contentPreview}</Text>
-                  </View>
-                </View>
-              )}
-
               {/* Admin Actions - Only show for pending reports */}
               {isPending && (
                 <View style={styles.section}>
@@ -692,33 +926,55 @@ export default function AdminModerationScreen({ navigation }) {
                     style={[styles.fullActionButton, { backgroundColor: C.yellow }]}
                     onPress={() => handleReportAction(ADMIN_ACTIONS.WARNING)}
                     disabled={actionLoading}>
-                    <Ionicons name="warning" size={20} color="#000" />
-                    <Text style={[styles.actionButtonText, { color: '#000' }]}>Send Warning</Text>
+                    {actionLoading ? <ActivityIndicator size="small" color="#000" /> : (
+                      <>
+                        <Ionicons name="warning" size={20} color="#000" />
+                        <Text style={[styles.actionButtonText, { color: '#000' }]}>Warn User</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.fullActionButton, { backgroundColor: '#FF6B00' }]}
                     onPress={() => handleReportAction(ADMIN_ACTIONS.TEMPORARY_BAN)}
                     disabled={actionLoading}>
-                    <Ionicons name="time" size={20} color="#fff" />
-                    <Text style={styles.actionButtonText}>Temporary Ban (7 days)</Text>
+                    {actionLoading ? <ActivityIndicator size="small" color="#fff" /> : (
+                      <>
+                        <Ionicons name="time" size={20} color="#fff" />
+                        <Text style={styles.actionButtonText}>Temporary Ban (7 days)</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.fullActionButton, { backgroundColor: C.red }]}
                     onPress={() => handleReportAction(ADMIN_ACTIONS.PERMANENT_BAN)}
                     disabled={actionLoading}>
-                    <Ionicons name="ban" size={20} color="#fff" />
-                    <Text style={styles.actionButtonText}>Permanent Ban</Text>
+                    {actionLoading ? <ActivityIndicator size="small" color="#fff" /> : (
+                      <>
+                        <Ionicons name="ban" size={20} color="#fff" />
+                        <Text style={styles.actionButtonText}>Permanent Ban</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
 
                   {selectedReport.contentId && (
                     <TouchableOpacity
-                      style={[styles.fullActionButton, { backgroundColor: '#9333EA' }]}
+                      style={[
+                        styles.fullActionButton,
+                        { backgroundColor: '#9333EA' },
+                        reportedContent?.isDeleted && { opacity: 0.4 },
+                      ]}
                       onPress={() => handleReportAction(ADMIN_ACTIONS.CONTENT_REMOVED)}
-                      disabled={actionLoading}>
-                      <Ionicons name="trash" size={20} color="#fff" />
-                      <Text style={styles.actionButtonText}>Remove Content</Text>
+                      disabled={actionLoading || !!reportedContent?.isDeleted}>
+                      {actionLoading ? <ActivityIndicator size="small" color="#fff" /> : (
+                        <>
+                          <Ionicons name="trash" size={20} color="#fff" />
+                          <Text style={styles.actionButtonText}>
+                            {reportedContent?.isDeleted ? 'Content Already Removed' : 'Remove Content'}
+                          </Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   )}
 
@@ -732,16 +988,24 @@ export default function AdminModerationScreen({ navigation }) {
                     style={[styles.fullActionButton, { backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
                     onPress={() => handleReportAction(ADMIN_ACTIONS.NO_VIOLATION)}
                     disabled={actionLoading}>
-                    <Ionicons name="checkmark-circle" size={20} color={C.green} />
-                    <Text style={[styles.actionButtonText, { color: C.green }]}>No Violation Found</Text>
+                    {actionLoading ? <ActivityIndicator size="small" color={C.green} /> : (
+                      <>
+                        <Ionicons name="checkmark-circle" size={20} color={C.green} />
+                        <Text style={[styles.actionButtonText, { color: C.green }]}>No Violation Found</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
 
                   <TouchableOpacity
                     style={[styles.fullActionButton, { backgroundColor: C.card, borderWidth: 1, borderColor: C.border }]}
                     onPress={handleDismissReport}
                     disabled={actionLoading}>
-                    <Ionicons name="close-circle" size={20} color={C.dim} />
-                    <Text style={[styles.actionButtonText, { color: C.dim }]}>Dismiss Report</Text>
+                    {actionLoading ? <ActivityIndicator size="small" color={C.dim} /> : (
+                      <>
+                        <Ionicons name="close-circle" size={20} color={C.dim} />
+                        <Text style={[styles.actionButtonText, { color: C.dim }]}>Dismiss Report</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 </View>
               )}
@@ -754,12 +1018,15 @@ export default function AdminModerationScreen({ navigation }) {
                     <Ionicons name="checkmark-done" size={24} color={C.green} />
                     <View style={styles.actionTakenInfo}>
                       <Text style={styles.actionTakenText}>
-                        {selectedReport.actionTaken?.replace('_', ' ').toUpperCase()}
+                        {selectedReport.actionTaken?.replace(/_/g, ' ').toUpperCase()}
                       </Text>
                       {selectedReport.reviewedAt && (
                         <Text style={styles.actionTakenDate}>
                           {formatReportDate(selectedReport.reviewedAt)}
                         </Text>
+                      )}
+                      {selectedReport.adminNotes && (
+                        <Text style={styles.adminNotesText}>{selectedReport.adminNotes}</Text>
                       )}
                     </View>
                   </View>
@@ -1150,8 +1417,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
   },
   tab: {
     flexDirection: 'row',
@@ -1593,5 +1858,141 @@ const styles = StyleSheet.create({
     color: C.dim,
     fontSize: 12,
     marginTop: 4,
+  },
+  adminNotesText: {
+    color: C.dim,
+    fontSize: 12,
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  // ==================== CONTENT PREVIEW STYLES ====================
+  contentHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  contentTypeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(191, 46, 240, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    gap: 5,
+  },
+  contentTypeText: {
+    color: C.brand,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  contentLoadingBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    gap: 10,
+  },
+  contentLoadingText: {
+    color: C.dim,
+    fontSize: 13,
+  },
+  contentNotFoundBox: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 8,
+  },
+  contentNotFoundText: {
+    color: C.dim,
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  contentCard: {
+    backgroundColor: '#10141C',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  contentCardDeleted: {
+    opacity: 0.6,
+    borderColor: C.red,
+    borderStyle: 'dashed',
+  },
+  deletedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(255, 50, 50, 0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  deletedBannerText: {
+    color: C.red,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  contentAuthorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  contentAuthorAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.card,
+  },
+  contentAuthorName: {
+    color: C.text,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  contentDate: {
+    color: C.dim,
+    fontSize: 11,
+    marginTop: 2,
+  },
+  contentBodyText: {
+    color: C.text,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 4,
+  },
+  contentMediaThumb: {
+    width: 120,
+    height: 120,
+    borderRadius: 10,
+    marginRight: 8,
+    backgroundColor: C.card,
+  },
+  storyPreviewImage: {
+    width: '100%',
+    height: 200,
+    borderRadius: 10,
+    backgroundColor: C.card,
+    marginTop: 8,
+  },
+  productTitle: {
+    color: C.text,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  productPrice: {
+    color: C.cyan,
+    fontSize: 18,
+    fontWeight: '800',
+    marginBottom: 6,
+  },
+  contentMetaNote: {
+    color: C.dim,
+    fontSize: 11,
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });

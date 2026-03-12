@@ -18,6 +18,7 @@ import {
   serverTimestamp,
   increment,
   writeBatch,
+  arrayUnion,
 } from 'firebase/firestore';
 import { db } from '../../firebaseConfig';
 
@@ -560,9 +561,15 @@ export const takeActionOnReport = async (reportId, {
     const reportedUserId = report.reportedId;
     const userRef = doc(db, 'users', reportedUserId);
 
+    // Determine final report status based on the action taken
+    const resolvedStatus =
+      action === ADMIN_ACTIONS.NO_VIOLATION ? REPORT_STATUS.RESOLVED
+      : action === ADMIN_ACTIONS.DISMISSED  ? REPORT_STATUS.DISMISSED
+      : REPORT_STATUS.ACTION_TAKEN;
+
     // Update report
     batch.update(reportRef, {
-      status: REPORT_STATUS.ACTION_TAKEN,
+      status: resolvedStatus,
       actionTaken: action,
       actionDetails,
       reviewedBy: adminId,
@@ -573,16 +580,25 @@ export const takeActionOnReport = async (reportId, {
 
     // Take action on user based on action type
     switch (action) {
-      case ADMIN_ACTIONS.WARNING:
+      case ADMIN_ACTIONS.WARNING: {
         batch.update(userRef, {
           warningsCount: increment(1),
           lastWarning: actionDetails.message || 'Community guidelines violation',
+          lastWarningDate: serverTimestamp(),
           warnedAt: serverTimestamp(),
           warnedBy: adminId,
+          warnings: arrayUnion({
+            reportId,
+            reason: actionDetails.message || 'Community guidelines violation',
+            issuedAt: new Date().toISOString(),
+            issuedBy: adminId,
+          }),
+          updatedAt: serverTimestamp(),
         });
         break;
+      }
 
-      case ADMIN_ACTIONS.TEMPORARY_BAN:
+      case ADMIN_ACTIONS.TEMPORARY_BAN: {
         const banDuration = parseInt(actionDetails.duration) || 7; // Days
         
         // Validate ban duration (1-365 days)
@@ -590,8 +606,8 @@ export const takeActionOnReport = async (reportId, {
           return { success: false, error: 'Ban duration must be between 1 and 365 days' };
         }
         
-        const banExpiresAt = new Date();
-        banExpiresAt.setDate(banExpiresAt.getDate() + banDuration);
+        const banExpiry = new Date();
+        banExpiry.setDate(banExpiry.getDate() + banDuration);
         
         batch.update(userRef, {
           isBanned: true,
@@ -599,11 +615,14 @@ export const takeActionOnReport = async (reportId, {
           banReason: actionDetails.reason || 'Violation of community guidelines',
           bannedAt: serverTimestamp(),
           bannedBy: adminId,
-          banExpiresAt: banExpiresAt,
+          banExpiresAt: banExpiry,
+          accountStatus: 'banned',
+          updatedAt: serverTimestamp(),
         });
         break;
+      }
 
-      case ADMIN_ACTIONS.PERMANENT_BAN:
+      case ADMIN_ACTIONS.PERMANENT_BAN: {
         batch.update(userRef, {
           isBanned: true,
           banType: 'permanent',
@@ -611,28 +630,37 @@ export const takeActionOnReport = async (reportId, {
           bannedAt: serverTimestamp(),
           bannedBy: adminId,
           banExpiresAt: null,
+          accountStatus: 'banned',
+          updatedAt: serverTimestamp(),
         });
         break;
+      }
 
-      case ADMIN_ACTIONS.ACCOUNT_SUSPENDED:
+      case ADMIN_ACTIONS.ACCOUNT_SUSPENDED: {
         batch.update(userRef, {
           isSuspended: true,
           suspendedReason: actionDetails.reason || 'Account under review',
           suspendedAt: serverTimestamp(),
           suspendedBy: adminId,
+          accountStatus: 'suspended',
+          updatedAt: serverTimestamp(),
         });
         break;
+      }
 
-      case ADMIN_ACTIONS.CONTENT_REMOVED:
+      case ADMIN_ACTIONS.CONTENT_REMOVED: {
         // Handle content removal if contentId exists
         if (report.contentId && report.contentType) {
-          await removeReportedContent(report.contentId, report.contentType, adminId);
+          await removeReportedContent(report.contentId, report.contentType, adminId, report.communityId || null);
+        } else {
+          return { success: false, error: 'This report has no associated content to remove' };
         }
         break;
+      }
 
       case ADMIN_ACTIONS.NO_VIOLATION:
       case ADMIN_ACTIONS.DISMISSED:
-        // No action on user, just mark report as resolved
+        // No action on user — report status already set correctly above
         break;
     }
 
@@ -673,36 +701,59 @@ export const takeActionOnReport = async (reportId, {
 
 // ==================== REMOVE REPORTED CONTENT ====================
 /**
- * Remove content that was reported
+ * Remove content that was reported.
+ * Handles both global collections and community-scoped subcollections.
+ * Re-throws on failure so the caller can surface the error to the admin.
  */
-const removeReportedContent = async (contentId, contentType, adminId) => {
-  try {
-    let contentRef;
-    
-    switch (contentType) {
-      case 'post':
-        contentRef = doc(db, 'posts', contentId);
-        break;
-      case 'comment':
-        contentRef = doc(db, 'comments', contentId);
-        break;
-      case 'story':
-        contentRef = doc(db, 'stories', contentId);
-        break;
-      default:
-        console.log('Unknown content type:', contentType);
-        return;
-    }
+const removeReportedContent = async (contentId, contentType, adminId, communityId = null) => {
+  // Map content types to their Firestore collection names.
+  // Default to 'posts' when contentType is missing — the vast majority of reportable content is a post.
+  const collectionMap = {
+    post:     'posts',
+    poll:     'polls',
+    quiz:     'quizzes',
+    question: 'questions',
+    comment:  'comments',
+    answer:   'answers',
+    story:    'stories',
+    message:  'messages',
+  };
 
-    await updateDoc(contentRef, {
-      isDeleted: true,
-      deletedAt: serverTimestamp(),
-      deletedBy: adminId,
-      deletionReason: 'Violated community guidelines',
-    });
-  } catch (error) {
-    console.error('Error removing content:', error);
+  const normalizedType = contentType || 'post';
+  const collectionName = collectionMap[normalizedType];
+  if (!collectionName) {
+    throw new Error(`Unknown content type: "${contentType}"`);
   }
+
+  const deletePayload = {
+    isDeleted: true,
+    deletedAt: serverTimestamp(),
+    deletedBy: adminId,
+    deletionReason: 'Violated community guidelines - removed by admin',
+  };
+
+  // Try community-scoped path first when communityId is provided.
+  // Only catch errors from getDoc (network/permission on read); updateDoc errors should propagate.
+  if (communityId) {
+    let communitySnap = null;
+    try {
+      communitySnap = await getDoc(doc(db, 'communities', communityId, collectionName, contentId));
+    } catch (_) {
+      // getDoc failed (network/permissions) — fall through to global path
+    }
+    if (communitySnap?.exists()) {
+      await updateDoc(doc(db, 'communities', communityId, collectionName, contentId), deletePayload);
+      return;
+    }
+  }
+
+  // Fall back to (or directly use) the global collection
+  const globalRef = doc(db, collectionName, contentId);
+  const globalSnap = await getDoc(globalRef);
+  if (!globalSnap.exists()) {
+    throw new Error(`Content not found (id: ${contentId}, type: ${normalizedType})`);
+  }
+  await updateDoc(globalRef, deletePayload);
 };
 
 // ==================== GET ACTION NOTIFICATION MESSAGE ====================

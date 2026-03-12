@@ -1202,6 +1202,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       const sortedPosts = [...globalPostsSnapshot.docs].sort(sortByCreatedAt).slice(0, 10);
       for (const postDoc of sortedPosts) {
         const postData = postDoc.data();
+        if (postData.isDeleted || postData.isDisabled) continue;
         const authorId = postData.authorId || postData.userId || null;
 
         const { authorName, authorImage, username } = await getAuthorData(
@@ -1246,6 +1247,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       const sortedPolls = [...pollsSnapshot.docs].sort(sortByCreatedAt).slice(0, 5);
       for (const pollDoc of sortedPolls) {
         const pollData = pollDoc.data();
+        if (pollData.isDeleted || pollData.isDisabled) continue;
         const authorId = pollData.authorId || pollData.userId || null;
 
         const { authorName, authorImage, username } = await getAuthorData(
@@ -1280,6 +1282,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       const sortedQuizzes = [...quizzesSnapshot.docs].sort(sortByCreatedAt).slice(0, 5);
       for (const quizDoc of sortedQuizzes) {
         const quizData = quizDoc.data();
+        if (quizData.isDeleted || quizData.isDisabled) continue;
         const authorId = quizData.authorId || quizData.userId || null;
 
         const { authorName, authorImage, username } = await getAuthorData(
@@ -1338,6 +1341,7 @@ const HomeScreen = React.memo(({ navigation }) => {
       const sortedQuestions = [...questionsSnapshot.docs].sort(sortByCreatedAt).slice(0, 5);
       for (const questionDoc of sortedQuestions) {
         const questionData = questionDoc.data();
+        if (questionData.isDeleted || questionData.isDisabled) continue;
         const authorId = questionData.authorId || questionData.userId || null;
 
         const { authorName, authorImage, username } = await getAuthorData(
@@ -1378,6 +1382,7 @@ const HomeScreen = React.memo(({ navigation }) => {
 
           for (const blogDoc of blogsSnapshot.docs) {
             const blogData = blogDoc.data();
+            if (blogData.isDeleted || blogData.isDisabled) continue;
             const authorId = blogData.authorId || null;
 
             const { authorName, authorImage, username } = await getAuthorData(
@@ -1415,6 +1420,7 @@ const HomeScreen = React.memo(({ navigation }) => {
 
           for (const postDoc of postsSnapshot.docs) {
             const postData = postDoc.data();
+            if (postData.isDeleted || postData.isDisabled) continue;
             const authorId = postData.authorId || null;
 
             const { authorName, authorImage, username } = await getAuthorData(

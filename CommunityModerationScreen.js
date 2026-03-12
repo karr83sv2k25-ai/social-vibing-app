@@ -20,8 +20,11 @@ import {
   Modal,
   TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { getAuth } from 'firebase/auth';
 import {
   collection,
@@ -78,6 +81,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
   const { communityId, initialTab = 0 } = route.params || {};
   const auth = getAuth(app);
   const currentUserId = auth.currentUser?.uid;
+  const insets = useSafeAreaInsets();
 
   const [myRole, setMyRole] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -114,7 +118,34 @@ export default function CommunityModerationScreen({ route, navigation }) {
     const commDoc = await getDoc(doc(db, 'communities', communityId));
     if (!commDoc.exists()) return;
     const commData = commDoc.data();
-    const memberIds = commData.members || [];
+
+    // Role lookup arrays for hierarchy enforcement
+    const communityLeaderIds = Array.isArray(commData.leaders) ? commData.leaders : [];
+    const communityCuratorIds = Array.isArray(commData.curators) ? commData.curators : [];
+    const communityOwnerId = commData.creatorId;
+
+    // Union all member sources — same logic used in communitydetail.js:
+    // 1. commData.members array
+    // 2. commData.community_members array (legacy field)
+    // 3. commData.memberIds array (another legacy field)
+    // 4. communities_members top-level collection (where real joiners land)
+    const fromDoc = [
+      ...(Array.isArray(commData.members) ? commData.members : []),
+      ...(Array.isArray(commData.community_members) ? commData.community_members : []),
+      ...(Array.isArray(commData.memberIds) ? commData.memberIds : []),
+    ];
+
+    let collectionIds = [];
+    try {
+      const membersSnap = await getDocs(
+        query(collection(db, 'communities_members'), where('community_id', '==', communityId))
+      );
+      collectionIds = membersSnap.docs
+        .map(d => d.data().user_id || d.data().userId || d.data().uid)
+        .filter(Boolean);
+    } catch (_) {}
+
+    const memberIds = [...new Set([...fromDoc, ...collectionIds])];
     const batch = memberIds.slice(0, 100);
     const [userDocs, memberDocs, strikeDocs] = await Promise.all([
       Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
@@ -149,11 +180,17 @@ export default function CommunityModerationScreen({ route, navigation }) {
             communityIsStruck = expiresAt > now;
           }
         }
+        // Resolve the member's role within this community for UI hierarchy checks
+        const communityRole = d.id === communityOwnerId ? ROLES.OWNER
+          : communityLeaderIds.includes(d.id) ? ROLES.LEADER
+          : communityCuratorIds.includes(d.id) ? ROLES.CURATOR
+          : ROLES.MEMBER;
         return {
           id: d.id,
           ...userData,
           displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
           communityIsStruck,
+          communityRole,
         };
       })
       .filter(Boolean);
@@ -162,8 +199,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   const loadPosts = async () => {
     const q = query(
-      collection(db, 'posts'),
-      where('communityId', '==', communityId),
+      collection(db, 'communities', communityId, 'posts'),
       orderBy('createdAt', 'desc'),
       limit(50)
     );
@@ -248,11 +284,25 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   // ── Members Tab ───────────────────────────────────────────────────────────
 
+  const ROLE_LEVELS = { owner: 5, admin: 4, leader: 3, curator: 2, member: 1 };
+
   const renderMember = ({ item }) => {
     const isSelf = item.id === currentUserId;
     // Use community-scoped strike status; fall back to global isStruck if present
     const isStruck = item.communityIsStruck || false;
     const isBanned = item.isBanned || false;
+
+    // Hierarchy check: only show action buttons when the current user outranks the target
+    const myLevel = ROLE_LEVELS[myRole] || 0;
+    const targetLevel = ROLE_LEVELS[item.communityRole] || 0;
+    const canActOnTarget = !isSelf && myLevel > targetLevel;
+
+    const memberRoleMeta = {
+      [ROLES.OWNER]:   { label: 'Owner',   color: C.gold },
+      [ROLES.LEADER]:  { label: 'Leader',  color: C.brand },
+      [ROLES.CURATOR]: { label: 'Curator', color: C.cyan },
+    };
+    const roleMeta = memberRoleMeta[item.communityRole];
 
     return (
       <View style={styles.card}>
@@ -266,6 +316,11 @@ export default function CommunityModerationScreen({ route, navigation }) {
         <View style={styles.cardInfo}>
           <Text style={styles.cardName}>{item.displayName || 'User'}</Text>
           <View style={styles.statusRow}>
+            {roleMeta && (
+              <View style={[styles.statusBadge, { backgroundColor: `${roleMeta.color}22`, borderColor: roleMeta.color }]}>
+                <Text style={[styles.statusBadgeText, { color: roleMeta.color }]}>{roleMeta.label}</Text>
+              </View>
+            )}
             {isStruck && (
               <View style={[styles.statusBadge, { backgroundColor: 'rgba(255,140,0,0.2)', borderColor: C.orange }]}>
                 <Text style={[styles.statusBadgeText, { color: C.orange }]}>Struck</Text>
@@ -278,7 +333,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
             )}
           </View>
         </View>
-        {!isSelf && (
+        {canActOnTarget && (
           <View style={styles.actionGroup}>
             {/* Strike / Unstrike */}
             {can(MOD_ACTIONS.STRIKE_USER) && !isStruck && (
@@ -366,16 +421,23 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
   // ── Posts Tab ─────────────────────────────────────────────────────────────
 
-  const renderPost = ({ item }) => (
-    <View style={styles.card}>
-      <View style={styles.cardInfo}>
-        <Text style={styles.cardName} numberOfLines={2}>{item.content || item.text || '(no text)'}</Text>
-        <View style={styles.statusRow}>
-          {item.isDisabled && <StatusTag label="Disabled" color={C.red} />}
-          {item.isHidden && <StatusTag label="Hidden" color={C.yellow} />}
-          {item.isFeatured && <StatusTag label="Featured" color={C.cyan} />}
+  const renderPost = ({ item }) => {
+    const authorName = item.authorName || item.createdByName || item.authorId || 'Unknown';
+    const ts = item.createdAt?.toDate
+      ? item.createdAt.toDate().toLocaleDateString()
+      : '';
+    return (
+      <View style={styles.card}>
+        <View style={styles.cardInfo}>
+          <Text style={styles.cardName} numberOfLines={2}>{item.text || item.content || item.caption || item.title || '(no text)'}</Text>
+          <Text style={[styles.logMeta, { marginTop: 2 }]}>{authorName}{ts ? ` · ${ts}` : ''}</Text>
+          <View style={styles.statusRow}>
+            {item.isDisabled && <StatusTag label="Disabled" color={C.red} />}
+            {item.isHidden && <StatusTag label="Hidden" color={C.yellow} />}
+            {item.isFeatured && <StatusTag label="Featured" color={C.cyan} />}
+            {item.isPinned && <StatusTag label="Pinned" color={C.brand} />}
+          </View>
         </View>
-      </View>
       <View style={styles.actionGroup}>
         {can(MOD_ACTIONS.FEATURE_POST) && !item.isFeatured && (
           <ActionBtn icon="star-outline" color={C.cyan} onPress={() =>
@@ -414,6 +476,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
       </View>
     </View>
   );
+  };
 
   // ── Rooms Tab ─────────────────────────────────────────────────────────────
 
@@ -587,7 +650,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')} style={{ marginRight: 12 }}>
           <Ionicons name="chevron-back" size={24} color={C.text} />
         </TouchableOpacity>
@@ -656,6 +719,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         animationType="slide"
         onRequestClose={() => setStrikeModal({ visible: false, user: null })}
       >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
@@ -721,6 +785,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Reason Modal (generic) */}
@@ -730,6 +795,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         animationType="fade"
         onRequestClose={() => setReasonModal({ visible: false, title: '', onConfirm: null })}
       >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>{reasonModal.title}</Text>
@@ -761,6 +827,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Title Modal */}
@@ -770,6 +837,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
         animationType="fade"
         onRequestClose={() => setTitleModal({ visible: false, user: null })}
       >
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>Grant Title to {titleModal.user?.displayName}</Text>
@@ -820,6 +888,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
             </View>
           </View>
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -861,7 +930,7 @@ function RoleBadge({ role }) {
 const styles = StyleSheet.create({
   container:        { flex: 1, backgroundColor: C.bg },
   center:           { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.bg },
-  header:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 56, paddingBottom: 12 },
+  header:           { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12 },
   headerTitle:      { flex: 1, fontSize: 18, fontWeight: '700', color: C.text },
   rolePill:         { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 3 },
   rolePillText:     { fontSize: 12, fontWeight: '700' },

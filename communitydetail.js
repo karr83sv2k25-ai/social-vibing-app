@@ -55,6 +55,8 @@ export default function CommunityDetail({ route, navigation }) {
   const pinnedLiveNames = useUserNames(pinnedAuthorIds, communityId);
   const [userPoints, setUserPoints] = useState(0);
   const [userStreak, setUserStreak] = useState(0);
+  // UIDs from the top-level communities_members collection (joiners who didn't update doc)
+  const [collectionMemberIds, setCollectionMemberIds] = useState([]);
   const auth = getAuth(app);
 
   // Derived booleans for backward compat
@@ -64,6 +66,31 @@ export default function CommunityDetail({ route, navigation }) {
 
   // Track previous announcement IDs to avoid redundant re-fetches
   const prevAnnouncementIdsRef = React.useRef(null);
+
+  // Fetch member UIDs from communities_members top-level collection.
+  // Joiners who joined while the community-doc update was broken (community_members
+  // field caused a rules rejection) are ONLY recorded here, not in the doc arrays.
+  useEffect(() => {
+    if (!communityId) return;
+    let mounted = true;
+    const fetchCollectionMembers = async () => {
+      try {
+        const membersQuery = query(
+          collection(db, 'communities_members'),
+          where('community_id', '==', communityId)
+        );
+        const snap = await getDocs(membersQuery);
+        const uids = snap.docs
+          .map(d => d.data().user_id || d.data().userId || d.data().uid)
+          .filter(Boolean);
+        if (mounted) setCollectionMemberIds(uids);
+      } catch (e) {
+        console.log('Member count fetch error:', e?.message);
+      }
+    };
+    fetchCollectionMembers();
+    return () => { mounted = false; };
+  }, [communityId]);
 
   useEffect(() => {
     if (!communityId) {
@@ -218,20 +245,21 @@ export default function CommunityDetail({ route, navigation }) {
     members_count: membersCountField,
   } = community;
 
-  // Combine members + memberIds (deduped) — the creator lives in memberIds, joiners in members.
-  // This is the only way to get the true count across all creation/join paths.
+  // Union ALL known member sources and deduplicate to get the true count.
+  // - _combined: creator & members from the community doc arrays
+  // - collectionMemberIds: joiners recorded in the top-level communities_members collection
+  // Using a Set union means any member counted in ANY source is counted exactly once.
   const _membersArr = Array.isArray(members) ? members : [];
   const _memberIdsArr = Array.isArray(memberIdsField) ? memberIdsField : [];
-  const _combined = [...new Set([..._membersArr, ..._memberIdsArr])];
-  const memberCount = _combined.length > 0
-    ? _combined.length
-    : typeof memberCountField === 'number' && memberCountField > 0
-      ? memberCountField
-      : typeof membersCountField === 'number' && membersCountField > 0
-        ? membersCountField
-        : Array.isArray(community_members)
-          ? community_members.length
-          : (typeof community_members === 'number' ? community_members : 0);
+  const _cmArr = Array.isArray(community_members) ? community_members : [];
+  const _combined = [...new Set([..._membersArr, ..._memberIdsArr, ..._cmArr])];
+  const _allKnownIds = [...new Set([..._combined, ...collectionMemberIds])];
+  // Fall back to the stored numeric counter when we have no ID lists at all.
+  const _storedCount = Math.max(
+    typeof memberCountField === 'number' ? memberCountField : 0,
+    typeof membersCountField === 'number' ? membersCountField : 0,
+  );
+  const memberCount = _allKnownIds.length > 0 ? _allKnownIds.length : _storedCount;
 
   const handleReportOptions = () => {
     const options = ['Cancel', 'Report Community'];
@@ -383,7 +411,7 @@ export default function CommunityDetail({ route, navigation }) {
           )}
           <View style={styles.chip}>
             <Ionicons name="people-outline" size={12} color="#aaa" />
-            <Text style={styles.chipText}>{memberCount} members</Text>
+            <Text style={styles.chipText}>{memberCount} {memberCount === 1 ? 'member' : 'members'}</Text>
           </View>
           {!!privacy && (
             <View style={styles.chip}>
@@ -509,7 +537,7 @@ export default function CommunityDetail({ route, navigation }) {
 
           <TouchableOpacity
             style={styles.secondaryAction}
-            onPress={() => Alert.alert('Members', `${memberCount} members`)}
+            onPress={() => Alert.alert('Members', `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`)}  
             activeOpacity={0.85}
           >
             <Ionicons name="people-outline" size={18} color="#fff" />

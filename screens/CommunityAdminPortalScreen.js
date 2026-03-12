@@ -82,7 +82,8 @@ export default function CommunityAdminPortalScreen({ route, navigation }) {
       const userIsAdmin =
         isPlatformAdmin ||
         userIsOwner ||
-        (Array.isArray(data.adminIds) && data.adminIds.includes(currentUserId));
+        (Array.isArray(data.adminIds) && data.adminIds.includes(currentUserId)) ||
+        (Array.isArray(data.leaders) && data.leaders.includes(currentUserId));
 
       if (!userIsAdmin) {
         Alert.alert('Error', 'You do not have admin access');

@@ -171,45 +171,75 @@ export default function CommunityStaffScreen({ route, navigation }) {
       const role = await ModerationService.getCommunityRole(db, communityId, currentUserId);
       setMyRole(role);
 
-      // Community info — load members list for promotion picker
-      const commDoc = await getDoc(doc(db, 'communities', communityId));
-      if (commDoc.exists()) {
-        const commData = commDoc.data();
+      // Load members for the promotion picker.
+      // The authoritative source is the communities_members collection (array fields on the
+      // community doc can be empty when the non-fatal update failed at join time).
+      const [commDoc, membershipSnap] = await Promise.all([
+        getDoc(doc(db, 'communities', communityId)),
+        getDocs(query(
+          collection(db, 'communities_members'),
+          where('community_id', '==', communityId),
+        )),
+      ]);
 
-        // Load all members for promotion picker
-        const memberIds = commData.members || [];
-        const staffIds = new Set([
-          commData.creatorId,
-          ...(commData.leaders || []),
-          ...(commData.curators || []),
-        ]);
-        const regularMembers = memberIds.filter(id => !staffIds.has(id)).slice(0, 50);
-        const [memberUserDocs, memberNickDocs] = await Promise.all([
-          Promise.all(regularMembers.map(id => getDoc(doc(db, 'users', id)))),
-          // Nicknames live in communities_members/{uid}_{communityId}
-          Promise.all(regularMembers.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
-        ]);
-        const resolvedMembers = memberUserDocs
-          .map((d, i) => {
-            if (!d.exists()) return null;
-            const userData = d.data();
-            const nickname = memberNickDocs[i]?.exists() ? memberNickDocs[i].data()?.communityNickname : null;
-            const baseDisplayName =
-              userData.displayName ||
-              (userData.firstName || userData.lastName
-                ? `${userData.firstName || ''} ${userData.lastName || ''}`.trim()
-                : null) ||
-              userData.username ||
-              'User';
-            return {
-              id: d.id,
-              ...userData,
-              displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
-            };
-          })
-          .filter(Boolean);
-        setMembers(resolvedMembers);
-      }
+      const commData = commDoc.exists() ? commDoc.data() : {};
+
+      // Build staff exclusion set from the community doc
+      const staffIds = new Set([
+        commData.creatorId,
+        ...(commData.leaders || []),
+        ...(commData.curators || []),
+      ]);
+
+      // Collect member IDs from the communities_members collection (primary source).
+      // Also merge any IDs stored in the community doc arrays for backwards compatibility.
+      const collectionIds = membershipSnap.docs
+        .map(d => d.data().user_id)
+        .filter(Boolean);
+      const _membersArr = Array.isArray(commData.members) ? commData.members : [];
+      const _memberIdsArr = Array.isArray(commData.memberIds) ? commData.memberIds : [];
+      const _communityMembersArr = Array.isArray(commData.community_members) ? commData.community_members : [];
+      const allMemberIds = [...new Set([
+        ...collectionIds,
+        ..._membersArr,
+        ..._memberIdsArr,
+        ..._communityMembersArr,
+      ])];
+
+      const regularMembers = allMemberIds.filter(id => !staffIds.has(id)).slice(0, 50);
+
+      // Build a map of communityNickname from the already-fetched snap docs
+      const nickByUid = {};
+      membershipSnap.docs.forEach(d => {
+        const uid = d.data().user_id;
+        const nick = d.data().communityNickname;
+        if (uid && nick && nick.trim()) nickByUid[uid] = nick.trim();
+      });
+
+      const memberUserDocs = await Promise.all(
+        regularMembers.map(id => getDoc(doc(db, 'users', id)))
+      );
+
+      const resolvedMembers = memberUserDocs
+        .map((d) => {
+          if (!d.exists()) return null;
+          const userData = d.data();
+          const nickname = nickByUid[d.id] || null;
+          const baseDisplayName =
+            userData.displayName ||
+            (userData.firstName || userData.lastName
+              ? `${userData.firstName || ''} ${userData.lastName || ''}`.trim()
+              : null) ||
+            userData.username ||
+            'User';
+          return {
+            id: d.id,
+            ...userData,
+            displayName: nickname || baseDisplayName,
+          };
+        })
+        .filter(Boolean);
+      setMembers(resolvedMembers);
 
       // Check if current user has a pending promotion
       const promoDoc = await getDoc(

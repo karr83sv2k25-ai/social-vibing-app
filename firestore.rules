@@ -151,6 +151,7 @@ service cloud.firestore {
                                   // Warning fields
                                   'warningsCount', 'lastWarning', 'lastWarningDate',
                                   'warnedAt', 'warnedBy',
+                                  'warnings',
                                   'updatedAt']);
 
       // Leaders (and above) can strike/unstrike, disable messages, warn, kick, ban users

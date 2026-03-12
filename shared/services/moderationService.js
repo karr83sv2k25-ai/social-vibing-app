@@ -338,6 +338,26 @@ const assertPermission = async (db, actorId, communityId, action) => {
   return role;
 };
 
+// Hierarchy levels shared across all enforcement points
+const ROLE_HIERARCHY_LEVELS = {
+  [ROLES.OWNER]: 5, [ROLES.ADMIN]: 4,
+  [ROLES.LEADER]: 3, [ROLES.CURATOR]: 2, [ROLES.MEMBER]: 1,
+};
+
+/**
+ * Assert that actorRole outranks the target user's community role.
+ * Throws if the target is equal or higher rank.
+ */
+const assertRoleHierarchy = async (db, communityId, actorRole, targetUserId) => {
+  if (!communityId) return; // global admin actions skip this check
+  const targetRole = await getCommunityRole(db, communityId, targetUserId);
+  const actorLevel = ROLE_HIERARCHY_LEVELS[actorRole] || 0;
+  const targetLevel = ROLE_HIERARCHY_LEVELS[targetRole] || 0;
+  if (targetLevel >= actorLevel) {
+    throw new Error('Cannot perform this action on a user of equal or higher role');
+  }
+};
+
 // ─────────────────────────────────────────
 // STRIKE SYSTEM
 // ─────────────────────────────────────────
@@ -353,6 +373,7 @@ const assertPermission = async (db, actorId, communityId, action) => {
  */
 export const strikeUser = async (db, actorId, communityId, targetUserId, durationMs, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.STRIKE_USER);
+  await assertRoleHierarchy(db, communityId, role, targetUserId);
 
   const strikeExpiresAt = durationMs
     ? Timestamp.fromDate(new Date(Date.now() + durationMs))
@@ -447,6 +468,7 @@ export const unstrikeUser = async (db, actorId, communityId, targetUserId, reaso
 
 export const banUser = async (db, actorId, communityId, targetUserId, reason = '', banExpiresAt = null) => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.BAN_USER);
+  await assertRoleHierarchy(db, communityId, role, targetUserId);
 
   const updates = {
     isBanned: true,
@@ -519,7 +541,7 @@ export const unbanUser = async (db, actorId, communityId, targetUserId, reason =
 
 export const disablePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DISABLE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
     isDisabled: true,
     disabledAt: serverTimestamp(),
     disabledBy: actorId,
@@ -531,7 +553,7 @@ export const disablePost = async (db, actorId, communityId, postId, reason = '')
 
 export const enablePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.ENABLE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
     isDisabled: false,
     disabledAt: null,
     disabledBy: null,
@@ -543,7 +565,7 @@ export const enablePost = async (db, actorId, communityId, postId, reason = '') 
 
 export const hidePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.HIDE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
     isHidden: true,
     hiddenAt: serverTimestamp(),
     hiddenBy: actorId,
@@ -555,7 +577,7 @@ export const hidePost = async (db, actorId, communityId, postId, reason = '') =>
 
 export const unhidePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNHIDE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
     isHidden: false,
     hiddenAt: null,
     hiddenBy: null,
@@ -567,30 +589,26 @@ export const unhidePost = async (db, actorId, communityId, postId, reason = '') 
 
 export const featurePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.FEATURE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), {
     isFeatured: true,
     featuredAt: serverTimestamp(),
     featuredBy: actorId,
   });
-  if (communityId) {
-    await updateDoc(doc(db, 'communities', communityId), {
-      featuredPosts: arrayUnion(postId),
-      updatedAt: serverTimestamp(),
-    });
-  }
+  await updateDoc(doc(db, 'communities', communityId), {
+    featuredPosts: arrayUnion(postId),
+    updatedAt: serverTimestamp(),
+  });
   await logAction(db, { action: MOD_ACTIONS.FEATURE_POST, communityId, targetPostId: postId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
 
 export const unfeaturePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNFEATURE_POST);
-  await updateDoc(doc(db, 'posts', postId), { isFeatured: false, featuredAt: null, featuredBy: null });
-  if (communityId) {
-    await updateDoc(doc(db, 'communities', communityId), {
-      featuredPosts: arrayRemove(postId),
-      updatedAt: serverTimestamp(),
-    });
-  }
+  await updateDoc(doc(db, 'communities', communityId, 'posts', postId), { isFeatured: false, featuredAt: null, featuredBy: null });
+  await updateDoc(doc(db, 'communities', communityId), {
+    featuredPosts: arrayRemove(postId),
+    updatedAt: serverTimestamp(),
+  });
   await logAction(db, { action: MOD_ACTIONS.UNFEATURE_POST, communityId, targetPostId: postId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
@@ -647,6 +665,7 @@ export const enableChatRoom = async (db, actorId, communityId, roomId, reason = 
 
 export const disableUserMessages = async (db, actorId, communityId, targetUserId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DISABLE_MESSAGES);
+  await assertRoleHierarchy(db, communityId, role, targetUserId);
   await updateDoc(doc(db, 'users', targetUserId), {
     canMessage: false,
     messagesDisabledAt: serverTimestamp(),
@@ -680,6 +699,7 @@ export const enableUserMessages = async (db, actorId, communityId, targetUserId,
  */
 export const grantTitle = async (db, actorId, communityId, targetUserId, title, titleColor = '#FFFFFF') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.GRANT_TITLE);
+  await assertRoleHierarchy(db, communityId, role, targetUserId);
 
   // Store title on the community membership sub-collection
   await setDoc(
@@ -996,8 +1016,7 @@ export const unlockChat = async (db, actorId, communityId, groupId) => {
  * Get the role hierarchy level (higher = more powerful). Useful for UI comparisons.
  */
 export const getRoleLevel = (role) => {
-  const levels = { [ROLES.OWNER]: 5, [ROLES.ADMIN]: 4, [ROLES.LEADER]: 3, [ROLES.CURATOR]: 2, [ROLES.MEMBER]: 1 };
-  return levels[role] || 0;
+  return ROLE_HIERARCHY_LEVELS[role] || 0;
 };
 
 /**

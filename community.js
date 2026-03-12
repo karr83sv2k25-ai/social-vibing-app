@@ -214,21 +214,16 @@ export default function TopBar({ navigation, route }) {
               const communityId = comm.community_id || comm.id;
               const communityRef = doc(db, 'communities', communityId);
 
-              // Build update payload. Always maintain a `members` array and consistent numeric counters.
+              // NOTE: Firestore rules allow members to update ONLY these specific fields.
+              // Adding any other field (e.g. community_members) causes the entire write
+              // to be rejected — so keep this list in sync with the rules.
               const updates = {
                 members: arrayUnion(auth.currentUser.uid),
                 memberIds: arrayUnion(auth.currentUser.uid),
                 members_count: increment(1),
                 memberCount: increment(1),
+                updatedAt: serverTimestamp(),
               };
-
-              // Keep compatibility with older `community_members` field which may be a number or array.
-              if (typeof comm.community_members === 'number') {
-                updates.community_members = increment(1);
-              } else {
-                // If it's not a number (likely undefined or array), add uid to it as an array field.
-                updates.community_members = arrayUnion(auth.currentUser.uid);
-              }
 
               await updateDoc(communityRef, updates);
             } catch (e) {
@@ -542,15 +537,16 @@ export default function TopBar({ navigation, route }) {
             const membersArr = Array.isArray(data.members) ? data.members : [];
             const memberIdsArr = Array.isArray(data.memberIds) ? data.memberIds : [];
             const combinedIds = [...new Set([...membersArr, ...memberIdsArr])];
-            const memberCount = combinedIds.length > 0
-              ? combinedIds.length
-              : typeof data.memberCount === 'number' && data.memberCount > 0
-                ? data.memberCount
-                : typeof data.members_count === 'number' && data.members_count > 0
-                  ? data.members_count + (memberIdsArr.length > 0 ? 1 : 0) // add creator not counted in members_count
-                  : Array.isArray(data.community_members)
-                    ? data.community_members.length
-                    : (typeof data.community_members === 'number' ? data.community_members : 0);
+            const _cmCount = Array.isArray(data.community_members)
+              ? data.community_members.length
+              : (typeof data.community_members === 'number' ? data.community_members : 0);
+            // Use Math.max so the highest count across all sources wins
+            const memberCount = Math.max(
+              combinedIds.length,
+              typeof data.memberCount === 'number' ? data.memberCount : 0,
+              typeof data.members_count === 'number' ? data.members_count : 0,
+              _cmCount,
+            ) || 0;
 
             return {
               id: d.id,
@@ -566,15 +562,22 @@ export default function TopBar({ navigation, route }) {
           CacheManager.saveCommunities(communities);
 
           if (auth.currentUser) {
-            // Update managed communities - ONLY check adminIds array
-            // This allows super admin to fully control who can manage communities
+            // Update managed communities — owner, adminIds, or Leader/Curator role
             const managedComm = communities.filter(comm => {
+              const uid = auth.currentUser.uid;
               const adminIds = Array.isArray(comm.adminIds)
                 ? comm.adminIds
                 : Array.isArray(comm.admins)
                   ? comm.admins
                   : [];
-              return adminIds.includes(auth.currentUser.uid);
+              const leaders = Array.isArray(comm.leaders) ? comm.leaders : [];
+              const curators = Array.isArray(comm.curators) ? comm.curators : [];
+              return (
+                comm.creatorId === uid ||
+                adminIds.includes(uid) ||
+                leaders.includes(uid) ||
+                curators.includes(uid)
+              );
             });
             setManagedCommunities(managedComm);
           }

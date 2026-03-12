@@ -1070,27 +1070,11 @@ export default function GroupInfoScreen() {
         try {
           if (communitySnap.exists()) {
             const data = communitySnap.data();
-            // Combine members + memberIds arrays (deduped) for the true count.
-            // Creator lives in memberIds, joiners in members — union gives the real total.
-            const _mArr = Array.isArray(data.members) ? data.members : [];
-            const _miArr = Array.isArray(data.memberIds) ? data.memberIds : [];
-            const _combined = [...new Set([..._mArr, ..._miArr])];
-            let memberCount = 0;
-            if (_combined.length > 0) {
-              memberCount = _combined.length;
-            } else if (typeof data.memberCount === 'number' && data.memberCount > 0) {
-              memberCount = data.memberCount;
-            } else if (Array.isArray(data.community_members)) {
-              memberCount = data.community_members.length;
-            } else if (typeof data.members_count === 'number') {
-              memberCount = data.members_count;
-            } else if (typeof data.community_members === 'number') {
-              memberCount = data.community_members;
-            }
+            // Set community doc data first with a preliminary count from the doc fields.
+            // This will be updated below once we have the full merged member list.
             setCommunity({
               id: communitySnap.id,
               ...data,
-              memberCount: memberCount
             });
 
             // Determine admin ids from possible fields and check admin status
@@ -1102,15 +1086,26 @@ export default function GroupInfoScreen() {
                   ? [data.uid]
                   : [];
 
-            // Check if current user is admin - ONLY based on adminIds array
-            // This allows super admin to fully revoke admin privileges from anyone, including the creator
-            const isCurrentAdmin = auth.currentUser && _adminIds.includes(auth.currentUser.uid);
-            const _moderatorIds = [
-              ...(Array.isArray(data.moderatorIds) ? data.moderatorIds : Array.isArray(data.moderators) ? data.moderators : []),
-              ...(Array.isArray(data.curators) ? data.curators : []),
-              ...(Array.isArray(data.leaders) ? data.leaders : []),
-            ];
-            const isCurrentModerator = auth.currentUser && _moderatorIds.includes(auth.currentUser.uid);
+            // Leaders and curators from the ModerationService role system
+            const _leaders = Array.isArray(data.leaders) ? data.leaders : [];
+            const _curators = Array.isArray(data.curators) ? data.curators : [];
+
+            // isAdmin: community owner (creatorId) OR in adminIds OR is a Leader
+            const isCurrentAdmin = !!(auth.currentUser && (
+              _adminIds.includes(auth.currentUser.uid) ||
+              _leaders.includes(auth.currentUser.uid) ||
+              data.creatorId === auth.currentUser.uid
+            ));
+            // isModerator: Curators (subset of leader permissions)
+            const _moderatorIds = Array.isArray(data.moderatorIds)
+              ? data.moderatorIds
+              : Array.isArray(data.moderators)
+                ? data.moderators
+                : [];
+            const isCurrentModerator = !!(auth.currentUser && (
+              _moderatorIds.includes(auth.currentUser.uid) ||
+              _curators.includes(auth.currentUser.uid)
+            ));
 
             setIsAdmin(Boolean(isCurrentAdmin));
             setIsModerator(Boolean(isCurrentModerator));
@@ -1155,7 +1150,27 @@ export default function GroupInfoScreen() {
               memberIds.push(data.uid);
             }
 
-            // If still no members, try fetching from communities_members subcollection
+            // ALWAYS query the top-level communities_members collection and merge.
+            // Joiners whose community-doc update failed (due to the now-fixed rules bug)
+            // are recorded ONLY here — not in the doc arrays — so skipping this query
+            // means they are invisible to the members list and count.
+            try {
+              const cmQuery = query(
+                collection(db, 'communities_members'),
+                where('community_id', '==', communityId)
+              );
+              const cmSnap = await getDocs(cmQuery);
+              const cmUids = cmSnap.docs
+                .map(d => d.data().user_id || d.data().userId || d.data().uid)
+                .filter(Boolean);
+              if (cmUids.length > 0) {
+                memberIds = [...new Set([...memberIds, ...cmUids])];
+              }
+            } catch (e) {
+              console.log('communities_members query error:', e?.message);
+            }
+
+            // If still no members from doc OR collection, try subcollection
             if (memberIds.length === 0) {
               try {
                 const membersCol = collection(db, 'communities', communityId, 'communities_members');
@@ -1174,6 +1189,10 @@ export default function GroupInfoScreen() {
 
             console.log('Final member IDs to fetch:', memberIds.length, memberIds);
 
+            // Now we have the true merged memberIds — update the community state with
+            // the accurate count so the header reflects the real number.
+            setCommunity(prev => prev ? { ...prev, memberCount: memberIds.length } : prev);
+
             // Extract admin/mod IDs from community doc — done before the if/else so
             // both branches can use them and the reactive useEffect always has them.
             const adminIds = Array.isArray(data.adminIds)
@@ -1183,13 +1202,13 @@ export default function GroupInfoScreen() {
                 : data.uid && typeof data.uid === 'string'
                   ? [data.uid]
                   : [];
-            const moderatorIds = [
-              ...(Array.isArray(data.moderatorIds) ? data.moderatorIds : Array.isArray(data.moderators) ? data.moderators : []),
-              ...(Array.isArray(data.curators) ? data.curators : []),
-              ...(Array.isArray(data.leaders) ? data.leaders : []),
-            ];
+            const moderatorIds = Array.isArray(data.moderatorIds)
+              ? data.moderatorIds
+              : Array.isArray(data.moderators)
+                ? data.moderators
+                : [];
             const safeAdminIds = Array.isArray(adminIds) ? adminIds : [];
-            const safeModeratorIds = [...new Set(moderatorIds)];
+            const safeModeratorIds = Array.isArray(moderatorIds) ? moderatorIds : [];
             setCurrentAdminIds(safeAdminIds);
             setCurrentModeratorIds(safeModeratorIds);
 
@@ -5801,6 +5820,11 @@ export default function GroupInfoScreen() {
               <MaterialIcons name="admin-panel-settings" size={24} color="#FFD700" />
             </TouchableOpacity>
           )}
+          {!isAdmin && isModerator && (
+            <TouchableOpacity onPress={() => navigation.navigate('CommunityModeration', { communityId })}>
+              <MaterialIcons name="shield" size={24} color="#22C55E" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={handleLeaveCommunity}>
             <MaterialIcons name="exit-to-app" size={24} color="#ff4b6e" />
           </TouchableOpacity>
@@ -5885,7 +5909,7 @@ export default function GroupInfoScreen() {
                           </View>
                         )}
                       </View>
-                      <Text style={styles.membersText}>{community?.memberCount || members.length || 0} members</Text>
+                      <Text style={styles.membersText}>{community?.memberCount || allMembers.length || members.length || 0} {(community?.memberCount || allMembers.length || members.length || 0) === 1 ? 'member' : 'members'}</Text>
                     </View>
 
                     {/* Tags */}
@@ -9758,13 +9782,13 @@ export default function GroupInfoScreen() {
                 style={styles.adminOption}
                 onPress={() => {
                   setShowAdminPanel(false);
-                  navigation.navigate('ModeratorsManagement', { communityId });
+                  navigation.navigate('CommunityStaff', { communityId });
                 }}
               >
                 <MaterialIcons name="admin-panel-settings" size={24} color="#10B981" />
                 <View style={styles.adminOptionText}>
-                  <Text style={styles.adminOptionTitle}>Manage Moderators</Text>
-                  <Text style={styles.adminOptionSubtitle}>{currentModeratorIds.length} moderators</Text>
+                  <Text style={styles.adminOptionTitle}>Manage Staff</Text>
+                  <Text style={styles.adminOptionSubtitle}>Assign Leaders & Curators</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={24} color="#888" />
               </TouchableOpacity>
