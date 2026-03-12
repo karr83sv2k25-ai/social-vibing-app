@@ -158,9 +158,33 @@ export default function CommunityDetail({ route, navigation }) {
       }
     };
 
+    // ── Check if the current user is banned from this community ──
+    const checkBanStatus = async () => {
+      const currentUserId = auth.currentUser?.uid;
+      if (!currentUserId) return false;
+      try {
+        const banRef = doc(db, 'communities', communityId, 'bans', currentUserId);
+        const banSnap = await getDoc(banRef);
+        if (banSnap.exists()) {
+          const banData = banSnap.data();
+          const isActiveBan = banData.isActive && (
+            !banData.banExpiresAt ||
+            (banData.banExpiresAt?.toDate
+              ? banData.banExpiresAt.toDate().getTime()
+              : new Date(banData.banExpiresAt).getTime()) > Date.now()
+          );
+          if (isActiveBan) return true;
+        }
+      } catch (e) {
+        console.log('Ban check error:', e?.message);
+      }
+      return false;
+    };
+
     // ── Real-time listener on the community doc ──
     const ref = doc(db, 'communities', communityId);
     let sideDataFetched = false;
+    let banChecked = false;
 
     const unsubscribe = onSnapshot(ref, async (snap) => {
       if (!mounted) return;
@@ -169,6 +193,22 @@ export default function CommunityDetail({ route, navigation }) {
         Alert.alert('Not found', 'Community not found');
         setLoading(false);
         return;
+      }
+
+      // Check ban on first load only (avoids repeated async calls on every snapshot)
+      if (!banChecked) {
+        banChecked = true;
+        const isBanned = await checkBanStatus();
+        if (!mounted) return;
+        if (isBanned) {
+          setLoading(false);
+          Alert.alert(
+            'Access Denied',
+            'You have been banned from this community.',
+            [{ text: 'Go Back', onPress: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar') }]
+          );
+          return;
+        }
       }
 
       const communityData = { id: snap.id, ...snap.data() };

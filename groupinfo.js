@@ -1065,6 +1065,31 @@ export default function GroupInfoScreen() {
       setLoading(true);
       setError(null);
 
+      // Check if the current user is banned from this community before loading anything
+      const currentUserId = auth.currentUser?.uid;
+      if (currentUserId) {
+        try {
+          const banRef = doc(db, 'communities', communityId, 'bans', currentUserId);
+          const banSnap = await getDoc(banRef);
+          if (banSnap.exists()) {
+            const banData = banSnap.data();
+            const isActiveBan = banData.isActive && (
+              !banData.banExpiresAt ||
+              (banData.banExpiresAt?.toDate
+                ? banData.banExpiresAt.toDate().getTime()
+                : new Date(banData.banExpiresAt).getTime()) > Date.now()
+            );
+            if (isActiveBan) {
+              setLoading(false);
+              setError('banned');
+              return; // bail out — the render block below will show the ban screen
+            }
+          }
+        } catch (e) {
+          console.log('Ban check error:', e?.message);
+        }
+      }
+
       // db is now imported globally
       const communityRef = doc(db, 'communities', communityId);
 
@@ -5817,6 +5842,28 @@ export default function GroupInfoScreen() {
   };
 
   // Handle Start Audio Call
+
+  // Ban wall — shown when the user is banned from this community
+  if (error === 'banned') {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center', padding: 32 }]} edges={['top']}>
+        <Ionicons name="ban-outline" size={72} color="#FF3232" />
+        <Text style={{ color: '#FF3232', fontSize: 22, fontWeight: 'bold', marginTop: 20, textAlign: 'center' }}>
+          You Have Been Banned
+        </Text>
+        <Text style={{ color: '#A2A8B3', fontSize: 15, marginTop: 12, textAlign: 'center', lineHeight: 22 }}>
+          You have been banned from this community and cannot access its content.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 32, backgroundColor: '#1A1F27', paddingVertical: 12, paddingHorizontal: 32, borderRadius: 24, borderWidth: 1, borderColor: '#242A33' }}
+          onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('TabBar')}
+        >
+          <Text style={{ color: '#08FFE2', fontSize: 15, fontWeight: '600' }}>Go Back</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Top Bar */}
