@@ -195,7 +195,7 @@ const AccountSettingsScreen = () => {
   };
 
   const handleChangePassword = () => {
-    navigation.navigate('ForgotPassword');
+    navigation.navigate('ChangePassword');
   };
 
   const handleDeactivateAccount = () => {

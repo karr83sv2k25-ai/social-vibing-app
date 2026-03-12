@@ -29,6 +29,7 @@ import MessageOptionsScreen from './MessageOptionsScreen';
 import ChatActionsScreen from './ChatActionsScreen';
 import BlockedUsersScreen from './BlockedUsersScreen';
 import AccountSettingsScreen from './AccountSettingsScreen';
+import ChangePasswordScreen from './ChangePasswordScreen';
 import CreatePostScreen from './CreatePostScreen';
 import CreateStoryScreen from './CreateStoryScreen';
 import CreatePollScreen from './CreatePollScreen';
@@ -532,6 +533,8 @@ export default function App() {
                 <Stack.Screen name="ChatActions" component={ChatActionsScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="BlockedUsers" component={BlockedUsersScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="AccountSettings" component={AccountSettingsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="AgeVerification" component={AgeVerificationScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CreateStory" component={CreateStoryScreen} options={{ headerShown: false }} />
