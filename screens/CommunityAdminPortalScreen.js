@@ -303,16 +303,7 @@ export default function CommunityAdminPortalScreen({ route, navigation }) {
         }, { color: SECTION_COLORS.management })}
 
         {renderMenuItem('Transfer Admin', () => {
-          Alert.alert(
-            'Transfer Admin',
-            'Are you sure you want to transfer admin ownership? This will give another user full control.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { text: 'Continue', onPress: () => {
-                navigation.navigate('GroupInfo', { communityId, initialTab: 'online', transferAdmin: true });
-              }},
-            ]
-          );
+          navigation.navigate('TransferAdmin', { communityId });
         }, { color: SECTION_COLORS.management })}
 
         {renderMenuItem('Management Operation', () => {

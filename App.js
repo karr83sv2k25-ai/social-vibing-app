@@ -183,6 +183,7 @@ const CommunityJoinRequestsScreen = withLazy(() => import('./screens/CommunityJo
 const CommunityBlockedMembersScreen = withLazy(() => import('./screens/CommunityBlockedMembersScreen'));
 const CommunityBlockedContentScreen = withLazy(() => import('./screens/CommunityBlockedContentScreen'));
 const CommunityNotificationSettingsScreen = withLazy(() => import('./screens/CommunityNotificationSettingsScreen'));
+const TransferAdminScreen = withLazy(() => import('./screens/TransferAdminScreen'));
 
 // Conditional loading for screens that require native modules (Agora)
 // These screens will only work in development builds, not in Expo Go
@@ -569,6 +570,7 @@ export default function App() {
                 <Stack.Screen name="CommunityBlockedMembers" component={CommunityBlockedMembersScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CommunityBlockedContent" component={CommunityBlockedContentScreen} options={{ headerShown: false }} />
                 <Stack.Screen name="CommunityNotificationSettings" component={CommunityNotificationSettingsScreen} options={{ headerShown: false }} />
+                <Stack.Screen name="TransferAdmin" component={TransferAdminScreen} options={{ headerShown: false }} />
               </>
             )}
           </Stack.Navigator>

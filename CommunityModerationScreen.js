@@ -7,7 +7,7 @@
  * Each tab surfaces the actions available to the current user's role.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -29,6 +29,7 @@ import {
   getDocs,
   getDoc,
   doc,
+  where,
   orderBy,
   limit,
 } from 'firebase/firestore';
@@ -93,6 +94,9 @@ export default function CommunityModerationScreen({ route, navigation }) {
   const [communityReports, setCommunityReports] = useState([]);
   const [reportFilter, setReportFilter] = useState('all'); // all | pending | resolved
 
+  // Members search
+  const [memberSearch, setMemberSearch] = useState('');
+
   // Strike modal
   const [strikeModal, setStrikeModal] = useState({ visible: false, user: null });
   const [selectedDuration, setSelectedDuration] = useState(STRIKE_OPTIONS[3]); // 1 Day default
@@ -110,26 +114,50 @@ export default function CommunityModerationScreen({ route, navigation }) {
   // ── Load ──────────────────────────────────────────────────────────────────
 
   const loadMembers = async () => {
+    // ── Step 1: collect all member IDs from every source ──────────────────
+    // Primary source: communities_members root collection (every join path writes here)
+    const membershipsSnap = await getDocs(
+      query(collection(db, 'communities_members'), where('community_id', '==', communityId))
+    );
+    const idsFromMemberships = membershipsSnap.docs
+      .map(d => d.data().user_id)
+      .filter(Boolean);
+
+    // Secondary source: community doc arrays (catches creator + any legacy paths)
     const commDoc = await getDoc(doc(db, 'communities', communityId));
-    if (!commDoc.exists()) return;
-    const commData = commDoc.data();
-    const memberIds = commData.members || [];
-    const batch = memberIds.slice(0, 100);
-    const [userDocs, memberDocs, strikeDocs, banDocs] = await Promise.all([
-      Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
-      // Nicknames live in communities_members/{uid}_{communityId}
-      Promise.all(batch.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
-      // Community-scoped strikes live in communities/{communityId}/strikes/{userId}
-      Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'strikes', id)))),
-      // Community-scoped bans live in communities/{communityId}/bans/{userId}
-      Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'bans', id)))),
-    ]);
+    const commData = commDoc.exists() ? commDoc.data() : {};
+    const membersArr   = Array.isArray(commData.members)   ? commData.members   : [];
+    const memberIdsArr = Array.isArray(commData.memberIds) ? commData.memberIds : [];
+
+    // Deduplicate across all sources — no hard cap
+    const allMemberIds = [...new Set([...idsFromMemberships, ...membersArr, ...memberIdsArr])];
+
+    if (allMemberIds.length === 0) {
+      setMembers([]);
+      return;
+    }
+
+    // ── Step 2: fetch user docs + moderation docs in batches of 10 ─────────
+    const BATCH_SIZE = 10;
     const now = Date.now();
-    const result = userDocs
-      .map((d, i) => {
-        if (!d.exists()) return null;
+    const result = [];
+
+    for (let i = 0; i < allMemberIds.length; i += BATCH_SIZE) {
+      const batch = allMemberIds.slice(i, i + BATCH_SIZE);
+      const [userDocs, nicknameDocs, strikeDocs, banDocs] = await Promise.all([
+        Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
+        // Nicknames live in communities_members/{uid}_{communityId}
+        Promise.all(batch.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
+        // Community-scoped strikes
+        Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'strikes', id)))),
+        // Community-scoped bans
+        Promise.all(batch.map(id => getDoc(doc(db, 'communities', communityId, 'bans', id)))),
+      ]);
+
+      userDocs.forEach((d, idx) => {
+        if (!d.exists()) return;
         const userData = d.data();
-        const nickname = memberDocs[i]?.exists() ? memberDocs[i].data()?.communityNickname : null;
+        const nickname = nicknameDocs[idx]?.exists() ? nicknameDocs[idx].data()?.communityNickname : null;
         const baseDisplayName =
           userData.displayName ||
           (userData.firstName || userData.lastName
@@ -137,41 +165,45 @@ export default function CommunityModerationScreen({ route, navigation }) {
             : null) ||
           userData.username ||
           'User';
+
         // Community-scoped strike
-        const strikeData = strikeDocs[i]?.exists() ? strikeDocs[i].data() : null;
+        const strikeData = strikeDocs[idx]?.exists() ? strikeDocs[idx].data() : null;
         let communityIsStruck = false;
         if (strikeData?.isActive) {
           if (!strikeData.strikeExpiresAt) {
-            communityIsStruck = true; // permanent
+            communityIsStruck = true;
           } else {
-            const expiresAt = strikeData.strikeExpiresAt?.toDate
+            const exp = strikeData.strikeExpiresAt?.toDate
               ? strikeData.strikeExpiresAt.toDate().getTime()
               : new Date(strikeData.strikeExpiresAt).getTime();
-            communityIsStruck = expiresAt > now;
+            communityIsStruck = exp > now;
           }
         }
-        // Community-scoped ban (from sub-collection — NOT the global users/{uid}.isBanned)
-        const banData = banDocs[i]?.exists() ? banDocs[i].data() : null;
+
+        // Community-scoped ban (sub-collection — NOT users/{uid}.isBanned)
+        const banData = banDocs[idx]?.exists() ? banDocs[idx].data() : null;
         let communityIsBanned = false;
         if (banData?.isActive) {
           if (!banData.banExpiresAt) {
-            communityIsBanned = true; // permanent
+            communityIsBanned = true;
           } else {
-            const banExpiry = banData.banExpiresAt?.toDate
+            const banExp = banData.banExpiresAt?.toDate
               ? banData.banExpiresAt.toDate().getTime()
               : new Date(banData.banExpiresAt).getTime();
-            communityIsBanned = banExpiry > now;
+            communityIsBanned = banExp > now;
           }
         }
-        return {
+
+        result.push({
           id: d.id,
           ...userData,
           displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
           communityIsStruck,
           communityIsBanned,
-        };
-      })
-      .filter(Boolean);
+        });
+      });
+    }
+
     setMembers(result);
   };
 
@@ -205,6 +237,16 @@ export default function CommunityModerationScreen({ route, navigation }) {
     const result = await getReportsForCommunity(communityId, { status: null, limitCount: 100 });
     if (result.success) setCommunityReports(result.reports);
   };
+
+  // Members — filtered by search query
+  const filteredMembers = useMemo(() => {
+    if (!memberSearch.trim()) return members;
+    const q = memberSearch.toLowerCase();
+    return members.filter(m =>
+      (m.displayName || '').toLowerCase().includes(q) ||
+      (m.username || '').toLowerCase().includes(q)
+    );
+  }, [members, memberSearch]);
 
   // Derive the visible list from the cached full list + active filter.
   const PENDING_STATUSES  = new Set([REPORT_STATUS.PENDING, REPORT_STATUS.UNDER_REVIEW]);
@@ -598,7 +640,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
     );
   }
 
-  const tabData = [members, posts, rooms, modLogs, filteredCommunityReports];
+  const tabData = [filteredMembers, posts, rooms, modLogs, filteredCommunityReports];
   const tabRenderers = [renderMember, renderPost, renderRoom, renderLogEntry, renderReport];
 
   return (
@@ -663,7 +705,25 @@ export default function CommunityModerationScreen({ route, navigation }) {
         keyExtractor={item => item.id}
         renderItem={tabRenderers[activeTab]}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 40 }}
-        ListEmptyComponent={<Text style={styles.empty}>Nothing here yet.</Text>}
+        ListHeaderComponent={activeTab === 0 ? (
+          <View style={{ marginBottom: 12 }}>
+            <TextInput
+              style={styles.memberSearchInput}
+              placeholder="Search members…"
+              placeholderTextColor={C.dim}
+              value={memberSearch}
+              onChangeText={setMemberSearch}
+              clearButtonMode="while-editing"
+            />
+            <Text style={styles.memberCountText}>
+              {filteredMembers.length} {filteredMembers.length === 1 ? 'member' : 'members'}
+              {memberSearch.trim() ? ` matching "${memberSearch.trim()}"` : ` total`}
+            </Text>
+          </View>
+        ) : null}
+        ListEmptyComponent={<Text style={styles.empty}>
+          {activeTab === 0 && memberSearch.trim() ? 'No members match your search.' : 'Nothing here yet.'}
+        </Text>}
       />
 
       {/* Strike Modal */}
@@ -932,6 +992,10 @@ const styles = StyleSheet.create({
   cancelBtnText:    { color: C.dim, fontWeight: '600' },
   confirmBtn:       { flex: 1, backgroundColor: C.cyan, borderRadius: 10, padding: 14, alignItems: 'center' },
   confirmBtnText:   { color: '#000', fontWeight: '700' },
+
+  // Members search
+  memberSearchInput: { backgroundColor: '#111827', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: C.text, fontSize: 14, borderWidth: 1, borderColor: C.border, marginBottom: 6 },
+  memberCountText:  { fontSize: 12, color: C.dim, paddingLeft: 2 },
 
   // Title
   colorDot:         { width: 28, height: 28, borderRadius: 14 },
