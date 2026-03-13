@@ -2,7 +2,7 @@
   "expo": {
     "name": "Social Vibing",
     "slug": "social-vibing",
-    "owner": "zainulabideen777",
+    "owner": "arshman786k",
     "version": "1.1.0",
     "scheme": "socialvibing",
     "orientation": "portrait",
@@ -26,7 +26,9 @@
         "ITSAppUsesNonExemptEncryption": false,
         "CFBundleURLTypes": [
           {
-            "CFBundleURLSchemes": ["socialvibing"],
+            "CFBundleURLSchemes": [
+              "socialvibing"
+            ],
             "CFBundleURLName": "com.app.socialvibing"
           }
         ]
@@ -53,8 +55,15 @@
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "socialvibing" }],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "socialvibing"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ]
     },
@@ -67,7 +76,7 @@
       "FIREBASE_APP_ID": "1:907907966035:web:eca4797d3d76e6f00552a6",
       "FIREBASE_MEASUREMENT_ID": "G-496NQLYE01",
       "eas": {
-        "projectId": "1ccada93-755e-4a09-aec2-f362f8d0bca6"
+        "projectId": "16624bd0-3f11-4063-b6d3-8c127a0e8fff"
       }
     },
     "plugins": [
