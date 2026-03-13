@@ -221,9 +221,10 @@ export const getCommunityRole = async (db, communityId, userId) => {
     if (!communityDoc.exists()) return null;
     const d = communityDoc.data();
     if (d.creatorId === userId) return ROLES.OWNER;
+    if ((d.adminIds || []).includes(userId)) return ROLES.ADMIN;
     if ((d.leaders || []).includes(userId)) return ROLES.LEADER;
     if ((d.curators || []).includes(userId)) return ROLES.CURATOR;
-    if ((d.members || []).includes(userId)) return ROLES.MEMBER;
+    if ((d.members || []).includes(userId) || (d.memberIds || []).includes(userId)) return ROLES.MEMBER;
     return null;
   } catch (e) {
     console.error('getCommunityRole error:', e);
@@ -336,6 +337,13 @@ const assertPermission = async (db, actorId, communityId, action) => {
     throw new Error(`User does not have permission to perform: ${action}`);
   }
   return role;
+};
+
+const getModerationPostRef = (db, communityId, postId) => {
+  if (communityId) {
+    return doc(db, 'communities', communityId, 'posts', postId);
+  }
+  return doc(db, 'posts', postId);
 };
 
 // ─────────────────────────────────────────
@@ -542,7 +550,7 @@ export const unbanUser = async (db, actorId, communityId, targetUserId, reason =
 
 export const disablePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DISABLE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(getModerationPostRef(db, communityId, postId), {
     isDisabled: true,
     disabledAt: serverTimestamp(),
     disabledBy: actorId,
@@ -554,7 +562,7 @@ export const disablePost = async (db, actorId, communityId, postId, reason = '')
 
 export const enablePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.ENABLE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(getModerationPostRef(db, communityId, postId), {
     isDisabled: false,
     disabledAt: null,
     disabledBy: null,
@@ -566,7 +574,7 @@ export const enablePost = async (db, actorId, communityId, postId, reason = '') 
 
 export const hidePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.HIDE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(getModerationPostRef(db, communityId, postId), {
     isHidden: true,
     hiddenAt: serverTimestamp(),
     hiddenBy: actorId,
@@ -578,7 +586,7 @@ export const hidePost = async (db, actorId, communityId, postId, reason = '') =>
 
 export const unhidePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNHIDE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(getModerationPostRef(db, communityId, postId), {
     isHidden: false,
     hiddenAt: null,
     hiddenBy: null,
@@ -590,7 +598,7 @@ export const unhidePost = async (db, actorId, communityId, postId, reason = '') 
 
 export const featurePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.FEATURE_POST);
-  await updateDoc(doc(db, 'posts', postId), {
+  await updateDoc(getModerationPostRef(db, communityId, postId), {
     isFeatured: true,
     featuredAt: serverTimestamp(),
     featuredBy: actorId,
@@ -607,7 +615,7 @@ export const featurePost = async (db, actorId, communityId, postId, reason = '')
 
 export const unfeaturePost = async (db, actorId, communityId, postId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.UNFEATURE_POST);
-  await updateDoc(doc(db, 'posts', postId), { isFeatured: false, featuredAt: null, featuredBy: null });
+  await updateDoc(getModerationPostRef(db, communityId, postId), { isFeatured: false, featuredAt: null, featuredBy: null });
   if (communityId) {
     await updateDoc(doc(db, 'communities', communityId), {
       featuredPosts: arrayRemove(postId),
@@ -670,26 +678,68 @@ export const enableChatRoom = async (db, actorId, communityId, roomId, reason = 
 
 export const disableUserMessages = async (db, actorId, communityId, targetUserId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.DISABLE_MESSAGES);
-  await updateDoc(doc(db, 'users', targetUserId), {
-    canMessage: false,
-    messagesDisabledAt: serverTimestamp(),
-    messagesDisabledBy: actorId,
-    messagesDisabledReason: reason,
-    updatedAt: serverTimestamp(),
-  });
+  await Promise.all([
+    updateDoc(doc(db, 'users', targetUserId), {
+      canMessage: false,
+      messagesDisabledAt: serverTimestamp(),
+      messagesDisabledBy: actorId,
+      messagesDisabledReason: reason,
+      updatedAt: serverTimestamp(),
+    }),
+    setDoc(doc(db, 'communities_members', `${targetUserId}_${communityId}`), {
+      user_id: targetUserId,
+      userId: targetUserId,
+      uid: targetUserId,
+      community_id: communityId,
+      communityId,
+      canMessage: false,
+      messagesDisabledAt: serverTimestamp(),
+      messagesDisabledBy: actorId,
+      messagesDisabledReason: reason,
+      updatedAt: serverTimestamp(),
+    }, { merge: true }),
+    setDoc(doc(db, 'communities', communityId, 'members', targetUserId), {
+      canMessage: false,
+      messagesDisabledAt: serverTimestamp(),
+      messagesDisabledBy: actorId,
+      messagesDisabledReason: reason,
+      updatedAt: serverTimestamp(),
+    }, { merge: true }),
+  ]);
   await logAction(db, { action: MOD_ACTIONS.DISABLE_MESSAGES, communityId, targetUserId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
 
 export const enableUserMessages = async (db, actorId, communityId, targetUserId, reason = '') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.ENABLE_MESSAGES);
-  await updateDoc(doc(db, 'users', targetUserId), {
-    canMessage: true,
-    messagesDisabledAt: null,
-    messagesDisabledBy: null,
-    messagesDisabledReason: null,
-    updatedAt: serverTimestamp(),
-  });
+  await Promise.all([
+    updateDoc(doc(db, 'users', targetUserId), {
+      canMessage: true,
+      messagesDisabledAt: null,
+      messagesDisabledBy: null,
+      messagesDisabledReason: null,
+      updatedAt: serverTimestamp(),
+    }),
+    setDoc(doc(db, 'communities_members', `${targetUserId}_${communityId}`), {
+      user_id: targetUserId,
+      userId: targetUserId,
+      uid: targetUserId,
+      community_id: communityId,
+      communityId,
+      canMessage: true,
+      messagesDisabledAt: null,
+      messagesDisabledBy: null,
+      messagesDisabledReason: null,
+      updatedAt: serverTimestamp(),
+    }, { merge: true }),
+    setDoc(doc(db, 'communities', communityId, 'members', targetUserId), {
+      canMessage: true,
+      messagesDisabledAt: null,
+      messagesDisabledBy: null,
+      messagesDisabledReason: null,
+      updatedAt: serverTimestamp(),
+    }, { merge: true }),
+  ]);
   await logAction(db, { action: MOD_ACTIONS.ENABLE_MESSAGES, communityId, targetUserId, performedBy: actorId, performedByRole: role, reason });
   return { success: true };
 };
@@ -704,18 +754,47 @@ export const enableUserMessages = async (db, actorId, communityId, targetUserId,
 export const grantTitle = async (db, actorId, communityId, targetUserId, title, titleColor = '#FFFFFF') => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.GRANT_TITLE);
 
-  // Store title on the community membership sub-collection
-  await setDoc(
-    doc(db, 'communities', communityId, 'memberTitles', targetUserId),
-    {
-      userId: targetUserId,
-      title,
-      titleColor,
-      grantedBy: actorId,
-      grantedAt: serverTimestamp(),
-    },
-    { merge: true }
-  );
+  // Store title on the canonical memberTitles sub-collection
+  // and mirror it to membership records used throughout the app.
+  await Promise.all([
+    setDoc(
+      doc(db, 'communities', communityId, 'memberTitles', targetUserId),
+      {
+        userId: targetUserId,
+        title,
+        titleColor,
+        grantedBy: actorId,
+        grantedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+    setDoc(
+      doc(db, 'communities_members', `${targetUserId}_${communityId}`),
+      {
+        user_id: targetUserId,
+        userId: targetUserId,
+        community_id: communityId,
+        communityId,
+        memberTitle: title,
+        memberTitleColor: titleColor,
+        titleGrantedBy: actorId,
+        titleGrantedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+    setDoc(
+      doc(db, 'communities', communityId, 'members', targetUserId),
+      {
+        memberTitle: title,
+        memberTitleColor: titleColor,
+        titleGrantedBy: actorId,
+        titleGrantedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+  ]);
 
   await logAction(db, {
     action: MOD_ACTIONS.GRANT_TITLE,
@@ -730,7 +809,31 @@ export const grantTitle = async (db, actorId, communityId, targetUserId, title, 
 
 export const revokeTitle = async (db, actorId, communityId, targetUserId) => {
   const role = await assertPermission(db, actorId, communityId, MOD_ACTIONS.REVOKE_TITLE);
-  await deleteDoc(doc(db, 'communities', communityId, 'memberTitles', targetUserId));
+  await Promise.all([
+    deleteDoc(doc(db, 'communities', communityId, 'memberTitles', targetUserId)),
+    setDoc(
+      doc(db, 'communities_members', `${targetUserId}_${communityId}`),
+      {
+        memberTitle: null,
+        memberTitleColor: null,
+        titleGrantedBy: null,
+        titleGrantedAt: null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+    setDoc(
+      doc(db, 'communities', communityId, 'members', targetUserId),
+      {
+        memberTitle: null,
+        memberTitleColor: null,
+        titleGrantedBy: null,
+        titleGrantedAt: null,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+  ]);
   await logAction(db, { action: MOD_ACTIONS.REVOKE_TITLE, communityId, targetUserId, performedBy: actorId, performedByRole: role });
   return { success: true };
 };
@@ -740,7 +843,25 @@ export const changeTitleColor = async (db, actorId, communityId, targetUserId, n
   const ref = doc(db, 'communities', communityId, 'memberTitles', targetUserId);
   const snap = await getDoc(ref);
   if (!snap.exists()) return { success: false, error: 'User has no title to recolor' };
-  await updateDoc(ref, { titleColor: newColor, colorChangedAt: serverTimestamp(), colorChangedBy: actorId });
+  await Promise.all([
+    updateDoc(ref, { titleColor: newColor, colorChangedAt: serverTimestamp(), colorChangedBy: actorId }),
+    setDoc(
+      doc(db, 'communities_members', `${targetUserId}_${communityId}`),
+      {
+        memberTitleColor: newColor,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+    setDoc(
+      doc(db, 'communities', communityId, 'members', targetUserId),
+      {
+        memberTitleColor: newColor,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    ),
+  ]);
   await logAction(db, { action: MOD_ACTIONS.CHANGE_TITLE_COLOR, communityId, targetUserId, performedBy: actorId, performedByRole: role, metadata: { newColor } });
   return { success: true };
 };
@@ -1572,11 +1693,23 @@ export const getCommunityStaff = async (db, communityId) => {
  */
 export const checkUserActionAllowed = async (db, userId, action = 'post', communityId = null) => {
   const VIEW_ONLY_BLOCKED = ['post', 'message', 'reply', 'follow', 'unfollow', 'create', 'react'];
+  const STRIKE_VIEW_ONLY_MESSAGE = 'You are under strike view-only mode.';
 
   const userDoc = await getDoc(doc(db, 'users', userId));
   if (!userDoc.exists()) return { allowed: true };
 
   const data = userDoc.data();
+
+  // Explicit message-disable flag from moderation tools
+  if (action === 'message' && data.canMessage === false) {
+    return {
+      allowed: false,
+      reason: 'messages_disabled',
+      message: data.messagesDisabledReason
+        ? `You cannot send messages right now. Reason: ${data.messagesDisabledReason}`
+        : 'You cannot send messages right now.',
+    };
+  }
 
   // ── 1. Global ban check ──────────────────────────────────────────────────
   if (data.isBanned) {
@@ -1610,7 +1743,7 @@ export const checkUserActionAllowed = async (db, userId, action = 'post', commun
               return {
                 allowed: false,
                 reason: 'struck',
-                message: `You are in view-only mode in this community until ${expires.toLocaleString()}. Reason: ${s.reason || 'Rule violation'}`,
+                message: `${STRIKE_VIEW_ONLY_MESSAGE} This community strike is active until ${expires.toLocaleString()}.`,
                 expiresAt: expires,
               };
             }
@@ -1627,7 +1760,7 @@ export const checkUserActionAllowed = async (db, userId, action = 'post', commun
             return {
               allowed: false,
               reason: 'struck',
-              message: `You are permanently in view-only mode in this community. Reason: ${s.reason || 'Rule violation'}`,
+              message: `${STRIKE_VIEW_ONLY_MESSAGE} This community strike is currently active.`,
             };
           }
         }
@@ -1646,7 +1779,7 @@ export const checkUserActionAllowed = async (db, userId, action = 'post', commun
           return {
             allowed: false,
             reason: 'struck',
-            message: `You are in view-only mode until ${expires.toLocaleString()}. Reason: ${data.strikeReason || 'Rule violation'}`,
+            message: `${STRIKE_VIEW_ONLY_MESSAGE} Your strike is active until ${expires.toLocaleString()}.`,
             expiresAt: expires,
           };
         }
@@ -1664,7 +1797,7 @@ export const checkUserActionAllowed = async (db, userId, action = 'post', commun
         return {
           allowed: false,
           reason: 'struck',
-          message: `You are in permanent view-only mode. Reason: ${data.strikeReason || 'Rule violation'}`,
+          message: `${STRIKE_VIEW_ONLY_MESSAGE} Your strike is currently active.`,
         };
       }
     }

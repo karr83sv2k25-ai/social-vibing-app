@@ -836,7 +836,7 @@ export default function ProfileScreen() {
 
           {/* Verify Account button (own profile, unverified) */}
           {isOwnProfile && !userData?.isVerified && (
-            <TouchableOpacity style={styles.verifyBtn} onPress={() => navigation.navigate('AccountSettings')}>
+            <TouchableOpacity style={styles.verifyBtn} onPress={() => navigation.navigate('AgeVerification')}>
               <Ionicons name="shield-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
               <Text style={styles.verifyBtnText}>Verify Account</Text>
             </TouchableOpacity>

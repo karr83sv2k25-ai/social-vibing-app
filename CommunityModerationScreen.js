@@ -116,12 +116,25 @@ export default function CommunityModerationScreen({ route, navigation }) {
   const loadMembers = async () => {
     // ── Step 1: collect all member IDs from every source ──────────────────
     // Primary source: communities_members root collection (every join path writes here)
-    const membershipsSnap = await getDocs(
-      query(collection(db, 'communities_members'), where('community_id', '==', communityId))
-    );
-    const idsFromMemberships = membershipsSnap.docs
-      .map(d => d.data().user_id)
-      .filter(Boolean);
+    const [membershipsSnakeSnap, membershipsCamelSnap] = await Promise.all([
+      getDocs(query(collection(db, 'communities_members'), where('community_id', '==', communityId))),
+      getDocs(query(collection(db, 'communities_members'), where('communityId', '==', communityId))),
+    ]);
+
+    const membershipByUserId = new Map();
+    const idsFromMembershipsSet = new Set();
+    const collectMemberships = (snap) => {
+      snap.docs.forEach((d) => {
+        const data = d.data() || {};
+        const uid = data.user_id || data.userId || data.uid;
+        if (!uid) return;
+        idsFromMembershipsSet.add(uid);
+        if (!membershipByUserId.has(uid)) membershipByUserId.set(uid, data);
+      });
+    };
+    collectMemberships(membershipsSnakeSnap);
+    collectMemberships(membershipsCamelSnap);
+    const idsFromMemberships = Array.from(idsFromMembershipsSet);
 
     // Secondary source: community doc arrays (catches creator + any legacy paths)
     const commDoc = await getDoc(doc(db, 'communities', communityId));
@@ -168,6 +181,7 @@ export default function CommunityModerationScreen({ route, navigation }) {
 
         // Community-scoped strike
         const strikeData = strikeDocs[idx]?.exists() ? strikeDocs[idx].data() : null;
+        const membershipData = membershipByUserId.get(d.id) || {};
         let communityIsStruck = false;
         if (strikeData?.isActive) {
           if (!strikeData.strikeExpiresAt) {
@@ -198,6 +212,9 @@ export default function CommunityModerationScreen({ route, navigation }) {
           id: d.id,
           ...userData,
           displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
+          canMessage: membershipData.canMessage === false ? false : userData.canMessage,
+          memberTitle: membershipData.memberTitle || null,
+          memberTitleColor: membershipData.memberTitleColor || null,
           communityIsStruck,
           communityIsBanned,
         });
@@ -322,6 +339,9 @@ export default function CommunityModerationScreen({ route, navigation }) {
         />
         <View style={styles.cardInfo}>
           <Text style={styles.cardName}>{item.displayName || 'User'}</Text>
+          {!!item.memberTitle && (
+            <Text style={[styles.cardMeta, { color: item.memberTitleColor || C.brand }]}>🏷 {item.memberTitle}</Text>
+          )}
           <View style={styles.statusRow}>
             {isStruck && (
               <View style={[styles.statusBadge, { backgroundColor: 'rgba(255,140,0,0.2)', borderColor: C.orange }]}>
@@ -958,6 +978,7 @@ const styles = StyleSheet.create({
   avatar:           { width: 44, height: 44, borderRadius: 22, marginRight: 10 },
   cardInfo:         { flex: 1, marginRight: 8 },
   cardName:         { fontSize: 14, fontWeight: '600', color: C.text, marginBottom: 4 },
+  cardMeta:         { fontSize: 12, fontWeight: '600', marginBottom: 4 },
   statusRow:        { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   statusBadge:      { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1 },
   statusBadgeText:  { fontSize: 10, fontWeight: '700' },

@@ -74,6 +74,7 @@ import PostOptionsModal from './components/PostOptionsModal';
 import FeaturedFeed from './components/FeaturedFeed';
 import CommunitySidebar from './components/CommunitySidebar';
 import { canCheckInToday, getUserCheckInData, checkInToCommunity, COINS_CONFIG, POINTS_CONFIG } from './shared/services/communityCheckInService';
+import * as ModerationService from './shared/services/moderationService';
 import { useWallet } from './context/WalletContext';
 import useUserNames from './hooks/useUserNames';
 
@@ -137,6 +138,7 @@ const RenderMessages = memo(({
   setVoiceSound,
   onLongPressMessage,
   liveNames = {},
+  memberTitles = {},
 }) => {
   // Memoize current user ID to avoid recalculation
   const currentUserId = useMemo(() => currentUser?.id, [currentUser?.id]);
@@ -170,11 +172,12 @@ const RenderMessages = memo(({
           setVoiceSound={setVoiceSound}
           onLongPressMessage={onLongPressMessage}
           liveNames={liveNames}
+          memberTitles={memberTitles}
         />
       );
     });
   }, [messages, currentUserId, currentUser, playingVideoId, playingVoiceId,
-    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress, onLongPressMessage, liveNames]);
+    navigation, communityId, community, groupTitle, voiceSound, handleJoinVoiceChat, handleJoinScreeningRoom, handleJoinRoleplay, handleProfilePress, onLongPressMessage, liveNames, memberTitles]);
 
   return <>{messageElements}</>;
 });
@@ -202,6 +205,7 @@ const MessageRow = memo(({
   setVoiceSound,
   onLongPressMessage,
   liveNames = {},
+  memberTitles = {},
 }) => {
   return (
     <TouchableOpacity
@@ -239,7 +243,14 @@ const MessageRow = memo(({
         ]}
       >
         {!isCurrentUser && (
-          <Text style={styles.chatMessageTitle}>{liveNames[msg.senderId] || msg.sender || 'User'}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Text style={styles.chatMessageTitle}>{liveNames[msg.senderId] || msg.sender || 'User'}</Text>
+            {!!memberTitles[msg.senderId]?.title && (
+              <Text style={[styles.chatMessageTitle, { marginLeft: 6, fontSize: 11, color: memberTitles[msg.senderId]?.color || '#BF2EF0' }]}>
+                🏷 {memberTitles[msg.senderId].title}
+              </Text>
+            )}
+          </View>
         )}
 
         {/* Image Message */}
@@ -749,6 +760,7 @@ export default function GroupInfoScreen() {
   const [selectedButton, setSelectedButton] = useState('Explore');
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [chatMessages, setChatMessages] = useState([]);
+  const [disabledMessageUserMap, setDisabledMessageUserMap] = useState({});
   const [chatInput, setChatInput] = useState('');
   // Chat loading state
   const [chatLoading, setChatLoading] = useState(false);
@@ -843,6 +855,7 @@ export default function GroupInfoScreen() {
   const [communityGroups, setCommunityGroups] = useState([]);
   const [joinedGroupIds, setJoinedGroupIds] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const STRIKE_VIEW_ONLY_MESSAGE = 'You are under strike view-only mode.';
   const [selectedMsg, setSelectedMsg] = useState(null);
   const [showMsgOptions, setShowMsgOptions] = useState(false);
   const [showBlogModal, setShowBlogModal] = useState(false);
@@ -854,9 +867,13 @@ export default function GroupInfoScreen() {
   const [allPosts, setAllPosts] = useState([]); // Combined blogs and image posts
 
   // ── Live name resolution: re-fetches on every name/nickname change ─────────────
+  const visibleChatMessages = useMemo(
+    () => chatMessages.filter((m) => !m.senderId || m.senderId === 'system' || !disabledMessageUserMap[m.senderId]),
+    [chatMessages, disabledMessageUserMap]
+  );
   const _chatSenderIds = useMemo(
-    () => chatMessages.map((m) => m.senderId).filter(Boolean),
-    [chatMessages]
+    () => visibleChatMessages.map((m) => m.senderId).filter(Boolean),
+    [visibleChatMessages]
   );
   const _postAuthorIds = useMemo(
     () => [...posts, ...allPosts].map((p) => p.authorId || p.createdById).filter(Boolean),
@@ -917,6 +934,7 @@ export default function GroupInfoScreen() {
   const [nicknameInput, setNicknameInput] = useState('');
   const [nicknameSaving, setNicknameSaving] = useState(false);
   const [memberNicknames, setMemberNicknames] = useState({}); // { memberId: nickname }
+  const [memberTitles, setMemberTitles] = useState({}); // { memberId: { title, color } }
   // Ref mirror so closures (Firestore listeners) always read the latest nicknames
   // without needing to be re-subscribed every time the state changes.
   const memberNicknamesRef = useRef({});
@@ -928,6 +946,21 @@ export default function GroupInfoScreen() {
   // Active audio call state
   const [activeAudioCall, setActiveAudioCall] = useState(null);
   const [audioCallParticipants, setAudioCallParticipants] = useState([]);
+
+  const ensureCommunityActionAllowed = useCallback(async (action = 'post') => {
+    const actorId = currentUser?.id || currentUser?.uid || auth.currentUser?.uid;
+    if (!actorId || !communityId) return true;
+
+    const result = await ModerationService.checkUserActionAllowed(db, actorId, action, communityId);
+    if (!result.allowed) {
+      const message = result.reason === 'struck'
+        ? STRIKE_VIEW_ONLY_MESSAGE
+        : (result.message || 'You cannot perform this action right now.');
+      Alert.alert('Restricted', message);
+      return false;
+    }
+    return true;
+  }, [currentUser?.id, currentUser?.uid, auth.currentUser?.uid, communityId]);
 
   // Roleplay setup modal
   const [showRoleplaySetup, setShowRoleplaySetup] = useState(false);
@@ -1548,16 +1581,26 @@ export default function GroupInfoScreen() {
               const usersCol = collection(db, 'users');
               // Also extract nicknames from the membership docs
               const backupNicknames = {};
+              const backupTitles = {};
               snapshot.docs.forEach(docSnap => {
                 const mData = docSnap.data();
                 const uid = mData.user_id || mData.userId || mData.uid;
                 if (uid && mData.communityNickname) {
                   backupNicknames[uid] = mData.communityNickname;
                 }
+                if (uid && mData.memberTitle) {
+                  backupTitles[uid] = {
+                    title: mData.memberTitle,
+                    color: mData.memberTitleColor || '#BF2EF0',
+                  };
+                }
               });
               // Merge into memberNicknames state
               if (Object.keys(backupNicknames).length > 0) {
                 setMemberNicknames(prev => ({ ...prev, ...backupNicknames }));
+              }
+              if (Object.keys(backupTitles).length > 0) {
+                setMemberTitles(prev => ({ ...prev, ...backupTitles }));
               }
 
               const allMemberDocs = await Promise.all(
@@ -1573,6 +1616,8 @@ export default function GroupInfoScreen() {
                         name: nickname || globalName,
                         globalName: globalName,
                         communityNickname: nickname || null,
+                        memberTitle: backupTitles[uid]?.title || null,
+                        memberTitleColor: backupTitles[uid]?.color || null,
                         profileImage: userData.profileImage || userData.avatar || userData.profile_image || userData.photoURL || null,
                         email: userData.email || null,
                         joinedAt: userData.joinedAt || userData.createdAt || null,
@@ -1773,13 +1818,22 @@ export default function GroupInfoScreen() {
         const q = fsQuery(membersRef, fsWhere('community_id', '==', communityId));
         unsubNicknames = fsOnSnapshot(q, (snap) => {
           const nicknames = {};
+          const titles = {};
           snap.forEach((docSnap) => {
             const data = docSnap.data();
-            if (data.communityNickname && data.user_id) {
-              nicknames[data.user_id] = data.communityNickname;
+            const uid = data.user_id || data.userId || data.uid;
+            if (data.communityNickname && uid) {
+              nicknames[uid] = data.communityNickname;
+            }
+            if (data.memberTitle && uid) {
+              titles[uid] = {
+                title: data.memberTitle,
+                color: data.memberTitleColor || '#BF2EF0',
+              };
             }
           });
           setMemberNicknames(nicknames);
+          setMemberTitles(titles);
         }, (e) => {
           console.log('Error listening to member nicknames:', e);
         });
@@ -2076,6 +2130,52 @@ export default function GroupInfoScreen() {
   }, [currentUser?.id]);
 
   // Chat: Listen for messages in Firestore
+  useEffect(() => {
+    if (!communityId) return;
+
+    const membersCol = collection(db, 'communities_members');
+    const disabledSnakeQuery = query(
+      membersCol,
+      where('community_id', '==', communityId),
+      where('canMessage', '==', false)
+    );
+    const disabledCamelQuery = query(
+      membersCol,
+      where('communityId', '==', communityId),
+      where('canMessage', '==', false)
+    );
+
+    let snakeIds = new Set();
+    let camelIds = new Set();
+
+    const extractId = (docId, data = {}) => {
+      return data.user_id || data.userId || data.uid || (docId.includes('_') ? docId.split('_')[0] : docId);
+    };
+
+    const syncMap = () => {
+      const merged = new Set([...snakeIds, ...camelIds]);
+      const nextMap = {};
+      merged.forEach((id) => {
+        if (id) nextMap[id] = true;
+      });
+      setDisabledMessageUserMap(nextMap);
+    };
+
+    const unsubSnake = onSnapshot(disabledSnakeQuery, (snap) => {
+      snakeIds = new Set(snap.docs.map((d) => extractId(d.id, d.data())));
+      syncMap();
+    });
+    const unsubCamel = onSnapshot(disabledCamelQuery, (snap) => {
+      camelIds = new Set(snap.docs.map((d) => extractId(d.id, d.data())));
+      syncMap();
+    });
+
+    return () => {
+      unsubSnake();
+      unsubCamel();
+    };
+  }, [communityId]);
+
   useEffect(() => {
     if (!communityId) return;
     setChatLoading(true);
@@ -4378,6 +4478,9 @@ export default function GroupInfoScreen() {
     // Prevent multiple simultaneous sends
     if (chatLoading) return;
 
+    const canMessage = await ensureCommunityActionAllowed('message');
+    if (!canMessage) return;
+
     // Store message data locally before clearing input
     const messageText = chatInput.trim();
     const imageToSend = selectedChatImage;
@@ -4491,7 +4594,11 @@ export default function GroupInfoScreen() {
       }, 600);
     } catch (error) {
       console.error('Error sending message:', error);
-      Alert.alert('Error', 'Failed to send message');
+      if (error?.code === 'permission-denied') {
+        Alert.alert('Restricted', STRIKE_VIEW_ONLY_MESSAGE);
+      } else {
+        Alert.alert('Error', 'Failed to send message');
+      }
       // Restore the input on error
       setChatInput(messageText);
       if (imageToSend) setSelectedChatImage(imageToSend);
@@ -4501,7 +4608,7 @@ export default function GroupInfoScreen() {
       // Always clear loading state
       setChatLoading(false);
     }
-  }, [chatInput, selectedChatImage, selectedChatVideo, recordingUri, currentUser, communityId, selectedTextColor]);
+  }, [chatInput, selectedChatImage, selectedChatVideo, recordingUri, currentUser, communityId, selectedTextColor, ensureCommunityActionAllowed]);
 
   const getPostDocRef = (db, post) => {
     const collectionName = post.type === 'blog' ? 'blogs' : 'posts';
@@ -4908,6 +5015,9 @@ export default function GroupInfoScreen() {
       return;
     }
 
+    const canCreate = await ensureCommunityActionAllowed('post');
+    if (!canCreate) return;
+
     setBlogLoading(true);
     try {
       // db is now imported globally
@@ -4941,7 +5051,11 @@ export default function GroupInfoScreen() {
           console.log('Blog created successfully');
         }).catch((error) => {
           setBlogLoading(false);
-          alert('Error creating blog: ' + error.message);
+          if (error?.code === 'permission-denied') {
+            alert(STRIKE_VIEW_ONLY_MESSAGE);
+          } else {
+            alert('Error creating blog: ' + error.message);
+          }
           console.log('Error creating blog:', error);
         });
       });
@@ -4996,6 +5110,9 @@ export default function GroupInfoScreen() {
       return;
     }
 
+    const canPost = await ensureCommunityActionAllowed('post');
+    if (!canPost) return;
+
     setImageLoading(true);
     try {
       // Upload image to Hostinger first
@@ -5037,7 +5154,11 @@ export default function GroupInfoScreen() {
           console.log('Image posted successfully');
         }).catch((error) => {
           setImageLoading(false);
-          alert('Error posting image: ' + error.message);
+          if (error?.code === 'permission-denied') {
+            alert(STRIKE_VIEW_ONLY_MESSAGE);
+          } else {
+            alert('Error posting image: ' + error.message);
+          }
           console.log('Error posting image:', error);
         });
       });
@@ -5360,6 +5481,9 @@ export default function GroupInfoScreen() {
         return;
       }
 
+      const canPost = await ensureCommunityActionAllowed('post');
+      if (!canPost) return;
+
       const firestore = await import('firebase/firestore');
 
       // Create post data
@@ -5396,7 +5520,11 @@ export default function GroupInfoScreen() {
       setShowShareModal(false);
     } catch (error) {
       console.error('Error sharing as post:', error);
-      Alert.alert('Error', 'Failed to share community as post.');
+      if (error?.code === 'permission-denied') {
+        Alert.alert('Restricted', STRIKE_VIEW_ONLY_MESSAGE);
+      } else {
+        Alert.alert('Error', 'Failed to share community as post.');
+      }
     }
   };
 
@@ -6433,7 +6561,14 @@ export default function GroupInfoScreen() {
                                   </View>
                                 )}
                                 <View>
-                                  <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{liveNames[post.authorId] || (post.authorId && memberNicknames[post.authorId]) || post.authorName || 'User'}</Text>
+                                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                    <Text style={{ color: '#fff', fontSize: 14, fontWeight: '600' }}>{liveNames[post.authorId] || (post.authorId && memberNicknames[post.authorId]) || post.authorName || 'User'}</Text>
+                                    {!!memberTitles[post.authorId]?.title && (
+                                      <Text style={{ color: memberTitles[post.authorId]?.color || '#BF2EF0', fontSize: 10, fontWeight: '700' }}>
+                                        🏷 {memberTitles[post.authorId].title}
+                                      </Text>
+                                    )}
+                                  </View>
                                   <Text style={{ color: '#888', fontSize: 12 }}>
                                     {post.createdAt
                                       ? new Date(post.createdAt.toDate?.() || post.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -6632,7 +6767,14 @@ export default function GroupInfoScreen() {
                                 </View>
                               )}
                               <View style={{ flex: 1 }}>
-                                <Text style={styles.postAuthor}>{liveNames[firstPost.authorId] || (firstPost.authorId && memberNicknames[firstPost.authorId]) || firstPost.authorName || 'Unknown'}</Text>
+                                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                  <Text style={styles.postAuthor}>{liveNames[firstPost.authorId] || (firstPost.authorId && memberNicknames[firstPost.authorId]) || firstPost.authorName || 'Unknown'}</Text>
+                                  {!!memberTitles[firstPost.authorId]?.title && (
+                                    <Text style={{ color: memberTitles[firstPost.authorId]?.color || '#BF2EF0', fontSize: 10, fontWeight: '700' }}>
+                                      🏷 {memberTitles[firstPost.authorId].title}
+                                    </Text>
+                                  )}
+                                </View>
                                 <Text style={styles.postTime}>
                                   {firstPost.createdAt ? new Date(firstPost.createdAt.seconds * 1000).toLocaleDateString() : ''}
                                 </Text>
@@ -6706,6 +6848,11 @@ export default function GroupInfoScreen() {
                                   <Text style={{ color: '#fff', fontSize: 12, marginLeft: 6, flex: 1 }} numberOfLines={1}>
                                     {liveNames[post.authorId] || (post.authorId && memberNicknames[post.authorId]) || post.authorName || 'Unknown'}
                                   </Text>
+                                  {!!memberTitles[post.authorId]?.title && (
+                                    <Text style={{ color: memberTitles[post.authorId]?.color || '#BF2EF0', fontSize: 10, fontWeight: '700', marginLeft: 6 }} numberOfLines={1}>
+                                      🏷 {memberTitles[post.authorId].title}
+                                    </Text>
+                                  )}
                                 </View>
 
                                 {/* Stats - Compact */}
@@ -7301,7 +7448,7 @@ export default function GroupInfoScreen() {
                           <ActivityIndicator size="small" color="#8B2EF0" />
                           <Text style={styles.noMessagesText}>Loading chat...</Text>
                         </View>
-                      ) : chatMessages.length === 0 ? (
+                      ) : visibleChatMessages.length === 0 ? (
                         <View style={styles.chatEmptyContainer}>
                           <Ionicons name="chatbubbles-outline" size={60} color="#444" />
                           <Text style={styles.noMessagesText}>No messages yet</Text>
@@ -7309,7 +7456,7 @@ export default function GroupInfoScreen() {
                         </View>
                       ) : (
                         <RenderMessages
-                          messages={chatMessages}
+                          messages={visibleChatMessages}
                           currentUser={currentUser}
                           setSelectedImageModal={setSelectedImageModal}
                           setVideoRefs={setVideoRefs}
@@ -7329,6 +7476,7 @@ export default function GroupInfoScreen() {
                           setVoiceSound={setVoiceSound}
                           onLongPressMessage={handleMsgLongPress}
                           liveNames={liveNames}
+                          memberTitles={memberTitles}
                         />
                       )}
                     </ScrollView>
@@ -10010,6 +10158,11 @@ export default function GroupInfoScreen() {
                       <View style={styles.memberInfo}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                           <Text style={styles.memberName}>{member.name}</Text>
+                          {!!member.memberTitle && (
+                            <View style={{ backgroundColor: '#1f1f1f', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: `${member.memberTitleColor || '#BF2EF0'}44` }}>
+                              <Text style={{ color: member.memberTitleColor || '#BF2EF0', fontSize: 10, fontWeight: '700' }}>🏷 {member.memberTitle}</Text>
+                            </View>
+                          )}
                           {!!member.communityNickname && (
                             <View style={{ backgroundColor: '#8B2EF020', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
                               <Text style={{ color: '#8B2EF0', fontSize: 10, fontWeight: '600' }}>Nickname</Text>
@@ -10290,6 +10443,11 @@ export default function GroupInfoScreen() {
                                     <Text style={{ color: '#666', fontSize: 11 }}>
                                       {liveNames[announcement.authorId || announcement.createdById] || announcement.createdByName || announcement.authorName || 'Staff'}
                                     </Text>
+                                    {!!memberTitles[announcement.authorId || announcement.createdById]?.title && (
+                                      <Text style={{ color: memberTitles[announcement.authorId || announcement.createdById]?.color || '#BF2EF0', fontSize: 10, fontWeight: '700' }}>
+                                        🏷 {memberTitles[announcement.authorId || announcement.createdById].title}
+                                      </Text>
+                                    )}
                                   </View>
                                   {announcement.createdAt && (
                                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -10414,6 +10572,11 @@ export default function GroupInfoScreen() {
                               <Text style={{ color: '#555', fontSize: 11 }}>
                                 {liveNames[post.authorId || post.createdById] || post.createdByName || post.authorName || 'Unknown'}
                               </Text>
+                              {!!memberTitles[post.authorId || post.createdById]?.title && (
+                                <Text style={{ color: memberTitles[post.authorId || post.createdById]?.color || '#BF2EF0', fontSize: 10, fontWeight: '700' }}>
+                                  🏷 {memberTitles[post.authorId || post.createdById].title}
+                                </Text>
+                              )}
                               {post.createdAt && (
                                 <Text style={{ color: '#444', fontSize: 11 }}>
                                   · {post.createdAt?.toDate

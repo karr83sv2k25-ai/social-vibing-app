@@ -176,24 +176,60 @@ export default function CommunityStaffScreen({ route, navigation }) {
       if (commDoc.exists()) {
         const commData = commDoc.data();
 
-        // Load all members for promotion picker
-        const memberIds = commData.members || [];
+        // Load all members for promotion picker (support legacy + current schemas)
+        const allMemberIds = new Set([
+          ...(Array.isArray(commData.members) ? commData.members : []),
+          ...(Array.isArray(commData.memberIds) ? commData.memberIds : []),
+          ...(Array.isArray(commData.community_members) ? commData.community_members : []),
+        ]);
+
+        // Also include top-level membership records (both snake_case and camelCase)
+        const membershipByUserId = new Map();
+        const collectMembership = (snap) => {
+          snap.docs.forEach((d) => {
+            const data = d.data() || {};
+            const uid = data.user_id || data.userId || data.uid;
+            if (!uid) return;
+            allMemberIds.add(uid);
+            if (!membershipByUserId.has(uid)) {
+              membershipByUserId.set(uid, data);
+            }
+          });
+        };
+
+        try {
+          const [snakeSnap, camelSnap] = await Promise.all([
+            getDocs(query(collection(db, 'communities_members'), where('community_id', '==', communityId))),
+            getDocs(query(collection(db, 'communities_members'), where('communityId', '==', communityId))),
+          ]);
+          collectMembership(snakeSnap);
+          collectMembership(camelSnap);
+        } catch (membershipErr) {
+          console.warn('CommunityStaffScreen membership query fallback:', membershipErr?.message || membershipErr);
+        }
+
         const staffIds = new Set([
           commData.creatorId,
           ...(commData.leaders || []),
           ...(commData.curators || []),
+          ...(commData.adminIds || []),
         ]);
-        const regularMembers = memberIds.filter(id => !staffIds.has(id)).slice(0, 50);
-        const [memberUserDocs, memberNickDocs] = await Promise.all([
-          Promise.all(regularMembers.map(id => getDoc(doc(db, 'users', id)))),
-          // Nicknames live in communities_members/{uid}_{communityId}
-          Promise.all(regularMembers.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
-        ]);
-        const resolvedMembers = memberUserDocs
-          .map((d, i) => {
-            if (!d.exists()) return null;
+        const regularMembers = Array.from(allMemberIds).filter(id => id && !staffIds.has(id));
+
+        const resolvedMembers = [];
+        for (let i = 0; i < regularMembers.length; i += 10) {
+          const batch = regularMembers.slice(i, i + 10);
+          const [memberUserDocs, memberNickDocs] = await Promise.all([
+            Promise.all(batch.map(id => getDoc(doc(db, 'users', id)))),
+            Promise.all(batch.map(id => getDoc(doc(db, 'communities_members', `${id}_${communityId}`)))),
+          ]);
+
+          memberUserDocs.forEach((d, idx) => {
+            if (!d.exists()) return;
             const userData = d.data();
-            const nickname = memberNickDocs[i]?.exists() ? memberNickDocs[i].data()?.communityNickname : null;
+            const fallbackMembership = membershipByUserId.get(d.id);
+            const nicknameFromIdDoc = memberNickDocs[idx]?.exists() ? memberNickDocs[idx].data()?.communityNickname : null;
+            const nickname = nicknameFromIdDoc || fallbackMembership?.communityNickname || null;
             const baseDisplayName =
               userData.displayName ||
               (userData.firstName || userData.lastName
@@ -201,13 +237,15 @@ export default function CommunityStaffScreen({ route, navigation }) {
                 : null) ||
               userData.username ||
               'User';
-            return {
+            resolvedMembers.push({
               id: d.id,
               ...userData,
               displayName: (nickname && nickname.trim()) ? nickname.trim() : baseDisplayName,
-            };
-          })
-          .filter(Boolean);
+            });
+          });
+        }
+
+        resolvedMembers.sort((a, b) => (a.displayName || '').localeCompare(b.displayName || ''));
         setMembers(resolvedMembers);
       }
 

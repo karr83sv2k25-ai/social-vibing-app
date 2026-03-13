@@ -45,6 +45,8 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
   const currentUser = auth.currentUser;
 
   const [messages, setMessages] = useState([]);
+  const [disabledMessageUserMap, setDisabledMessageUserMap] = useState({});
+  const [memberTitles, setMemberTitles] = useState({});
   const [messageText, setMessageText] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
@@ -255,7 +257,11 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
         const result = await ModerationService.checkUserActionAllowed(db, currentUser.uid, 'message', communityId);
         if (!result.allowed) {
           setIsActionBlocked(true);
-          setBlockReason(result.message || 'You are restricted from sending messages.');
+          setBlockReason(
+            result.reason === 'struck'
+              ? 'You are under strike view-only mode.'
+              : (result.message || 'You are restricted from sending messages.')
+          );
         } else {
           setIsActionBlocked(false);
           setBlockReason('');
@@ -422,13 +428,114 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
 
   // Listen to messages
   useEffect(() => {
+    if (!communityId) return;
+
+    const membersCol = collection(db, 'communities_members');
+    const disabledSnakeQuery = query(
+      membersCol,
+      where('community_id', '==', communityId),
+      where('canMessage', '==', false)
+    );
+    const disabledCamelQuery = query(
+      membersCol,
+      where('communityId', '==', communityId),
+      where('canMessage', '==', false)
+    );
+
+    let snakeIds = new Set();
+    let camelIds = new Set();
+
+    const extractId = (docId, data = {}) => {
+      return data.user_id || data.userId || data.uid || (docId.includes('_') ? docId.split('_')[0] : docId);
+    };
+
+    const syncMap = () => {
+      const merged = new Set([...snakeIds, ...camelIds]);
+      const nextMap = {};
+      merged.forEach((id) => {
+        if (id) nextMap[id] = true;
+      });
+      setDisabledMessageUserMap(nextMap);
+    };
+
+    const unsubSnake = onSnapshot(disabledSnakeQuery, (snap) => {
+      snakeIds = new Set(snap.docs.map((d) => extractId(d.id, d.data())));
+      syncMap();
+    });
+    const unsubCamel = onSnapshot(disabledCamelQuery, (snap) => {
+      camelIds = new Set(snap.docs.map((d) => extractId(d.id, d.data())));
+      syncMap();
+    });
+
+    return () => {
+      unsubSnake();
+      unsubCamel();
+    };
+  }, [communityId]);
+
+  useEffect(() => {
+    if (!communityId) return;
+
+    const membersCol = collection(db, 'communities_members');
+    const snakeQuery = query(membersCol, where('community_id', '==', communityId));
+    const camelQuery = query(membersCol, where('communityId', '==', communityId));
+
+    let snakeTitles = {};
+    let camelTitles = {};
+
+    const extractUid = (docId, data = {}) => {
+      return data.user_id || data.userId || data.uid || (docId.includes('_') ? docId.split('_')[0] : docId);
+    };
+
+    const syncTitles = () => {
+      setMemberTitles({ ...snakeTitles, ...camelTitles });
+    };
+
+    const unsubSnake = onSnapshot(snakeQuery, (snap) => {
+      const next = {};
+      snap.docs.forEach((d) => {
+        const data = d.data() || {};
+        const uid = extractUid(d.id, data);
+        if (!uid || !data.memberTitle) return;
+        next[uid] = { title: data.memberTitle, color: data.memberTitleColor || '#BF2EF0' };
+      });
+      snakeTitles = next;
+      syncTitles();
+    });
+
+    const unsubCamel = onSnapshot(camelQuery, (snap) => {
+      const next = {};
+      snap.docs.forEach((d) => {
+        const data = d.data() || {};
+        const uid = extractUid(d.id, data);
+        if (!uid || !data.memberTitle) return;
+        next[uid] = { title: data.memberTitle, color: data.memberTitleColor || '#BF2EF0' };
+      });
+      camelTitles = next;
+      syncTitles();
+    });
+
+    return () => {
+      unsubSnake();
+      unsubCamel();
+    };
+  }, [communityId]);
+
+  useEffect(() => {
     if (!communityId || !groupId) return;
 
     const messagesRef = collection(db, 'communities', communityId, 'groups', groupId, 'messages');
     const q = query(messagesRef, orderBy('createdAt', 'asc'));
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-      const messagesList = snapshot.docs.map((docSnap) => ({
+      const messagesList = snapshot.docs
+        .filter((docSnap) => {
+          const data = docSnap.data() || {};
+          const senderId = data.senderId;
+          if (!senderId || senderId === 'system') return true;
+          return !disabledMessageUserMap[senderId];
+        })
+        .map((docSnap) => ({
         id: docSnap.id,
         ...docSnap.data(),
       }));
@@ -439,7 +546,7 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
     });
 
     return () => unsubscribe();
-  }, [communityId, groupId]);
+  }, [communityId, groupId, disabledMessageUserMap]);
 
   const handleJoinGroup = async () => {
     if (!currentUser?.uid) {
@@ -511,7 +618,7 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
 
     // ── Moderation Guards ─────────────────────────────────────
     if (isActionBlocked) {
-      Alert.alert('Restricted', blockReason || 'You cannot send messages right now.');
+      Alert.alert('Restricted', blockReason || 'You are under strike view-only mode.');
       return;
     }
     if (isMuted) {
@@ -1678,6 +1785,11 @@ export default function CommunityGroupChatScreen({ navigation, route }) {
                             },
                           ]}>{liveNames[msg.senderId] || msg.senderName || 'User'}</Text>
                         </TouchableOpacity>
+                        {!!memberTitles[msg.senderId]?.title && (
+                          <Text style={[styles.messageTitleBadge, { color: memberTitles[msg.senderId]?.color || '#BF2EF0' }]}>
+                            🏷 {memberTitles[msg.senderId].title}
+                          </Text>
+                        )}
                         {senderRole && senderRole !== ROLES.MEMBER && (
                           <RoleBadgePill role={senderRole} size="small" />
                         )}
@@ -2667,6 +2779,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginBottom: 4,
     marginLeft: 12,
+  },
+  messageTitleBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginLeft: 6,
+    marginBottom: 4,
   },
   messageBubble: {
     borderRadius: 16,

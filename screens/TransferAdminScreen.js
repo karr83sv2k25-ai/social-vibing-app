@@ -95,25 +95,36 @@ export default function TransferAdminScreen({ route, navigation }) {
 
       // 2. Collect all member IDs from all sources, excluding current admin
       const arrayMembers = new Set([
-        ...(commData.members || []),
-        ...(commData.memberIds || []),
-        ...(commData.leaders || []),
-        ...(commData.curators || []),
-        ...(commData.moderators || []),
+        ...(Array.isArray(commData.members) ? commData.members : []),
+        ...(Array.isArray(commData.memberIds) ? commData.memberIds : []),
+        ...(Array.isArray(commData.community_members) ? commData.community_members : []),
+        ...(Array.isArray(commData.leaders) ? commData.leaders : []),
+        ...(Array.isArray(commData.curators) ? commData.curators : []),
+        ...(Array.isArray(commData.moderators) ? commData.moderators : []),
       ]);
       // Remove current admin so they cannot transfer to themselves
       arrayMembers.delete(currentUserId);
 
       // 3. Also query communities_members collection as primary source
-      const memberQuery = query(
-        collection(db, 'communities_members'),
-        where('community_id', '==', communityId)
-      );
-      const memberSnap = await getDocs(memberQuery);
-      memberSnap.docs.forEach(d => {
-        const uid = d.data().user_id || d.data().userId;
-        if (uid && uid !== currentUserId) arrayMembers.add(uid);
-      });
+      try {
+        const [snakeSnap, camelSnap] = await Promise.all([
+          getDocs(query(collection(db, 'communities_members'), where('community_id', '==', communityId))),
+          getDocs(query(collection(db, 'communities_members'), where('communityId', '==', communityId))),
+        ]);
+
+        const collectUsers = (snap) => {
+          snap.docs.forEach((d) => {
+            const data = d.data() || {};
+            const uid = data.user_id || data.userId || data.uid;
+            if (uid && uid !== currentUserId) arrayMembers.add(uid);
+          });
+        };
+
+        collectUsers(snakeSnap);
+        collectUsers(camelSnap);
+      } catch (membershipErr) {
+        console.warn('TransferAdmin membership query fallback:', membershipErr?.message || membershipErr);
+      }
 
       if (arrayMembers.size === 0) {
         setMembers([]);

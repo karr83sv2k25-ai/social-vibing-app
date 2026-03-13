@@ -79,11 +79,21 @@ export default function ForgotPasswordScreen({ navigation }) {
       console.log('🔐 Sending password reset email to:', email);
       const auth = getAuth(app);
 
-      await sendPasswordResetEmail(auth, email, {
-        // Customize the email action link settings
-        url: 'https://social-vibing-app.web.app/login', // Redirect URL after reset
-        handleCodeInApp: false, // Handle in web, not in app
-      });
+      try {
+        await sendPasswordResetEmail(auth, email, {
+          // Prefer project auth domain so it is allowlisted in Firebase by default.
+          url: `https://${auth?.config?.authDomain || 'social-vibing-karr.firebaseapp.com'}/login`,
+          handleCodeInApp: false,
+        });
+      } catch (resetError) {
+        // If continue URL/domain is not allowlisted, retry with default Firebase email flow.
+        if (resetError?.code === 'auth/unauthorized-continue-uri') {
+          console.log('⚠️ Continue URL not allowlisted, retrying without actionCodeSettings');
+          await sendPasswordResetEmail(auth, email);
+        } else {
+          throw resetError;
+        }
+      }
 
       console.log('✅ Password reset email sent successfully');
       setEmailSent(true);
@@ -135,6 +145,11 @@ export default function ForgotPasswordScreen({ navigation }) {
           errorTitle = 'Network Error';
           errorMessage =
             'Unable to connect to the server. Please check your internet connection.';
+          break;
+        case 'auth/unauthorized-continue-uri':
+          errorTitle = 'Reset Configuration Issue';
+          errorMessage =
+            'Password reset link configuration is temporarily unavailable. Please try again in a moment.';
           break;
         default:
           errorMessage = error.message || 'An unexpected error occurred.';
